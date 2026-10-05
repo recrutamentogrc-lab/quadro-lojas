@@ -1247,7 +1247,7 @@ function drawMatrix(body, rows) {
 /* =====================================================================
  * CONTRATAÇÕES
  * ===================================================================== */
-function openAlocar(c) {
+function openAlocar(c, force) {
   const K = S.ck, l = lojaBy(c._loja);
   if (!l) return toast('Loja da contratação não reconhecida', true);
   const fn = norm(c[K.funcao]).replace(/[^A-Z]/g, '').slice(0, 5);
@@ -1256,9 +1256,24 @@ function openAlocar(c) {
     return ma - mb || (a.vagaAberta ? 0 : 1) - (b.vagaAberta ? 0 : 1);
   });
   if (!vagas.length) return toast('Não há vagas abertas em ' + l.nome + '. Crie uma posição antes.', true);
+  // alocação automática: mesma função (e mesmo setor, se informado) → aloca direto, sem formulário
+  const nf = x => norm(x).replace(/[^A-Z]/g, ''), cf = nf(c[K.funcao]), cs = nf(K.setor ? c[K.setor] : '');
+  const score = r => { const rf = nf(r.funcao), rs = nf(r.setor); let sc = 0; if (cf && rf === cf) sc += 4; else if (cf && (rf.startsWith(cf.slice(0, 5)) || cf.startsWith(rf.slice(0, 5)))) sc += 2; if (cs && rs && (rs === cs || rs.includes(cs) || cs.includes(rs))) sc += 3; if (r.vagaAberta) sc += 1; return sc; };
+  const cand = vagas.map(r => ({ r, sc: score(r) })).filter(x => x.sc - (x.r.vagaAberta ? 1 : 0) >= 2 + (cs ? 3 : 0)).sort((a, b) => b.sc - a.sc || (b.r.dias || 0) - (a.r.dias || 0));
+  if (!cand.length && cs) { const sf = vagas.filter(r => score(r) - (r.vagaAberta ? 1 : 0) >= 2); if (sf.length && sf.every(x => nf(x.funcao) === nf(sf[0].funcao) && nf(x.setor) === nf(sf[0].setor))) cand.push({ r: sf.sort((a, b) => (b.vagaAberta ? 1 : 0) - (a.vagaAberta ? 1 : 0) || (b.dias || 0) - (a.dias || 0))[0], sc: 0 }); }
+  if (!force && cand.length) {
+    const r = cand[0].r, row = r.row;
+    const statusOpc = (S.data.contratacoes.opcoes || {})[K.status] || [];
+    const ct = c[K.contrato] && opc(l, 'contrato').includes(c[K.contrato]) ? c[K.contrato] : r.contrato;
+    if (openAlocar.lock) return; openAlocar.lock = 1;
+    toast(`Alocando ${c[K.colab]}…`);
+    return api('alocar', { loja: l.key, row, expect: expectOf(r), setor: r.setor, nome: c[K.colab], contrato: ct, tag: /APRENDIZ/.test(norm(ct)) ? 'APRENDIZ' : '', contrRow: c.row, statusAlocado: statusOpc.find(x => /ALOCAD/i.test(x)) || 'Alocado' })
+      .then(j => { if (!j.pendente) toast(`${c[K.colab]} alocado(a) em ${r.funcao} · ${r.setor} (${l.nome})`); bgReload(); })
+      .catch(e => toast(e.message || String(e), true)).finally(() => { openAlocar.lock = 0; });
+  }
   modal({
     title: 'Alocar no quadro', icon: 'swap', wide: true,
-    body: `<p class="muted" style="margin-top:0"><b style="color:var(--text)">${h(c[K.colab])}</b> · ${h(c[K.funcao])} · ${lojaPill(l.key)}<br>Escolha a vaga que este colaborador vai ocupar. A linha do quadro será preenchida e a contratação marcada como alocada.</p>
+    body: `<p class="muted" style="margin-top:0"><b style="color:var(--text)">${h(c[K.colab])}</b> · ${h(c[K.funcao])}${K.setor && c[K.setor] ? ' · ' + h(c[K.setor]) : ''} · ${lojaPill(l.key)}<br>${force ? '' : '<b style="color:var(--warn)">Não encontrei vaga aberta com a mesma função/setor.</b> '}Escolha a vaga que este colaborador vai ocupar. A linha do quadro será preenchida e a contratação marcada como alocada.</p>
       <div class="alist" style="max-height:420px">${vagas.map((r, i) => `<label class="aitem" style="cursor:pointer;align-items:center"><input type="radio" name="vg" value="${r.row}" ${i === 0 ? 'checked' : ''}><div class="avatar sm vaga-av">${ic('briefcase')}</div><div style="flex:1"><b>${h(r.funcao)}</b><span>${h(r.setor)}${r.vagaFutura ? ' · substitui ' + h(r.nome) : ''}</span></div>${etapaBadge(r.etapa)}${i === 0 && norm(r.funcao).replace(/[^A-Z]/g, '').startsWith(fn) ? '<span class="badge b-ok">sugerida</span>' : ''}</label>`).join('')}</div>`,
     foot: `<button class="btn" data-close>Cancelar</button><button class="btn ok" id="alOk">${ic('check')} Alocar</button>`,
     onMount: m => $('#alOk', m.el).onclick = e => run(e.currentTarget, async () => {
@@ -2309,9 +2324,9 @@ function openContr(r) {
       <datalist id="dlCF">${allFuncoes().map(x => `<option value="${h(x)}">`).join('')}</datalist>
       <datalist id="dlCS">${uniq(S.all.map(x => x.setor)).map(x => `<option value="${h(x)}">`).join('')}</datalist>
       ${novo ? `<div class="card mt" style="background:var(--surface2);padding:14px"><div class="field" style="margin:0"><label>${ic('swap')} Vaga do quadro que será preenchida</label><select class="input" id="ncV"></select><div class="muted" style="font-size:12px;margin-top:6px" id="ncHint"></div></div></div>` : ''}`,
-    foot: ed ? `${r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button>` : ''}${r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
+    foot: ed ? `${r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
     onMount: m => {
-      const a = $('[data-a=aloc]', m.el); if (a) a.onclick = () => { m.close(); openAlocar(r); };
+      const a = $('[data-a=aloc]', m.el); if (a) a.onclick = () => { m.close(); openAlocar(r); }; const am = $('[data-a=alocM]', m.el); if (am) am.onclick = () => { m.close(); openAlocar(r, true); };
       const dsl = $('[data-a=desl]', m.el); if (dsl) dsl.onclick = () => { m.close(); openMarcarDesl([r]); };
       const el = k => $(`[data-k="${CSS.escape(k)}"]`, m.el);
       const val = k => { const e = el(k); return e ? e.value : ''; };

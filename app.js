@@ -297,7 +297,7 @@ function startLive(keys) {
     let done = false;
     const fim = ok => { if (!done) { done = true; resolve(ok); } };
     need.forEach(n => fbUnsubs.push(fbDb.collection('pub').doc(ids[n]).onSnapshot(sn => {
-      let v = null; if (sn.exists) { try { v = JSON.parse(sn.data().json); } catch (e) {} }
+      let v = null; if (sn.exists) { try { v = JSON.parse(sn.data().json); v._t = Number(sn.data().t) || 0; } catch (e) {} }
       live[n] = v;
       if (!need.every(x => x in live)) return;
       if (need.some(x => !live[x])) return fim(false); // ainda não publicado → usa o caminho antigo
@@ -327,7 +327,7 @@ function assembleLive() {
     vagasFechadas: cat('fechadas'),
     desligados: cat('desl').concat(X.desl || []),
     pendentes: prev.pendentes || [], notif: prev.notif, log: prev.log || [],
-    atualizadoEm: G.atualizadoEm
+    atualizadoEm: (() => { const t = Math.max(...Object.values(live).filter(Boolean).map(x => x._t || 0)); return t ? new Date(t).toLocaleString('pt-BR').replace(',', '').slice(0, 16) : G.atualizadoEm; })()
   };
 }
 function saveDataLocal(j) {

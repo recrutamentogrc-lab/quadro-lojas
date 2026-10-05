@@ -592,7 +592,55 @@ function diasBadge(d) {
 function selectHTML(id, label, values, cur, allLabel = 'Todos') {
   return `<select class="input" id="${id}" title="${h(label)}"><option value="">${h(label)}: ${allLabel}</option>${values.map(v => `<option ${v === cur ? 'selected' : ''} value="${h(v)}">${h(v)}</option>`).join('')}</select>`;
 }
+const EXP_TIT = { vagas: 'Vagas', experiencias: 'Contratos de experiência', historico: 'Histórico de alterações', sla_vagas_abertas: 'SLA · vagas abertas', sla_vagas_fechadas: 'SLA · vagas fechadas', desligamentos: 'Desligamentos', contratacoes: 'Contratações' };
+function expTitulo(name) { return EXP_TIT[name] || (name.indexOf('quadro_') === 0 ? 'Quadro · ' + ((lojaBy(name.slice(7).toUpperCase()) || {}).nome || name.slice(7)) : name); }
 function exportCSV(name, head, rows) {
+  if (!rows.length) return toast('Nada para exportar com esses filtros', true);
+  modal({
+    title: 'Exportar', icon: 'download',
+    body: `<p class="muted" style="margin:0 0 14px">${h(expTitulo(name))} · ${rows.length} registro(s) com os filtros atuais</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <button class="btn" data-f="xls" style="padding:18px 10px;flex-direction:column;gap:6px;height:auto">${ic('download')}<b>Excel</b><span class="faint" style="font-size:11px">planilha .csv</span></button>
+        <button class="btn primary" data-f="pdf" style="padding:18px 10px;flex-direction:column;gap:6px;height:auto">${ic('file')}<b>PDF</b><span style="font-size:11px;opacity:.8">para compartilhar</span></button>
+      </div>`,
+    onMount: m => {
+      $('[data-f=xls]', m.el).onclick = () => { m.close(); downloadCSV(name, head, rows); };
+      $('[data-f=pdf]', m.el).onclick = () => { m.close(); tablePDF(expTitulo(name), head, rows); };
+    }
+  });
+}
+function tablePDF(titulo, head, rows) {
+  const esc = h, logo = cfgv('logo', ''), agora = new Date();
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(titulo)} · ${agora.toLocaleDateString('pt-BR')}</title>
+  <style>
+  @page{size:A4 landscape;margin:12mm}
+  *{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;margin:0;font-size:10.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:1150px;margin:0 auto;padding:18px}
+  header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #6366f1;padding-bottom:12px;margin-bottom:14px}
+  header img{height:46px;max-width:140px;object-fit:contain}
+  .mark{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#6366f1,#a855f7);color:#fff;display:grid;place-items:center;font-weight:800}
+  header h1{margin:0;font-size:20px}header .meta{color:#5b6785;font-size:11px;margin-top:2px}
+  .tot{margin-left:auto;text-align:right}.tot b{font-size:26px;color:#4f46e5;display:block;line-height:1}.tot span{color:#5b6785;font-size:10px;font-weight:700;letter-spacing:.06em}
+  table{width:100%;border-collapse:collapse}thead{display:table-header-group}th{background:#0f172a;color:#fff;text-align:left;padding:6px 7px;font-size:9.5px;text-transform:uppercase;letter-spacing:.04em}
+  td{padding:5px 7px;border-bottom:1px solid #e5e7eb;vertical-align:top}tr{page-break-inside:avoid}tbody tr:nth-child(even) td{background:#f8fafc}
+  footer{margin-top:14px;color:#94a3b8;font-size:10px;display:flex;justify-content:space-between}
+  .bar{position:sticky;top:0;background:#0f172a;color:#fff;padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:space-between}
+  .bar button{background:#6366f1;color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:13px}
+  @media print{.bar{display:none}.wrap{padding:0}}
+  </style></head><body>
+  <div class="bar"><span>Pré-visualização do PDF · escolha <b>Salvar como PDF</b> na impressão</span><button onclick="window.print()">Baixar / imprimir PDF</button></div>
+  <div class="wrap">
+  <header>${logo ? `<img src="${logo}">` : '<div class="mark">GRC</div>'}<div><h1>${esc(titulo)}</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · gerado em ${agora.toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div><div class="tot"><b>${rows.length}</b><span>REGISTROS</span></div></header>
+  <table><thead><tr>${head.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
+  ${rows.map(r => `<tr>${r.map(v => `<td>${esc(v == null ? '' : String(v))}</td>`).join('')}</tr>`).join('')}
+  </tbody></table>
+  <footer><span>${esc(cfgv('sistema', 'Quadro de Lojas'))}</span><span>Dados conforme filtros aplicados no sistema</span></footer>
+  </div><script>setTimeout(function(){try{window.print()}catch(e){}},600)</script></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { toast('Permita pop-ups para gerar o PDF', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+function downloadCSV(name, head, rows) {
   const esc = v => { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   const csv = '﻿' + [head, ...rows].map(r => r.map(esc).join(';')).join('\n');
   const a = document.createElement('a');
@@ -817,7 +865,7 @@ function pgLoja(l) {
     <span class="spacer"></span>
     ${ed ? `<button class="btn ${SEL.on[fk] ? 'primary' : ''}" id="selTog" title="Selecionar várias posições">${ic('check')}<span class="desk-only">${SEL.on[fk] ? 'Selecionando' : 'Selecionar'}</span></button>` : ''}
     <div class="seg" id="vw"><button data-v="sec" title="Por setor">${ic('grid')}<span class="desk-only">Setores</span></button><button data-v="tbl" title="Tabela">${ic('table')}<span class="desk-only">Tabela</span></button></div>
-    <button class="btn" id="exp" title="Exportar CSV">${ic('download')}</button>
+    <button class="btn" id="exp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
   <div class="chips" id="sitChips" style="margin-bottom:16px"></div>
   <div id="lBulk" class="bulk hidden"></div>
@@ -1063,6 +1111,20 @@ function openVagaInfo(l, r) {
 /* =====================================================================
  * VAGAS
  * ===================================================================== */
+function agruparVagas(rows) {
+  const m = new Map();
+  rows.forEach(r => {
+    const k = [r.loja, r.setor, r.funcao, r.contrato].join('|');
+    let g = m.get(k);
+    if (!g) m.set(k, g = { loja: r.loja, setor: r.setor, funcao: r.funcao, contrato: r.contrato, qtd: 0, abertas: 0, futuras: 0, maxDias: null, etapas: {}, resp: new Set(), itens: [] });
+    g.qtd++; r.vagaFutura ? g.futuras++ : g.abertas++;
+    if (r.dias != null && (g.maxDias == null || r.dias > g.maxDias)) g.maxDias = r.dias;
+    if (r.etapa) g.etapas[r.etapa] = (g.etapas[r.etapa] || 0) + 1;
+    if (r.info && r.info.responsavel) g.resp.add(r.info.responsavel);
+    g.itens.push(r);
+  });
+  return [...m.values()].map(g => Object.assign(g, { etapasTxt: Object.entries(g.etapas).map(([e, n]) => n > 1 ? e + ' (' + n + ')' : e).join(', '), respTxt: [...g.resp].join(', ') }));
+}
 function pgVagas() {
   setTitle('Vagas', 'Todas as vagas do quadro, por loja');
   const f = getF('vagas');
@@ -1076,7 +1138,7 @@ function pgVagas() {
   const D = S.data;
   const fech30 = (D.vagasFechadas || []).filter(v => { const d = daysTo(parseISO(v.fechamento)); return d != null && d >= -30; });
   const tF = (D.vagasFechadas || []).filter(v => v.abertura && v.fechamento).map(v => (parseISO(v.fechamento) - parseISO(v.abertura)) / 864e5);
-  const view = getV('vagas', 'lista');
+  const view = getV('vagas2', 'agrupado');
   const v = $('#view');
   v.innerHTML = `
   <div class="grid g4">
@@ -1094,9 +1156,9 @@ function pgVagas() {
     ${selectHTML('vContr', 'Contrato', uniq(all.map(r => r.contrato)).sort(), f.contr)}
     <label class="chip ${f.fut === '1' ? 'on' : ''}" id="vFut">${ic('door')} Incluir vagas futuras</label>
     <span class="spacer"></span>
-    <div class="seg" id="vw"><button data-v="lista">${ic('list')}<span class="desk-only">Lista</span></button><button data-v="kanban">${ic('kanban')}<span class="desk-only">Funil</span></button><button data-v="funcao">${ic('table')}<span class="desk-only">Por função</span></button></div>
+    <div class="seg" id="vw"><button data-v="agrupado">${ic('grid')}<span class="desk-only">Agrupado</span></button><button data-v="lista">${ic('list')}<span class="desk-only">Lista</span></button><button data-v="kanban">${ic('kanban')}<span class="desk-only">Funil</span></button><button data-v="funcao">${ic('table')}<span class="desk-only">Por função</span></button></div>
     <button class="btn" id="vPdf" title="Gerar PDF para compartilhar">${ic('file')} PDF</button>
-    <button class="btn" id="vExp" title="Exportar CSV">${ic('download')}</button>
+    <button class="btn" id="vExp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
   <div id="vBulk" class="bulk hidden"></div>
   <div id="vBody"></div>`;
@@ -1105,11 +1167,25 @@ function pgVagas() {
     $('#lojaChips').innerHTML = `<span class="chip ${!f.loja ? 'on' : ''}" data-k="">Todas as lojas <span class="n">${base().length}</span></span>` + L.map(l => `<span class="chip ${f.loja === l.key ? 'on' : ''}" data-k="${l.key}" style="--lc:${l.color}"><span class="loja-pill" style="--lc:${l.color}"><i></i></span>Loja ${l.num} · ${h(l.nome)} <span class="n">${base().filter(r => r.loja === l.key).length}</span></span>`).join('');
     $$('#lojaChips .chip').forEach(c => c.onclick = () => { f.loja = c.dataset.k; saveF(); drawChips(); draw(); });
   };
-  $$('#vw button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.onclick = () => { setV('vagas', b.dataset.v); route(); }; });
+  $$('#vw button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.onclick = () => { setV('vagas2', b.dataset.v); route(); }; });
   const draw = () => {
     const rows = filt(), body = $('#vBody');
     if (view === 'kanban') return drawKanban(body, rows);
     if (view === 'funcao') return drawMatrix(body, rows);
+    if (view === 'agrupado') {
+      const G = agruparVagas(rows);
+      return table(body, 'vagasG', [
+        { t: 'Loja', k: 'loja', r: g => lojaPill(g.loja) },
+        { t: 'Setor', k: 'setor' },
+        { t: 'Função', k: 'funcao', r: g => `<b>${h(g.funcao)}</b>` },
+        { t: 'Contrato', k: 'contrato' },
+        { t: 'Qtd', k: 'qtd', r: g => `<span class="badge b-bad" style="font-size:13px;min-width:34px;justify-content:center">${g.qtd}</span>` },
+        { t: 'Abertas / futuras', k: 'abertas', r: g => `${g.abertas} aberta(s)${g.futuras ? ` · <span class="muted">${g.futuras} futura(s)</span>` : ''}` },
+        { t: 'Mais antiga', k: 'maxDias', r: g => diasBadge(g.maxDias) },
+        { t: 'Etapas', k: 'etapasTxt', r: g => h(g.etapasTxt || '—') },
+        { t: 'Responsável', k: 'respTxt', r: g => h(g.respTxt || '—') }
+      ], G, g => { f.loja = g.loja; f.setor = g.setor; f.func = g.funcao; saveF(); setV('vagas2', 'lista'); route(); });
+    }
     selScope('vagas');
     const vsel = canEdit();
     table(body, 'vagas', [
@@ -1136,7 +1212,7 @@ function pgVagas() {
   bind('vq', 'q'); bind('vSetor', 'setor'); bind('vFunc', 'func'); bind('vEtapa', 'etapa'); bind('vContr', 'contr');
   $('#vFut').onclick = () => { f.fut = f.fut === '1' ? '0' : '1'; saveF(); route(); };
   $('#vPdf').onclick = () => vagasPDF(filt(), f);
-  $('#vExp').onclick = () => exportCSV('vagas', ['Loja', 'Setor', 'Função', 'Contrato', 'Situação', 'Etapa', 'Dias em aberto', 'Abertura', 'Responsável', 'Candidatos', 'Motivo', 'Obs'], filt().map(r => [LOJA_NOMES[r.loja], r.setor, r.funcao, r.contrato, r.situacao, r.etapa, r.dias == null ? '' : r.dias, r.info ? isoToBR(r.info.abertura) : '', r.info ? r.info.responsavel : '', r.info ? r.info.candidatos : '', r.info ? r.info.motivo : '', r.info ? r.info.obs : '']));
+  $('#vExp').onclick = () => view === 'agrupado' ? exportCSV('vagas', ['Loja', 'Setor', 'Função', 'Contrato', 'Quantidade', 'Abertas', 'Futuras', 'Mais antiga (dias)', 'Etapas', 'Responsável'], agruparVagas(filt()).map(g => [LOJA_NOMES[g.loja], g.setor, g.funcao, g.contrato, g.qtd, g.abertas, g.futuras, g.maxDias == null ? '' : g.maxDias, g.etapasTxt, g.respTxt])) : exportCSV('vagas', ['Loja', 'Setor', 'Função', 'Contrato', 'Situação', 'Etapa', 'Dias em aberto', 'Abertura', 'Responsável', 'Candidatos', 'Motivo', 'Obs'], filt().map(r => [LOJA_NOMES[r.loja], r.setor, r.funcao, r.contrato, r.situacao, r.etapa, r.dias == null ? '' : r.dias, r.info ? isoToBR(r.info.abertura) : '', r.info ? r.info.responsavel : '', r.info ? r.info.candidatos : '', r.info ? r.info.motivo : '', r.info ? r.info.obs : '']));
   drawChips(); draw();
 }
 function drawKanban(body, rows) {
@@ -1217,7 +1293,7 @@ function pgExp() {
     ${selectHTML('eLoja', 'Loja', uniq(E.map(e => e._loja)).sort(), f.loja, 'Todas')}
     <select class="input" id="eTipo"><option value="">Vencimento: 30 e 90 dias</option><option value="30" ${f.tipo === '30' ? 'selected' : ''}>Só 1º período (30 dias)</option><option value="90" ${f.tipo === '90' ? 'selected' : ''}>Só 2º período (90 dias)</option></select>
     <span class="spacer"></span>
-    <button class="btn" id="eExp">${ic('download')}</button>
+    <button class="btn" id="eExp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
   <div class="chips" id="eChips" style="margin-bottom:14px"></div>
   <div id="eBody"></div>`;
@@ -1247,7 +1323,7 @@ function pgExp() {
 async function pgLog() {
   setTitle('Histórico', 'Tudo o que foi alterado pelo sistema');
   const v = $('#view');
-  v.innerHTML = `<div class="toolbar" style="margin-top:0"><div class="input-icon search">${ic('search')}<input class="input" id="lq" placeholder="Buscar" style="width:100%"></div><select class="input" id="lU"><option value="">Usuário: Todos</option></select><select class="input" id="lA"><option value="">Ação: Todas</option></select><span class="spacer"></span><button class="btn" id="lExp">${ic('download')}</button></div><div id="lBody"><div class="sk" style="height:300px"></div></div>`;
+  v.innerHTML = `<div class="toolbar" style="margin-top:0"><div class="input-icon search">${ic('search')}<input class="input" id="lq" placeholder="Buscar" style="width:100%"></div><select class="input" id="lU"><option value="">Usuário: Todos</option></select><select class="input" id="lA"><option value="">Ação: Todas</option></select><span class="spacer"></span><button class="btn" id="lExp" title="Exportar Excel / PDF">${ic('download')}</button></div><div id="lBody"><div class="sk" style="height:300px"></div></div>`;
   let log = [];
   try { log = (await api('getLog', { n: 1000 })).log; } catch (e) { toast(e.message, true); }
   $('#lU').innerHTML += uniq(log.map(l => l.usuario)).map(x => `<option>${h(x)}</option>`).join('');
@@ -1498,7 +1574,7 @@ function pgSLA() {
     ${selectHTML('sLoja', 'Loja', L.map(l => l.key), f.loja, 'Todas')}
     <select class="input" id="sSt"><option value="">Status: Todos</option>${Object.entries(SLA_LBL).map(([k, x]) => `<option value="${k}" ${f.st === k ? 'selected' : ''}>${x[0]}</option>`).join('')}</select>
     ${selectHTML('sResp', 'Responsável', uniq(abertas.map(r => r.info && r.info.responsavel).concat(fech.map(x => x.responsavel))).sort(), f.resp)}
-    <span class="spacer"></span><button class="btn" id="sExp">${ic('download')}</button>
+    <span class="spacer"></span><button class="btn" id="sExp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
   <div id="sBody"></div>
   <p class="muted" style="font-size:12px">Meta padrão: <b>${(S.cfg && S.cfg.slaPadrao) || 20} dias</b>${((S.cfg && S.cfg.slaExcecoes) || []).length ? ' · Exceções: ' + S.cfg.slaExcecoes.map(x => `${h(x.funcao)} ${x.dias}d`).join(' · ') : ''}${isAdmin() ? ' · <a href="#/admin" onclick="window.__grcAdmTab=\'sla\'" style="color:var(--accent)">ajustar metas</a>' : ''}</p>`;
@@ -1639,7 +1715,7 @@ function pgDesl() {
     ${kpi({ lbl: 'Pedidos de demissão', val: D.filter(d => /PEDIDO/i.test(d.tipo)).length, icon: 'users', c: 'c-blue' })}
     ${kpi({ lbl: 'Término de experiência', val: D.filter(d => /EXPERI/i.test(d.tipo)).length, icon: 'clock', c: 'c-violet' })}
   </div>
-  <div class="toolbar"><div class="input-icon search">${ic('search')}<input class="input" id="dq" placeholder="Buscar nome ou função" value="${h(f.q || '')}" style="width:100%"></div>${selectHTML('dL', 'Loja', uniq(D.map(d => d.loja)), f.loja, 'Todas')}${selectHTML('dT', 'Tipo', uniq(D.map(d => d.tipo)), f.tipo)}<span class="spacer"></span><button class="btn" id="dExp">${ic('download')}</button></div>
+  <div class="toolbar"><div class="input-icon search">${ic('search')}<input class="input" id="dq" placeholder="Buscar nome ou função" value="${h(f.q || '')}" style="width:100%"></div>${selectHTML('dL', 'Loja', uniq(D.map(d => d.loja)), f.loja, 'Todas')}${selectHTML('dT', 'Tipo', uniq(D.map(d => d.tipo)), f.tipo)}<span class="spacer"></span><button class="btn" id="dExp" title="Exportar Excel / PDF">${ic('download')}</button></div>
   <div id="dBody"></div>`;
   const filt = () => { const q = norm(f.q); return D.filter(d => (!q || norm(d.nome + ' ' + d.funcao).includes(q)) && (!f.loja || d.loja === f.loja) && (!f.tipo || d.tipo === f.tipo)); };
   const draw = () => table($('#dBody'), 'desl', [
@@ -1798,7 +1874,7 @@ function pgContr() {
     <label class="chip ${f.cdes ? 'on' : ''}" id="cCdes" title="Pendentes que constam no histórico de desligados">${ic('door')} Pendentes que já saíram <span class="n">${rows.filter(r => r._consta).length}</span></label>
     <span class="spacer"></span>
     <div class="seg" id="cvw"><button data-v="sem">${ic('calendar')}<span class="desk-only">Por semana</span></button><button data-v="tbl">${ic('table')}<span class="desk-only">Tabela</span></button></div>
-    <button class="btn" id="cExp">${ic('download')}</button>
+    <button class="btn" id="cExp" title="Exportar Excel / PDF">${ic('download')}</button>
     ${canEdit() && !isGestor() ? `<button class="btn" id="cCruz" title="Marca como alocado quem já está no quadro e como desligado quem já saiu">${ic('swap')} Cruzar com o quadro</button>` : ''}
     ${canEdit() ? `<button class="btn primary" id="cNew">${ic('plus')} Nova contratação</button>` : ''}
   </div>
@@ -2439,8 +2515,8 @@ function vagasPDF(rows, f) {
     return `<section class="loja">
       <div class="lh" style="--c:${l.color}"><span class="n">${l.num}</span><div><h2>Loja ${l.num} · ${esc(l.nome)}</h2><div class="sub">${rr.filter(r => r.vagaAberta).length} vaga(s) aberta(s)${rr.some(r => r.vagaFutura) ? ` · ${rr.filter(r => r.vagaFutura).length} futura(s)` : ''} · quadro ${fmt(l.st.atual)} de ${fmt(l.st.ideal)} (${l.st.ocup}%)</div></div></div>
       <div class="resumo">${porFunc.map(([fn, n]) => `<span><b>${n}</b> ${esc(fn)}</span>`).join('')}</div>
-      <table><thead><tr><th>Setor</th><th>Função</th><th>Contrato</th><th>Situação</th><th>Etapa</th><th>Aberta em</th><th>SLA</th><th>Responsável</th></tr></thead><tbody>
-      ${setores.map(st => rr.filter(r => r.setor === st).map((r, i, arr) => `<tr>${i === 0 ? `<td rowspan="${arr.length}" class="st">${esc(st)}</td>` : ''}<td><b>${esc(r.funcao)}</b>${r.vagaFutura ? `<div class="fut">substitui ${esc(r.nome)}</div>` : ''}</td><td>${esc(r.contrato)}</td><td>${r.vagaFutura ? 'Futura' : 'Aberta'}</td><td>${esc(r.etapa)}</td><td>${r.info && r.info.abertura ? isoToBR(r.info.abertura) : '—'}</td><td><span class="sla ${slaCls(r)}">${slaTxt(r)}</span></td><td>${esc((r.info && r.info.responsavel) || '—')}</td></tr>`).join('')).join('')}
+      <table><thead><tr><th>Setor</th><th>Função</th><th>Contrato</th><th class="q">Qtd</th><th>Situação</th><th>Etapa</th><th>Mais antiga</th><th>Responsável</th></tr></thead><tbody>
+      ${setores.map(st => { const G = agruparVagas(rr.filter(r => r.setor === st)).sort((a, b) => b.qtd - a.qtd); return G.map((g, i) => `<tr>${i === 0 ? `<td rowspan="${G.length}" class="st">${esc(st)}<div class="stq">${sum(G, x => x.qtd)} vaga(s)</div></td>` : ''}<td><b>${esc(g.funcao)}</b>${g.futuras ? `<div class="fut">substitui ${esc(g.itens.filter(r => r.vagaFutura).map(r => r.nome).join(', '))}</div>` : ''}</td><td>${esc(g.contrato)}</td><td class="q"><span class="qb">${g.qtd}</span></td><td>${[g.abertas && g.abertas + ' aberta(s)', g.futuras && g.futuras + ' futura(s)'].filter(Boolean).join(' · ')}</td><td>${esc(g.etapasTxt || '—')}</td><td>${g.maxDias == null ? '—' : g.maxDias + ' dias'}</td><td>${esc(g.respTxt || '—')}</td></tr>`).join(''); }).join('')}
       </tbody></table></section>`;
   };
   const logo = cfgv('logo', '');
@@ -2461,7 +2537,7 @@ function vagasPDF(rows, f) {
   .resumo{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 8px}.resumo span{background:#eef2ff;border-radius:6px;padding:3px 8px}.resumo b{color:#4f46e5}
   table{width:100%;border-collapse:collapse}th{background:#0f172a;color:#fff;text-align:left;padding:6px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
   td{padding:5px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top}tr{page-break-inside:avoid}
-  td.st{background:#f8fafc;font-weight:700;color:#334155;width:150px}.fut{color:#b45309;font-size:10px}
+  td.st{background:#f8fafc;font-weight:700;color:#334155;width:150px}.stq{font-weight:600;color:#64748b;font-size:10px;margin-top:2px}th.q,td.q{text-align:center;width:50px}.qb{display:inline-block;min-width:26px;padding:2px 6px;border-radius:6px;background:#fee2e2;color:#991b1b;font-weight:800;font-size:12px}.fut{color:#b45309;font-size:10px}
   .sla{padding:2px 6px;border-radius:5px;font-weight:700;font-size:10px}.sla.ok{background:#dcfce7;color:#166534}.sla.atn{background:#fef3c7;color:#92400e}.sla.est{background:#fee2e2;color:#991b1b}.sla.sem{color:#94a3b8}
   footer{margin-top:14px;color:#94a3b8;font-size:10px;display:flex;justify-content:space-between}
   .bar{position:sticky;top:0;background:#0f172a;color:#fff;padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:space-between}

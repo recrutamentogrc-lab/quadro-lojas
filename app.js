@@ -1056,6 +1056,7 @@ function pgLoja(l) {
     ${selectHTML('fTag', 'Tag', uniq(l.rows.flatMap(r => r.tags)).sort(), f.tag, 'Todas')}
     <span class="spacer"></span>
     ${ed ? `<button class="btn ${SEL.on[fk] ? 'primary' : ''}" id="selTog" title="Selecionar várias posições">${ic('check')}<span class="desk-only">${SEL.on[fk] ? 'Selecionando' : 'Selecionar'}</span></button>` : ''}
+    ${getV(fk, 'sec') === 'sec' ? `<button class="btn" id="secAll" title="Expandir / recolher todos os setores">${ic('chevron')}<span class="desk-only">Expandir todos</span></button>` : ''}
     <div class="seg" id="vw"><button data-v="sec" title="Por setor">${ic('grid')}<span class="desk-only">Setores</span></button><button data-v="tbl" title="Tabela">${ic('table')}<span class="desk-only">Tabela</span></button></div>
     <button class="btn" id="exp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
@@ -1097,10 +1098,25 @@ function pgLoja(l) {
       const sa = $('#selAll', body); if (sa) sa.onchange = () => { rows.forEach(r => sa.checked ? SEL.set.add(selKey(r)) : SEL.set.delete(selKey(r))); draw(); };
     } else {
       const secs = l.setores.map(sec => ({ sec, rows: rows.filter(r => r.setor === sec.nome) })).filter(x => x.rows.length || (!filtered));
-      const collapsed = ls.get('grc_col_' + l.key, {});
+      // Setores começam recolhidos; com busca/filtro ativo, abrem automaticamente os que têm resultado
+      const expKey = 'grc_exp_' + l.key;
+      const expanded = ls.get(expKey, {});
+      const autoOpen = filtered || selOn;
+      const isOpen = nm => autoOpen || !!expanded[nm];
+      const resumo = rr => {
+        const oc = rr.filter(r => r.nome && !r.isVaga).length, vg = rr.filter(r => r.vagaAberta).length, fu = rr.filter(r => r.vagaFutura).length, av = rr.filter(r => r.aviso).length;
+        const pess = rr.filter(r => r.nome), mx = 5;
+        const stack = pess.slice(0, mx).map(r => `<span class="sx" title="${h(r.nome)}">${h(initials(r.nome))}</span>`).join('') + (pess.length > mx ? `<span class="sx more">+${pess.length - mx}</span>` : '');
+        return `<div class="sec-sum" data-tog><div class="stack">${stack}</div><div class="pills">
+          <span class="pl ok" title="Ocupadas">${oc} ocup.</span>
+          ${vg ? `<span class="pl bad" title="Vagas abertas">${vg} vaga${vg > 1 ? 's' : ''}</span>` : ''}
+          ${fu ? `<span class="pl info" title="Vagas futuras">${fu} futura${fu > 1 ? 's' : ''}</span>` : ''}
+          ${av ? `<span class="pl warn" title="Em aviso">${av} aviso</span>` : ''}
+        </div></div>`;
+      };
       body.innerHTML = secs.length ? `<div class="sections">${secs.map(({ sec, rows: rr }) => {
         const p = pct(sec.ocup, sec.pad);
-        return `<div class="card sec ${collapsed[sec.nome] ? 'collapsed' : ''}" data-sec="${h(sec.nome)}">
+        return `<div class="card sec ${isOpen(sec.nome) ? '' : 'collapsed'} ${sec.nVagas ? 'has-vaga' : ''}" data-sec="${h(sec.nome)}">
           <div class="sec-h" data-tog>
             <div style="flex:1;min-width:0"><h4>${h(sec.nome)}</h4><div class="meta">Padrão ${fmt(sec.pad)} · Atual ${fmt(sec.ocup)} ${sec.nVagas ? `· <span style="color:var(--bad);font-weight:700">${sec.nVagas} vaga(s)</span>` : ''}</div></div>
             <span class="badge ${p >= 100 ? 'b-ok' : p >= 85 ? 'b-warn' : 'b-bad'}">${p}%</span>
@@ -1108,6 +1124,7 @@ function pgLoja(l) {
             ${ic('chevron')}
           </div>
           <div class="sec-prog"><i style="width:${Math.min(100, p)}%;background:${p >= 100 ? 'var(--ok)' : p >= 85 ? 'var(--warn)' : 'var(--bad)'}"></i></div>
+          ${resumo(rr)}
           <div class="sec-body">${rr.map(r => `
             <div class="prow ${r.vagaAberta ? 'vaga' : ''} ${S.hl === r.row ? 'hl' : ''} ${selOn && SEL.set.has(selKey(r)) ? 'sel' : ''}" data-row="${r.row}">
               ${selOn ? `<input type="checkbox" class="pchk" ${SEL.set.has(selKey(r)) ? 'checked' : ''}>` : ''}
@@ -1122,11 +1139,26 @@ function pgLoja(l) {
       $$('[data-tog]', body).forEach(el => el.onclick = e => {
         if (e.target.closest('[data-add],[data-pad]')) return;
         const card = el.closest('.sec'); card.classList.toggle('collapsed');
-        const c = ls.get('grc_col_' + l.key, {}); c[card.dataset.sec] = card.classList.contains('collapsed'); ls.set('grc_col_' + l.key, c);
+        if (!autoOpen) { const c = ls.get(expKey, {}); if (card.classList.contains('collapsed')) delete c[card.dataset.sec]; else c[card.dataset.sec] = 1; ls.set(expKey, c); }
+        syncAllBtn();
       });
+      const syncAllBtn = () => {
+        const b = $('#secAll'); if (!b) return;
+        const anyClosed = $$('.sec.collapsed', body).length > 0;
+        b.querySelector('span').textContent = anyClosed ? 'Expandir todos' : 'Recolher todos';
+        b.classList.toggle('open', !anyClosed);
+      };
+      const allBtn = $('#secAll');
+      if (allBtn) allBtn.onclick = () => {
+        const cards = $$('.sec', body); const abrir = cards.some(c => c.classList.contains('collapsed'));
+        cards.forEach(c => c.classList.toggle('collapsed', !abrir));
+        if (!autoOpen) { const c = {}; if (abrir) cards.forEach(x => c[x.dataset.sec] = 1); ls.set(expKey, c); }
+        syncAllBtn();
+      };
+      syncAllBtn();
       $$('[data-add]', body).forEach(b => b.onclick = e => { e.stopPropagation(); openAddPos(l, l.setores.find(x => x.nome === b.dataset.add)); });
       $$('[data-pad]', body).forEach(b => b.onclick = e => { e.stopPropagation(); openPadrao(l, l.setores.find(x => x.nome === b.dataset.pad)); });
-      if (S.hl) { const el = $(`.prow[data-row="${S.hl}"]`, body); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); S.hl = null; }
+      if (S.hl) { const el = $(`.prow[data-row="${S.hl}"]`, body); if (el) el.closest('.sec').classList.remove('collapsed'); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); S.hl = null; }
     }
   };
   const bind = (id, k) => { const el = $('#' + id); el.oninput = el.onchange = () => { f[k] = el.value; saveF(); drawChips(); draw(); }; };

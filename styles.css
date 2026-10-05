@@ -192,7 +192,7 @@ textarea.input{min-height:80px;resize:vertical}
 .spacer{flex:1}
 
 /* Sections */
-.sections{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:16px}
+.sections{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:14px;align-items:start}
 .sec{padding:0;overflow:hidden}
 .sec-h{padding:14px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border);cursor:pointer}
 .sec-h h4{margin:0;font-size:13.5px;flex:1;letter-spacing:.01em}
@@ -200,6 +200,20 @@ textarea.input{min-height:80px;resize:vertical}
 .sec-prog{height:4px;background:var(--surface3)}
 .sec-prog i{display:block;height:100%;background:var(--ok)}
 .sec.collapsed .sec-body{display:none}
+.sec-h > svg.i:last-child{transition:transform .2s;color:var(--muted);flex:none}
+.sec:not(.collapsed) .sec-h > svg.i:last-child{transform:rotate(180deg)}
+.sec.collapsed .sec-h{border-bottom:none;padding-bottom:10px}
+.sec:hover{border-color:var(--border2)}
+.sec-sum{display:none;align-items:center;gap:10px;padding:10px 16px 12px;cursor:pointer}
+.sec.collapsed .sec-sum{display:flex}
+.sec-sum .stack{display:flex;flex:none}
+.sec-sum .sx{width:27px;height:27px;border-radius:50%;background:var(--surface3);color:var(--muted);font-size:9px;letter-spacing:-.02em;font-weight:700;display:grid;place-items:center;border:2px solid var(--surface);margin-left:-6px}
+.sec-sum .sx:first-child{margin-left:0}
+.sec-sum .sx.more{background:var(--acc-bg);color:var(--accent)}
+.sec-sum .pills{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end;flex:1}
+.sec-sum .pl{font-size:11px;font-weight:700;padding:2px 8px;border-radius:7px;background:var(--surface3);color:var(--muted);white-space:nowrap}
+.sec-sum .pl.ok{background:var(--ok-bg);color:var(--ok)} .sec-sum .pl.bad{background:var(--bad-bg);color:var(--bad)} .sec-sum .pl.warn{background:var(--warn-bg);color:var(--warn)} .sec-sum .pl.info{background:var(--info-bg);color:var(--info)}
+#secAll svg.i{transition:transform .2s} #secAll.open svg.i{transform:rotate(180deg)}
 .prow{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);transition:.12s;cursor:pointer}
 .prow:last-child{border-bottom:none}
 .prow:hover{background:var(--surface2)}

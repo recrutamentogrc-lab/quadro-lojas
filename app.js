@@ -150,8 +150,15 @@ async function api(action, payload = {}, opt = {}) {
     if (DEMO) j = await window.GRC_MOCK.call(action, payload);
     else {
       if (!API_OK) throw new Error('Sistema ainda não conectado: configure a URL do Apps Script no arquivo config.js.');
-      const r = await fetch(CFG.API_URL, { method: 'POST', body: JSON.stringify(Object.assign({ action, token: S.token }, payload)) });
-      j = await r.json();
+      const body = JSON.stringify(Object.assign({ action, token: S.token, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
+      // o Google às vezes devolve uma página/resposta errada; reenvia (o servidor não repete a ação graças ao rid)
+      for (let tent = 1; ; tent++) {
+        let txt = '';
+        try { const r = await fetch(CFG.API_URL, { method: 'POST', body }); txt = await r.text(); j = JSON.parse(txt); } catch (e) { j = null; }
+        if (j && !(j.app && j.versao && !('error' in j) && Object.keys(j).length <= 3)) break;
+        if (tent >= 4) throw new Error('O servidor do Google não respondeu corretamente. Tente novamente em instantes.');
+        await new Promise(res => setTimeout(res, 700 * tent));
+      }
     }
     if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
     if (!j.ok) throw new Error(j.error || 'Erro desconhecido');

@@ -141,9 +141,79 @@ function confirmBox(msg, okLabel = 'Confirmar', danger) {
   });
 }
 
+/* ---------------- gravação otimista ---------------- */
+const OTIMISTA = { saveRow: 1, abrirVaga: 1, setVagaInfo: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, saveContratacao: 1, preencherVaga: 1 };
+const PEND_MS = 150000; // mantém a alteração na tela até a publicação no Firebase chegar
+const PEND = [];
+const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
+const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1 }; // ações que mudam a numeração das linhas
+let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
+function reaplicarPend_() {
+  const agora = Date.now();
+  for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate && PEND[i].ate < agora) PEND.splice(i, 1);
+  if (!S.data || !PEND.length) return;
+  try { derive(); } catch (e) { return; }
+  PEND.forEach(op => {
+    try {
+      let p = op.payload;
+      if (op.action === 'marcarDesligadoContr') p = Object.assign({}, p, { rows: (p.rows || []).filter(x => { const c = (S.data.contratacoes.rows || []).find(y => y.row === x.row); return c && (!S.ck.status || c[S.ck.status] !== 'Desligado'); }) });
+      LOCAL[op.action](p, op.j || {});
+    } catch (e) { console.warn('reaplicar', e); }
+  });
+}
+function refazerTela_() {
+  if (liveOn) { applyLive(); return; }
+  loadAll(false, true);
+}
+function otimista_(action, payload) {
+  const op = { action, payload, j: {}, ate: 0 };
+  PEND.push(op);
+  try { LOCAL[action](payload, {}); derive(); updateShell(); route(true); } catch (e) { console.warn('local', e); }
+  pendentesEnvio++; syncPend_();
+  filaEnvio = filaEnvio.then(async () => {
+    busy(true);
+    try {
+      const j = await send_(action, payload);
+      if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
+      if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
+      op.j = j; op.ate = Date.now() + PEND_MS;
+      if (j.pendente) { const i = PEND.indexOf(op); if (i >= 0) PEND.splice(i, 1); refazerTela_(); toast('Enviado para aprovação do administrador.'); }
+      if (j.publicar) publicarBg_();
+    } catch (e) {
+      const i = PEND.indexOf(op); if (i >= 0) PEND.splice(i, 1);
+      toast('Não foi possível salvar (' + (e.message || e) + '). A alteração foi desfeita na tela.', true);
+      refazerTela_();
+    } finally { busy(false); pendentesEnvio--; syncPend_(); }
+  });
+  return Promise.resolve({ ok: true, otimista: true });
+}
+function syncPend_() { try { document.body.classList.toggle('salvando', pendentesEnvio > 0); } catch (e) {} }
+// pede ao servidor para publicar no Firebase sem fazer o usuário esperar
+function publicarBg_() {
+  clearTimeout(pubT);
+  pubT = setTimeout(() => { filaEnvio.then(() => send_('publicar', {}).catch(() => {})); }, 800);
+}
+window.addEventListener('beforeunload', e => { if (pendentesEnvio > 0) { e.preventDefault(); e.returnValue = 'Ainda há alterações sendo salvas.'; return e.returnValue; } });
+async function send_(action, payload) {
+  if (DEMO) return window.GRC_MOCK.call(action, payload);
+  if (!API_OK) throw new Error('Sistema ainda não conectado: configure a URL do Apps Script no arquivo config.js.');
+  const body = JSON.stringify(Object.assign({ action, token: S.token, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
+  for (let tent = 1; ; tent++) {
+    let txt = '', j;
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 75000);
+    try { const r = await fetch(CFG.API_URL, { method: 'POST', body, signal: ac.signal }); txt = await r.text(); j = JSON.parse(txt); } catch (e) { j = null; } finally { clearTimeout(to); }
+    if (j && !(j.app && j.versao && !('error' in j) && Object.keys(j).length <= 3)) return j;
+    if (tent >= 5) throw new Error('O servidor do Google não respondeu corretamente. Tente novamente em instantes.');
+    await new Promise(res => setTimeout(res, 700 * tent));
+  }
+}
+
 /* ---------------- API ---------------- */
 async function api(action, payload = {}, opt = {}) {
-  if (S.user && ((GATED[action] && S.user.perfil === 'RECRUTADOR' && (GATED[action] === 1 || (S.cfg && S.cfg.aprovarEtapas))) || (GATED_EDITOR[action] && S.user.perfil === 'EDITOR'))) payload = Object.assign({ resumo: describe(action, payload) }, payload);
+  const gated = !!(S.user && ((GATED[action] && S.user.perfil === 'RECRUTADOR' && (GATED[action] === 1 || (S.cfg && S.cfg.aprovarEtapas))) || (GATED_EDITOR[action] && S.user.perfil === 'EDITOR')));
+  if (gated) payload = Object.assign({ resumo: describe(action, payload) }, payload);
+  // gravação otimista: aplica na tela na hora e envia ao servidor em segundo plano (fila, na ordem)
+  if (OTIMISTA[action] && !gated && !DEMO && LOCAL[action] && S.data && !opt.sync) return otimista_(action, payload);
   if (!opt.silent) busy(true);
   try {
     let j;
@@ -164,7 +234,9 @@ async function api(action, payload = {}, opt = {}) {
     if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
     if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
     if (j.pendente) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
-    else if (LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); } catch (e) { console.warn('local', e); } }
+    else if (LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); if (OTIMISTA[action] || LOTE_PEND[action]) PEND.push({ action, payload, j, ate: Date.now() + PEND_MS }); } catch (e) { console.warn('local', e); } }
+    if (MUDA_LINHAS[action]) { for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1); }
+    if (j.publicar) publicarBg_();
     return j;
   } finally { if (!opt.silent) busy(false); }
 }
@@ -336,7 +408,7 @@ function saveDataLocal(j) {
 }
 function applyLive() {
   const d = assembleLive(); if (!d || !S.user) return;
-  S.data = d; S.fromCache = false;
+  S.data = d; S.fromCache = false; reaplicarPend_();
   const lg = cfgv('logo', ''), lh = cfgv('logoHash', '');
   S.cfg = Object.assign({}, d.cfg, { logo: lg, logoHash: d.cfg.logoHash || lh });
   saveCfgLocal(); saveDataLocal(d);
@@ -375,7 +447,7 @@ async function loadAll(first, keep) {
   try {
     const j = await api('bootstrap', { logoHash: cfgv('logoHash', '') }, { silent: !first && S.fromCache });
     if (j.cfg && j.cfg.logoSame) j.cfg.logo = cfgv('logo', '');
-    S.data = j; S.user = j.user; S.fromCache = false;
+    S.data = j; S.user = j.user; S.fromCache = false; reaplicarPend_();
     if (j.cfg) { S.cfg = j.cfg; saveCfgLocal(); applyFavicon(); }
     saveDataLocal(j);
     syncBadge(false);

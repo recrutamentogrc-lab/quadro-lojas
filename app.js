@@ -154,10 +154,10 @@ async function api(action, payload = {}, opt = {}) {
       // o Google às vezes devolve uma página/resposta errada; reenvia (o servidor não repete a ação graças ao rid)
       for (let tent = 1; ; tent++) {
         let txt = '';
-        const ac = new AbortController(), to = setTimeout(() => ac.abort(), tent < 4 ? 20000 : 60000);
+        const ac = new AbortController(), to = setTimeout(() => ac.abort(), 75000);
         try { const r = await fetch(CFG.API_URL, { method: 'POST', body, signal: ac.signal }); txt = await r.text(); j = JSON.parse(txt); } catch (e) { j = null; } finally { clearTimeout(to); }
         if (j && !(j.app && j.versao && !('error' in j) && Object.keys(j).length <= 3)) break;
-        if (tent >= 4) throw new Error('O servidor do Google não respondeu corretamente. Tente novamente em instantes.');
+        if (tent >= 5) throw new Error('O servidor do Google não respondeu corretamente. Tente novamente em instantes.');
         await new Promise(res => setTimeout(res, 700 * tent));
       }
     }
@@ -194,15 +194,27 @@ function init() {
   S.view = ls.get('grc_views', {});
   S.cfg = ls.get('grc_cfg', null);
   applyFavicon();
-  if (S.token) loadAll(true); else { renderLogin(); refreshPublicCfg(); }
+  if (S.token) {
+    const cache = DEMO ? null : ls.get('grc_data', null);
+    if (cache && cache.data && cache.data.user) {
+      // abre na hora com os últimos dados salvos no aparelho e atualiza em segundo plano
+      try {
+        S.data = cache.data; S.user = cache.data.user; S.fromCache = true;
+        if (S.cfg && S.data.cfg && S.data.cfg.logoSame) S.data.cfg.logo = S.cfg.logo;
+        derive(); renderShell(); route(); syncBadge(true);
+        loadAll(false, true);
+      } catch (e) { console.warn('cache', e); S.data = null; loadAll(true); }
+    } else loadAll(true);
+  } else { renderLogin(); refreshPublicCfg(); }
   window.addEventListener('hashchange', () => { if (S.data) route(); });
 }
 
 async function refreshPublicCfg() {
   try {
-    const j = await api('publicConfig', {}, { silent: true });
+    const j = await api('publicConfig', { logoHash: cfgv('logoHash', '') }, { silent: true });
+    if (j.logoSame) j.logo = cfgv('logo', '');
     const changed = JSON.stringify([j.logo, j.empresa, j.sistema]) !== JSON.stringify([cfgv('logo'), cfgv('empresa'), cfgv('sistema')]);
-    S.cfg = Object.assign({}, S.cfg || {}, { logo: j.logo, empresa: j.empresa, sistema: j.sistema, siteUrl: j.siteUrl });
+    S.cfg = Object.assign({}, S.cfg || {}, { logo: j.logo, logoHash: j.logoHash, empresa: j.empresa, sistema: j.sistema, siteUrl: j.siteUrl });
     ls.set('grc_cfg', S.cfg); applyFavicon();
     if (changed && !S.user && $('#loginForm') && !$('#loginForm input[name=login]').value) renderLogin();
   } catch (e) {}
@@ -257,17 +269,26 @@ function renderLogin(msg) {
 
 function logout(expired) {
   if (S.token && !expired && !DEMO) api('logout').catch(() => {});
-  S.token = null; S.user = null; S.data = null; ls.del('grc_token');
+  S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data');
   if (DEMO) { location.href = location.pathname; return; }
   renderLogin(expired ? 'Sua sessão expirou. Entre novamente.' : '');
 }
 
+function syncBadge(on) {
+  let b = document.getElementById('syncBadge');
+  if (!on) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement('div'); b.id = 'syncBadge'; b.className = 'sync-badge'; document.body.appendChild(b); }
+  b.innerHTML = '<span class="spin" style="width:12px;height:12px;border-width:2px"></span> Atualizando dados…';
+}
 async function loadAll(first, keep) {
   if (first) $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Carregando quadro das lojas…</div></div></div>`;
   try {
-    const j = await api('bootstrap');
-    S.data = j; S.user = j.user;
-    if (j.cfg) { S.cfg = j.cfg; ls.set('grc_cfg', { logo: j.cfg.logo, empresa: j.cfg.empresa, sistema: j.cfg.sistema, siteUrl: j.cfg.siteUrl }); applyFavicon(); }
+    const j = await api('bootstrap', { logoHash: cfgv('logoHash', '') }, { silent: !first && S.fromCache });
+    if (j.cfg && j.cfg.logoSame) j.cfg.logo = cfgv('logo', '');
+    S.data = j; S.user = j.user; S.fromCache = false;
+    if (j.cfg) { S.cfg = j.cfg; ls.set('grc_cfg', { logo: j.cfg.logo, logoHash: j.cfg.logoHash, empresa: j.cfg.empresa, sistema: j.cfg.sistema, siteUrl: j.cfg.siteUrl }); applyFavicon(); }
+    if (!DEMO) { try { const c = Object.assign({}, j, { cfg: Object.assign({}, j.cfg, { logo: undefined, logoSame: true }) }); localStorage.setItem('grc_data', JSON.stringify({ t: Date.now(), data: c })); } catch (e) { ls.del('grc_data'); } }
+    syncBadge(false);
     if (j.notif) S.notif = j.notif;
     if (j.cruzamento && ((j.cruzamento.alocados || []).length || (j.cruzamento.desligados || []).length)) setTimeout(() => toast(`Cruzamento automático: ${j.cruzamento.alocados.length} contratação(ões) marcada(s) como alocada(s) e ${j.cruzamento.desligados.length} como desligada(s).`), 800);
     derive();
@@ -277,6 +298,7 @@ async function loadAll(first, keep) {
     initOneSignal();
     if (S.user.trocarSenha && !DEMO) forcePassword();
   } catch (e) {
+    syncBadge(false);
     if (!S.token) return;
     if (first) renderLogin(e.message);
     else toast(e.message, true);

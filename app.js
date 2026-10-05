@@ -260,7 +260,7 @@ function renderLogin(msg) {
     btn.disabled = true;
     try {
       const j = await api('login', { login: fd.get('login'), senha: fd.get('senha') });
-      S.token = j.token; if (!DEMO) ls.set('grc_token', j.token);
+      S.token = j.token; if (!DEMO) { ls.set('grc_token', j.token); if (j.keys) ls.set('grc_keys', j.keys); } if (j.user) S.user = j.user;
       await loadAll();
     } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
     finally { btn.disabled = false; }
@@ -269,7 +269,8 @@ function renderLogin(msg) {
 
 function logout(expired) {
   if (S.token && !expired && !DEMO) api('logout').catch(() => {});
-  S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data');
+  try { fbStop(); } catch (e) {} liveBooted = false;
+  S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
   if (DEMO) { location.href = location.pathname; return; }
   renderLogin(expired ? 'Sua sessão expirou. Entre novamente.' : '');
 }
@@ -280,27 +281,116 @@ function syncBadge(on) {
   if (!b) { b = document.createElement('div'); b.id = 'syncBadge'; b.className = 'sync-badge'; document.body.appendChild(b); }
   b.innerHTML = '<span class="spin" style="width:12px;height:12px;border-width:2px"></span> Atualizando dados…';
 }
+/* ---------------- Firebase (leitura rápida em tempo real) ---------------- */
+const FB_OK = !DEMO && !!(window.firebase && CFG.FIREBASE);
+let fbDb = null, fbUnsubs = [], fbKeysSig = '', live = {}, liveOn = false, liveBooted = false;
+function fbStop() { fbUnsubs.forEach(u => { try { u(); } catch (e) {} }); fbUnsubs = []; live = {}; liveOn = false; fbKeysSig = ''; }
+function startLive(keys) {
+  const sig = JSON.stringify(keys);
+  if (liveOn && sig === fbKeysSig) return Promise.resolve(true);
+  if (!fbDb) { firebase.initializeApp(CFG.FIREBASE); fbDb = firebase.firestore(); }
+  fbStop(); fbKeysSig = sig;
+  const ids = { G: keys.G }; if (keys.X) ids.X = keys.X;
+  Object.keys(keys.lojas || {}).forEach(k => { ids['L_' + k] = keys.lojas[k]; });
+  const need = Object.keys(ids);
+  return new Promise(resolve => {
+    let done = false;
+    const fim = ok => { if (!done) { done = true; resolve(ok); } };
+    need.forEach(n => fbUnsubs.push(fbDb.collection('pub').doc(ids[n]).onSnapshot(sn => {
+      let v = null; if (sn.exists) { try { v = JSON.parse(sn.data().json); } catch (e) {} }
+      live[n] = v;
+      if (!need.every(x => x in live)) return;
+      if (need.some(x => !live[x])) return fim(false); // ainda não publicado → usa o caminho antigo
+      liveOn = true; applyLive(); fim(true);
+    }, err => { console.warn('firebase', err); fim(false); })));
+    if (keys.L) fbUnsubs.push(fbDb.collection('pub').doc(keys.L).onSnapshot(sn => {
+      if (!sn.exists) return; let v = null; try { v = JSON.parse(sn.data().json); } catch (e) { return; }
+      if (v && v.logoHash !== cfgv('logoHash', '-')) { S.cfg = Object.assign({}, S.cfg || {}, { logo: v.logo, logoHash: v.logoHash }); saveCfgLocal(); applyFavicon(); if ($('.app')) updateShell(); }
+    }, () => {}));
+    setTimeout(() => fim(false), 15000);
+  });
+}
+function saveCfgLocal() { const c = S.cfg || {}; ls.set('grc_cfg', { logo: c.logo, logoHash: c.logoHash, empresa: c.empresa, sistema: c.sistema, siteUrl: c.siteUrl }); }
+function assembleLive() {
+  const G = live.G; if (!G) return null;
+  const ks = Object.keys(live).filter(n => n.indexOf('L_') === 0);
+  const parts = ks.map(n => live[n]).filter(Boolean);
+  const X = live.X || { contr: [], exps: [], desl: [] };
+  const prev = S.data || {};
+  const cat = f => [].concat(...parts.map(p => p[f] || []));
+  return {
+    user: S.user, cfg: Object.assign({}, G.cfg, { logo: cfgv('logo', '') }),
+    lojas: parts.map(p => p.loja),
+    contratacoes: Object.assign({}, G.contrMeta, { rows: cat('contr').concat(X.contr || []).sort((a, b) => a.row - b.row) }),
+    experiencias: cat('exps').concat(X.exps || []),
+    etapas: G.etapas,
+    vagasFechadas: cat('fechadas'),
+    desligados: cat('desl').concat(X.desl || []),
+    pendentes: prev.pendentes || [], notif: prev.notif, log: prev.log || [],
+    atualizadoEm: G.atualizadoEm
+  };
+}
+function saveDataLocal(j) {
+  if (DEMO) return;
+  try { const c = Object.assign({}, j, { cfg: Object.assign({}, j.cfg, { logo: undefined, logoSame: true }) }); localStorage.setItem('grc_data', JSON.stringify({ t: Date.now(), data: c })); } catch (e) { ls.del('grc_data'); }
+}
+function applyLive() {
+  const d = assembleLive(); if (!d || !S.user) return;
+  S.data = d; S.fromCache = false;
+  const lg = cfgv('logo', ''), lh = cfgv('logoHash', '');
+  S.cfg = Object.assign({}, d.cfg, { logo: lg, logoHash: d.cfg.logoHash || lh });
+  saveCfgLocal(); saveDataLocal(d);
+  derive();
+  if (!$('.app')) { renderShell(); route(); } else { updateShell(); if (!$('.overlay')) route(true); }
+  syncBadge(false);
+}
+async function meRefresh() {
+  try {
+    const j = await api('me', {}, { silent: true });
+    S.user = j.user; if (S.data) { S.data.user = j.user; S.data.pendentes = j.pendentes || []; S.data.log = j.log || []; }
+    if (j.notif) S.notif = j.notif;
+    if (j.keys) { ls.set('grc_keys', j.keys); if (FB_OK && JSON.stringify(j.keys) !== fbKeysSig) startLive(j.keys); }
+    if (j.cruzamento && ((j.cruzamento.alocados || []).length || (j.cruzamento.desligados || []).length)) toast(`Cruzamento automático: ${j.cruzamento.alocados.length} contratação(ões) marcada(s) como alocada(s) e ${j.cruzamento.desligados.length} como desligada(s).`);
+    if (S.data) { saveDataLocal(S.data); updateShell(); if (!$('.overlay')) route(true); }
+    afterBoot();
+  } catch (e) { if (S.token) console.warn('me', e.message); }
+}
+function afterBoot() {
+  if (liveBooted) return; liveBooted = true;
+  startPolling(); initOneSignal();
+  if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
+}
 async function loadAll(first, keep) {
-  if (first) $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Carregando quadro das lojas…</div></div></div>`;
+  const keys = ls.get('grc_keys', null);
+  if (FB_OK && keys && keys.G && S.token) {
+    if (liveOn) { meRefresh(); return; }
+    if (first && !$('.app')) $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Carregando quadro das lojas…</div></div></div>`;
+    if (!S.user) S.user = (ls.get('grc_data', null) || {}).data ? ls.get('grc_data', null).data.user : null;
+    if (S.user) {
+      const ok = await startLive(keys);
+      if (ok) { meRefresh(); return; }
+    }
+  }
+  if (first && !$('.app')) $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Carregando quadro das lojas…</div></div></div>`;
   try {
     const j = await api('bootstrap', { logoHash: cfgv('logoHash', '') }, { silent: !first && S.fromCache });
     if (j.cfg && j.cfg.logoSame) j.cfg.logo = cfgv('logo', '');
     S.data = j; S.user = j.user; S.fromCache = false;
-    if (j.cfg) { S.cfg = j.cfg; ls.set('grc_cfg', { logo: j.cfg.logo, logoHash: j.cfg.logoHash, empresa: j.cfg.empresa, sistema: j.cfg.sistema, siteUrl: j.cfg.siteUrl }); applyFavicon(); }
-    if (!DEMO) { try { const c = Object.assign({}, j, { cfg: Object.assign({}, j.cfg, { logo: undefined, logoSame: true }) }); localStorage.setItem('grc_data', JSON.stringify({ t: Date.now(), data: c })); } catch (e) { ls.del('grc_data'); } }
+    if (j.cfg) { S.cfg = j.cfg; saveCfgLocal(); applyFavicon(); }
+    saveDataLocal(j);
     syncBadge(false);
     if (j.notif) S.notif = j.notif;
     if (j.cruzamento && ((j.cruzamento.alocados || []).length || (j.cruzamento.desligados || []).length)) setTimeout(() => toast(`Cruzamento automático: ${j.cruzamento.alocados.length} contratação(ões) marcada(s) como alocada(s) e ${j.cruzamento.desligados.length} como desligada(s).`), 800);
     derive();
     if (!$('.app')) renderShell(); else updateShell();
     route(keep);
-    startPolling();
-    initOneSignal();
-    if (S.user.trocarSenha && !DEMO) forcePassword();
+    afterBoot();
+    // já tem as chaves? liga o tempo real para as próximas atualizações
+    if (FB_OK && !liveOn) { const k2 = ls.get('grc_keys', null); if (k2 && k2.G) startLive(k2); else meRefresh(); }
   } catch (e) {
     syncBadge(false);
     if (!S.token) return;
-    if (first) renderLogin(e.message);
+    if (first && !$('.app')) renderLogin(e.message);
     else toast(e.message, true);
   }
 }

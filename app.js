@@ -154,7 +154,8 @@ async function api(action, payload = {}, opt = {}) {
       // o Google às vezes devolve uma página/resposta errada; reenvia (o servidor não repete a ação graças ao rid)
       for (let tent = 1; ; tent++) {
         let txt = '';
-        try { const r = await fetch(CFG.API_URL, { method: 'POST', body }); txt = await r.text(); j = JSON.parse(txt); } catch (e) { j = null; }
+        const ac = new AbortController(), to = setTimeout(() => ac.abort(), tent < 4 ? 20000 : 60000);
+        try { const r = await fetch(CFG.API_URL, { method: 'POST', body, signal: ac.signal }); txt = await r.text(); j = JSON.parse(txt); } catch (e) { j = null; } finally { clearTimeout(to); }
         if (j && !(j.app && j.versao && !('error' in j) && Object.keys(j).length <= 3)) break;
         if (tent >= 4) throw new Error('O servidor do Google não respondeu corretamente. Tente novamente em instantes.');
         await new Promise(res => setTimeout(res, 700 * tent));

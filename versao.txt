@@ -1,1 +1,1 @@
-versao: firebase 2026-10-05T21:55:21.099Z
+versao: correcoes 2026-10-06 (fila, rollback, permissoes, fotos)

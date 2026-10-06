@@ -17,7 +17,7 @@ const MOTIVOS_REQ = ['Substituição (desligamento)', 'Troca / transferência', 
 const TIPOS_DESL = ['Pedido de demissão', 'Dispensa sem justa causa', 'Dispensa por justa causa', 'Término de contrato de experiência', 'Acordo entre as partes', 'Término de contrato (aprendiz/estágio)', 'Outro'];
 const DEF_OPC = {
   situacao: ['OK', 'VAGA', 'EM AVISO', 'TROCA', 'ANÁLISE'],
-  tag: ['CIPA', 'PCD', 'APRENDIZ', 'Lider Trainee'],
+  tag: ['CIPA', 'PCD', 'APRENDIZ', 'Líder Trainee'],
   contrato: ['INTEGRAL', 'PARCIAL', 'ESTÁGIO', 'APRENDIZ', 'JOVEM APRENDIZ', 'RATEIO', 'PCD', 'APOIO']
 };
 
@@ -112,13 +112,14 @@ function toast(msg, err) {
 let busyN = 0;
 function busy(on) { busyN += on ? 1 : -1; $('#topline').classList.toggle('on', busyN > 0); }
 
-function modal({ title, body, foot, wide, onMount, locked, icon }) {
+function modal({ title, body, foot, wide, onMount, locked, icon, onClose }) {
   const ov = document.createElement('div');
   ov.className = 'overlay';
   ov.innerHTML = `<div class="modal ${wide ? 'wide' : ''}"><div class="modal-h">${icon ? `<div class="kpi" style="padding:0"><div class="ico" style="--kc:var(--accent)">${ic(icon)}</div></div>` : ''}<h3>${title}</h3>${locked ? '' : `<button class="btn ghost icon" data-x>${ic('x')}</button>`}</div><div class="modal-b">${body}</div>${foot ? `<div class="modal-f">${foot}</div>` : ''}</div>`;
   document.body.appendChild(ov);
-  const close = () => { ov.remove(); document.removeEventListener('keydown', esc); };
-  const esc = e => { if (e.key === 'Escape' && !locked) close(); };
+  let closed = false;
+  const close = () => { if (closed) return; closed = true; ov.remove(); document.removeEventListener('keydown', esc); if (onClose) try { onClose(); } catch (e) {} };
+  const esc = e => { if (e.key === 'Escape' && !locked && $$('.overlay').pop() === ov) { e.stopPropagation(); close(); } };
   document.addEventListener('keydown', esc);
   if (!locked) {
     ov.addEventListener('mousedown', e => { if (e.target === ov) close(); });
@@ -136,7 +137,8 @@ function confirmBox(msg, okLabel = 'Confirmar', danger) {
     modal({
       title: 'Confirmação', body: `<p style="margin:0;line-height:1.6">${msg}</p>`,
       foot: `<button class="btn" data-close>Cancelar</button><button class="btn ${danger ? 'danger' : 'primary'}" data-ok>${okLabel}</button>`,
-      onMount: m => { $('[data-ok]', m.el).onclick = () => { m.close(); res(true); }; $$('[data-close],[data-x]', m.el).forEach(b => b.addEventListener('click', () => res(false))); }
+      onClose: () => res(false),
+      onMount: m => { $('[data-ok]', m.el).onclick = () => { res(true); m.close(); }; }
     });
   });
 }
@@ -147,6 +149,7 @@ const PEND_MS = 150000; // mantém a alteração na tela até a publicação no 
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
 const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1 }; // ações que mudam a numeração das linhas
+const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
   const agora = Date.now();
@@ -156,6 +159,7 @@ function reaplicarPend_() {
   PEND.forEach(op => {
     try {
       let p = op.payload;
+      if (p.expect && p.row != null && p.loja) { const r = findRow(p.loja, p.row); if (!r || norm(r.nome) !== norm(p.expect.nome) || norm(r.funcao) !== norm(p.expect.funcao)) return; }
       if (op.action === 'marcarDesligadoContr') p = Object.assign({}, p, { rows: (p.rows || []).filter(x => { const c = (S.data.contratacoes.rows || []).find(y => y.row === x.row); return c && (!S.ck.status || c[S.ck.status] !== 'Desligado'); }) });
       LOCAL[op.action](p, op.j || {});
     } catch (e) { console.warn('reaplicar', e); }
@@ -217,25 +221,18 @@ async function api(action, payload = {}, opt = {}) {
   if (!opt.silent) busy(true);
   try {
     let j;
-    if (DEMO) j = await window.GRC_MOCK.call(action, payload);
-    else {
-      if (!API_OK) throw new Error('Sistema ainda não conectado: configure a URL do Apps Script no arquivo config.js.');
-      const body = JSON.stringify(Object.assign({ action, token: S.token, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
-      // o Google às vezes devolve uma página/resposta errada; reenvia (o servidor não repete a ação graças ao rid)
-      for (let tent = 1; ; tent++) {
-        let txt = '';
-        const ac = new AbortController(), to = setTimeout(() => ac.abort(), 75000);
-        try { const r = await fetch(CFG.API_URL, { method: 'POST', body, signal: ac.signal }); txt = await r.text(); j = JSON.parse(txt); } catch (e) { j = null; } finally { clearTimeout(to); }
-        if (j && !(j.app && j.versao && !('error' in j) && Object.keys(j).length <= 3)) break;
-        if (tent >= 5) throw new Error('O servidor do Google não respondeu corretamente. Tente novamente em instantes.');
-        await new Promise(res => setTimeout(res, 700 * tent));
-      }
-    }
+    // gravações que não são otimistas esperam a fila terminar, para o servidor receber tudo na ordem certa
+    if ((ESCRITA[action] || GATED[action] || GATED_EDITOR[action]) && pendentesEnvio > 0) await filaEnvio.catch(() => {});
+    j = await send_(action, payload);
     if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
     if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
     if (j.pendente) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
     else if (LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); if (OTIMISTA[action] || LOTE_PEND[action]) PEND.push({ action, payload, j, ate: Date.now() + PEND_MS }); } catch (e) { console.warn('local', e); } }
-    if (MUDA_LINHAS[action]) { for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1); }
+    if (MUDA_LINHAS[action] && !j.pendente) {
+      for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1);
+      // a numeração das linhas mudou: recarrega direto da planilha antes de permitir novas edições
+      if (!DEMO) { try { await loadAll(false, true, true); } catch (e) {} }
+    }
     if (j.publicar) publicarBg_();
     return j;
   } finally { if (!opt.silent) busy(false); }
@@ -342,8 +339,12 @@ function renderLogin(msg) {
   };
 }
 
-function logout(expired) {
+async function logout(expired) {
+  if (!expired && pendentesEnvio > 0) { toast('Aguardando terminar de salvar as alterações…'); await filaEnvio.catch(() => {}); }
   if (S.token && !expired && !DEMO) api('logout').catch(() => {});
+  $$('.overlay').forEach(o => o.remove());
+  PEND.length = 0;
+  try { if (window.OneSignal && window.OneSignal.logout) window.OneSignal.logout(); } catch (e) {}
   try { fbStop(); } catch (e) {} liveBooted = false;
   S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
   if (DEMO) { location.href = location.pathname; return; }
@@ -385,12 +386,26 @@ function startLive(keys) {
     setTimeout(() => fim(false), 15000);
   });
 }
+// redesenha a tela após uma atualização automática, sem atrapalhar quem está digitando
+// e sem recarregar páginas que buscam dados no servidor (Histórico, Acessos, Aprovações...)
+function rerender_() {
+  if ($('.overlay')) return;
+  const pg = (location.hash.replace(/^#/, '') || '/inicio').split('/')[1];
+  if (/^(historico|admin|aprovacoes|solicitacoes|perfil)$/.test(pg)) return;
+  const a = document.activeElement;
+  if (a && a.matches && a.matches('input,textarea,select') && $('#view') && $('#view').contains(a)) {
+    if (!a.__grcRR) { a.__grcRR = 1; a.addEventListener('blur', () => { a.__grcRR = 0; setTimeout(rerender_, 50); }, { once: true }); }
+    return;
+  }
+  route(true);
+}
 function saveCfgLocal() { const c = S.cfg || {}; ls.set('grc_cfg', { logo: c.logo, logoHash: c.logoHash, empresa: c.empresa, sistema: c.sistema, siteUrl: c.siteUrl }); }
 function assembleLive() {
-  const G = live.G; if (!G) return null;
+  const cp = o => o ? JSON.parse(JSON.stringify(o)) : o; // cópia: alterações locais não podem sujar o cache do Firebase
+  const G = cp(live.G); if (!G) return null;
   const ks = Object.keys(live).filter(n => n.indexOf('L_') === 0);
-  const parts = ks.map(n => live[n]).filter(Boolean);
-  const X = live.X || { contr: [], exps: [], desl: [] };
+  const parts = ks.map(n => cp(live[n])).filter(Boolean);
+  const X = cp(live.X) || { contr: [], exps: [], desl: [] };
   const prev = S.data || {};
   const cat = f => [].concat(...parts.map(p => p[f] || []));
   return {
@@ -416,7 +431,7 @@ function applyLive() {
   S.cfg = Object.assign({}, d.cfg, { logo: lg, logoHash: d.cfg.logoHash || lh });
   saveCfgLocal(); saveDataLocal(d);
   derive();
-  if (!$('.app')) { renderShell(); route(); } else { updateShell(); if (!$('.overlay')) route(true); }
+  if (!$('.app')) { renderShell(); route(); } else { updateShell(); rerender_(); }
   syncBadge(false);
 }
 async function meRefresh() {
@@ -426,7 +441,7 @@ async function meRefresh() {
     if (j.notif) S.notif = j.notif;
     if (j.keys) { ls.set('grc_keys', j.keys); if (FB_OK && JSON.stringify(j.keys) !== fbKeysSig) startLive(j.keys); }
     if (j.cruzamento && ((j.cruzamento.alocados || []).length || (j.cruzamento.desligados || []).length)) toast(`Cruzamento automático: ${j.cruzamento.alocados.length} contratação(ões) marcada(s) como alocada(s) e ${j.cruzamento.desligados.length} como desligada(s).`);
-    if (S.data) { saveDataLocal(S.data); updateShell(); if (!$('.overlay')) route(true); }
+    if (S.data) { saveDataLocal(S.data); updateShell(); rerender_(); }
     afterBoot();
   } catch (e) { if (S.token) console.warn('me', e.message); }
 }
@@ -434,10 +449,11 @@ function afterBoot() {
   if (liveBooted) return; liveBooted = true;
   startPolling(); initOneSignal();
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
+  else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
 }
-async function loadAll(first, keep) {
+async function loadAll(first, keep, force) {
   const keys = ls.get('grc_keys', null);
-  if (FB_OK && keys && keys.G && S.token) {
+  if (FB_OK && keys && keys.G && S.token && !force) {
     if (liveOn) { meRefresh(); return; }
     if (first && !$('.app')) $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Carregando quadro das lojas…</div></div></div>`;
     if (!S.user) S.user = (ls.get('grc_data', null) || {}).data ? ls.get('grc_data', null).data.user : null;
@@ -469,7 +485,7 @@ async function loadAll(first, keep) {
     else toast(e.message, true);
   }
 }
-async function refresh(silentToast) { await loadAll(); if (!silentToast) toast('Dados atualizados'); }
+async function refresh(silentToast) { const b = $('#btnRefresh'); if (b) b.disabled = true; try { await loadAll(false, true, true); if (!silentToast) toast('Dados atualizados'); } finally { if (b) b.disabled = false; } }
 
 /* =====================================================================
  * DERIVE
@@ -489,7 +505,7 @@ function enrich(r) {
   r.estagio = !!r.nome && /ESTAGIO/.test(ct);
   r.cipa = /CIPA/.test(norm(r.tag));
   r.trainee = /TRAIN/.test(norm(r.tag + ' ' + r.funcao));
-  r.dias = r.info && r.info.abertura ? -daysTo(parseISO(r.info.abertura)) : null;
+  r.dias = r.info && r.info.abertura && parseISO(r.info.abertura) ? Math.max(0, -daysTo(parseISO(r.info.abertura))) : null;
   r.etapa = r.isVaga ? ((r.info && r.info.etapa) || 'Aberta') : '';
 }
 function derive() {
@@ -640,7 +656,7 @@ function renderShell() {
   $('#mbBellBtn').onclick = e => { e.stopPropagation(); window.scrollTo(0, 0); $('#btnBell').click(); };
   if ($('#mbReq')) $('#mbReq').onclick = () => openRequisicao();
   if ($('#btnReq')) $('#btnReq').onclick = () => openRequisicao();
-  document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#gq').focus(); } });
+  if (!window.__grcSlash) window.__grcSlash = 1, document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $('#gq').focus(); } });
 }
 function updateShell() {
   const nl = S.data.lojas;
@@ -704,6 +720,7 @@ function setupGlobalSearch() {
 
 /* ---------------- router ---------------- */
 function route(keep) {
+  S.rt = (S.rt || 0) + 1;
   const sy = window.scrollY;
   S.charts.forEach(c => c.destroy()); S.charts = [];
   const hash = location.hash.replace(/^#/, '') || '/inicio';
@@ -825,7 +842,7 @@ function tablePDF(titulo, head, rows) {
   </style></head><body>
   <div class="bar"><span>Pré-visualização do PDF · escolha <b>Salvar como PDF</b> na impressão</span><button onclick="window.print()">Baixar / imprimir PDF</button></div>
   <div class="wrap">
-  <header>${logo ? `<img src="${logo}">` : '<div class="mark">GRC</div>'}<div><h1>${esc(titulo)}</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · gerado em ${agora.toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div><div class="tot"><b>${rows.length}</b><span>REGISTROS</span></div></header>
+  <header>${logo && /^(data:image\/|https:)/.test(logo) ? `<img src="${esc(logo)}">` : '<div class="mark">GRC</div>'}<div><h1>${esc(titulo)}</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · gerado em ${agora.toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div><div class="tot"><b>${rows.length}</b><span>REGISTROS</span></div></header>
   <table><thead><tr>${head.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>
   ${rows.map(r => `<tr>${r.map(v => `<td>${esc(v == null ? '' : String(v))}</td>`).join('')}</tr>`).join('')}
   </tbody></table>
@@ -836,7 +853,7 @@ function tablePDF(titulo, head, rows) {
   w.document.open(); w.document.write(html); w.document.close();
 }
 function downloadCSV(name, head, rows) {
-  const esc = v => { v = String(v == null ? '' : v); return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const esc = v => { v = String(v == null ? '' : v); if (/^[=+\-@\t\r]/.test(v) && !/^-?\d+([.,]\d+)?$/.test(v)) v = "'" + v; return /[;"\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   const csv = '﻿' + [head, ...rows].map(r => r.map(esc).join(';')).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -871,15 +888,15 @@ function pgDash() {
   const contrPend = (D.contratacoes.rows || []).filter(r => r._pend);
   const expV = (D.experiencias || []).filter(e => e._exp && e._dias <= 15);
   const fech30 = (D.vagasFechadas || []).filter(v => { const d = daysTo(parseISO(v.fechamento)); return d != null && d >= -30; });
-  const tFech = (D.vagasFechadas || []).filter(v => v.abertura && v.fechamento).map(v => (parseISO(v.fechamento) - parseISO(v.abertura)) / 864e5);
+  const tFech = (D.vagasFechadas || []).filter(v => parseISO(v.abertura) && parseISO(v.fechamento)).map(v => (parseISO(v.fechamento) - parseISO(v.abertura)) / 864e5).filter(x => isFinite(x) && x >= 0);
   const tMedioFech = tFech.length ? Math.round(sum(tFech) / tFech.length) : null;
 
   // alertas
   const alerts = [];
   (D.experiencias || []).filter(e => e._exp && e._dias <= 7).sort((a, b) => a._dias - b._dias).forEach(e => alerts.push({ c: e._dias <= 2 ? 'c-red' : 'c-amber', i: 'clock', t: `${e.nome}`, s: `Experiência de ${e._prox} dias vence ${e._dias === 0 ? 'hoje' : 'em ' + e._dias + ' dia(s)'} · ${LOJA_NOMES[e._loja] || e.loja}`, href: '#/experiencias' }));
   L.forEach(l => {
-    if (l.st.aprendiz < l.st.cotaAprendiz) alerts.push({ c: 'c-violet', i: 'grad', t: `${l.nome}: aprendizes abaixo da meta`, s: `${l.st.aprendiz} de ${l.st.cotaAprendiz} (${Math.round(l.cotas.aprendiz * 100)}% do quadro)`, href: '#/loja/' + l.key });
-    if (l.st.pcd < l.st.cotaPcd) alerts.push({ c: 'c-pink', i: 'accessibility', t: `${l.nome}: PCD abaixo da meta`, s: `${l.st.pcd} de ${l.st.cotaPcd} (${Math.round(l.cotas.pcd * 100)}% do quadro)`, href: '#/loja/' + l.key });
+    if (l.st.aprendiz < l.st.cotaAprendiz) alerts.push({ c: 'c-violet', i: 'grad', t: `${l.nome}: aprendizes abaixo da meta`, s: `${l.st.aprendiz} de ${l.st.cotaAprendiz} (${Math.round(((l.cotas || {}).aprendiz || .05) * 100)}% do quadro)`, href: '#/loja/' + l.key });
+    if (l.st.pcd < l.st.cotaPcd) alerts.push({ c: 'c-pink', i: 'accessibility', t: `${l.nome}: PCD abaixo da meta`, s: `${l.st.pcd} de ${l.st.cotaPcd} (${Math.round(((l.cotas || {}).pcd || .02) * 100)}% do quadro)`, href: '#/loja/' + l.key });
   });
   const velhas = S.all.filter(r => r.vagaAberta && r.dias != null && r.dias > 30);
   if (velhas.length) alerts.push({ c: 'c-red', i: 'briefcase', t: `${velhas.length} vaga(s) abertas há mais de 30 dias`, s: 'Revise o andamento da seleção', href: '#/vagas' });
@@ -897,6 +914,7 @@ function pgDash() {
         <div class="muted" style="font-weight:600">${new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
         <h2>${saud}, ${h(S.user.nome.split(' ')[0])}!</h2>
         <div class="muted" style="margin-top:4px">Atualizado em ${h(D.atualizadoEm || '')} · ${L.length} lojas no seu acesso</div>
+        ${!S.user.foto ? `<a class="btn sm" href="#/perfil" style="margin-top:10px">${ic('camera')} Adicionar minha foto</a>` : ''}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a class="btn" href="#/vagas">${ic('briefcase')} Ver vagas</a>
@@ -1275,6 +1293,7 @@ function openFill(l, r, contrPre) {
       if (sel) sel.onchange = () => { const c = pend.find(x => x.row === +sel.value); if (c) $('#fN', m.el).value = c[S.ck.colab]; };
       $('#fOk', m.el).onclick = e => run(e.currentTarget, async () => {
         const contrRow = sel && sel.value ? +sel.value : null;
+        if (!$('#fN', m.el).value.trim()) throw new Error('Informe o nome do colaborador');
         const statusOpc = (S.data.contratacoes.opcoes || {})[S.ck.status] || [];
         await api(contrRow ? 'alocar' : 'preencherVaga', { loja: l.key, row: r.row, expect: expectOf(r), setor: r.setor, nome: $('#fN', m.el).value, contrato: pickVal(m.el, 'contrato'), tag: pickVal(m.el, 'tag'), contrRow, statusAlocado: statusOpc.find(x => /ALOCAD/i.test(x)) || 'Alocado' });
         m.close(); toast('Vaga preenchida'); S.hl = r.row; bgReload();
@@ -1310,7 +1329,9 @@ function openAddPos(l, sec) {
 }
 
 function openVagaInfo(l, r) {
+  if (!l || !r) return;
   const i = r.info || {};
+  const ro = !canEdit(l.key);
   modal({
     title: 'Acompanhamento da vaga', icon: 'briefcase',
     body: `<p class="muted" style="margin-top:0">${h(r.funcao)} · ${h(r.setor)} · ${lojaPill(l.key)}</p>
@@ -1324,12 +1345,13 @@ function openVagaInfo(l, r) {
         <div class="field"><label>Previsão de fechamento</label><input class="input" id="vP" type="date" value="${h(i.previsao || '')}"></div>
       </div>
       <div class="field"><label>Observações</label><textarea class="input" id="vO">${h(i.obs || '')}</textarea></div>`,
-    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="vOk">Salvar</button>`,
+    foot: ro ? `<button class="btn primary" data-close>Fechar</button>` : `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="vOk">Salvar</button>`,
     onMount: m => {
+      if (ro) { $$('input,textarea', m.el).forEach(x => x.disabled = true); $$('.chip, [data-v]', m.el).forEach(x => x.style.pointerEvents = 'none'); return; }
       bindPickers(m.el);
       $('#vOk', m.el).onclick = e => run(e.currentTarget, async () => {
-        await api('setVagaInfo', { loja: l.key, row: r.row, expect: expectOf(r), setor: r.setor, data: { etapa: pickVal(m.el, 'etapa') || 'Aberta', responsavel: $('#vR', m.el).value, candidatos: $('#vC', m.el).value, abertura: $('#vA', m.el).value, previsao: $('#vP', m.el).value, obs: $('#vO', m.el).value } });
-        m.close(); toast('Vaga atualizada'); bgReload();
+        const j = await api('setVagaInfo', { loja: l.key, row: r.row, expect: expectOf(r), setor: r.setor, data: { etapa: pickVal(m.el, 'etapa') || 'Aberta', responsavel: $('#vR', m.el).value, candidatos: $('#vC', m.el).value, abertura: $('#vA', m.el).value, previsao: $('#vP', m.el).value, obs: $('#vO', m.el).value } });
+        m.close(); if (!j.pendente) toast('Vaga atualizada'); bgReload();
       });
     }
   });
@@ -1458,9 +1480,10 @@ function drawKanban(body, rows) {
       e.preventDefault(); col.classList.remove('over');
       if (!drag) return;
       const l = lojaBy(drag.dataset.k), r = l.rows.find(x => x.row === +drag.dataset.row), et = col.dataset.e;
-      if (r.etapa === et) return;
+      if (!r || r.etapa === et) return;
+      if (!canEdit(l.key)) { toast('Seu perfil não pode alterar etapas de vagas', true); return; }
       col.appendChild(drag);
-      try { await api('setVagaInfo', { loja: l.key, row: r.row, expect: expectOf(r), setor: r.setor, data: { etapa: et } }); toast(`${r.funcao} → ${et}`); bgReload(); }
+      try { const j = await api('setVagaInfo', { loja: l.key, row: r.row, expect: expectOf(r), setor: r.setor, data: { etapa: et } }); if (!j.pendente) toast(`${r.funcao} → ${et}`); bgReload(); }
       catch (err) { toast(err.message, true); route(); }
     };
   });
@@ -1486,8 +1509,8 @@ function openAlocar(c, force) {
   // alocação automática: mesma função (e mesmo setor, se informado) → aloca direto, sem formulário
   const nf = x => norm(x).replace(/[^A-Z]/g, ''), cf = nf(c[K.funcao]), cs = nf(K.setor ? c[K.setor] : '');
   const score = r => { const rf = nf(r.funcao), rs = nf(r.setor); let sc = 0; if (cf && rf === cf) sc += 4; else if (cf && (rf.startsWith(cf.slice(0, 5)) || cf.startsWith(rf.slice(0, 5)))) sc += 2; if (cs && rs && (rs === cs || rs.includes(cs) || cs.includes(rs))) sc += 3; if (r.vagaAberta) sc += 1; return sc; };
-  const cand = vagas.map(r => ({ r, sc: score(r) })).filter(x => x.sc - (x.r.vagaAberta ? 1 : 0) >= 2 + (cs ? 3 : 0)).sort((a, b) => b.sc - a.sc || (b.r.dias || 0) - (a.r.dias || 0));
-  if (!cand.length && cs) { const sf = vagas.filter(r => score(r) - (r.vagaAberta ? 1 : 0) >= 2); if (sf.length && sf.every(x => nf(x.funcao) === nf(sf[0].funcao) && nf(x.setor) === nf(sf[0].setor))) cand.push({ r: sf.sort((a, b) => (b.vagaAberta ? 1 : 0) - (a.vagaAberta ? 1 : 0) || (b.dias || 0) - (a.dias || 0))[0], sc: 0 }); }
+  const cand = vagas.filter(r => r.vagaAberta).map(r => ({ r, sc: score(r) })).filter(x => x.sc - (x.r.vagaAberta ? 1 : 0) >= 2 + (cs ? 3 : 0)).sort((a, b) => b.sc - a.sc || (b.r.dias || 0) - (a.r.dias || 0));
+  if (!cand.length && cs) { const sf = vagas.filter(r => r.vagaAberta && score(r) - (r.vagaAberta ? 1 : 0) >= 2); if (sf.length && sf.every(x => nf(x.funcao) === nf(sf[0].funcao) && nf(x.setor) === nf(sf[0].setor))) cand.push({ r: sf.sort((a, b) => (b.vagaAberta ? 1 : 0) - (a.vagaAberta ? 1 : 0) || (b.dias || 0) - (a.dias || 0))[0], sc: 0 }); }
   if (!force && cand.length) {
     const r = cand[0].r, row = r.row;
     const statusOpc = (S.data.contratacoes.opcoes || {})[K.status] || [];
@@ -1567,7 +1590,9 @@ async function pgLog() {
   const v = $('#view');
   v.innerHTML = `<div class="toolbar" style="margin-top:0"><div class="input-icon search">${ic('search')}<input class="input" id="lq" placeholder="Buscar" style="width:100%"></div><select class="input" id="lU"><option value="">Usuário: Todos</option></select><select class="input" id="lA"><option value="">Ação: Todas</option></select><span class="spacer"></span><button class="btn" id="lExp" title="Exportar Excel / PDF">${ic('download')}</button></div><div id="lBody"><div class="sk" style="height:300px"></div></div>`;
   let log = [];
+  const rt = S.rt;
   try { log = (await api('getLog', { n: 1000 })).log; } catch (e) { toast(e.message, true); }
+  if (rt !== S.rt || !$('#lU')) return;
   $('#lU').innerHTML += uniq(log.map(l => l.usuario)).map(x => `<option>${h(x)}</option>`).join('');
   $('#lA').innerHTML += uniq(log.map(l => l.acao)).map(x => `<option>${h(x)}</option>`).join('');
   const filt = () => { const q = norm($('#lq').value), u = $('#lU').value, a = $('#lA').value; return log.filter(l => (!q || norm(l.detalhe + ' ' + l.loja + ' ' + l.acao).includes(q)) && (!u || l.usuario === u) && (!a || l.acao === a)); };
@@ -1616,14 +1641,14 @@ function pgPerfil() {
     try {
       const data = await resizeImg(f, 240);
       const j = await api('saveProfile', { foto: data });
-      S.user = j.user; updateShell(); route(); toast('Foto atualizada');
+      S.user = j.user; if (S.data) S.data.user = j.user; saveDataLocal(S.data); updateShell(); route(); toast('Foto atualizada');
     } catch (e) { toast(e.message, true); }
   };
   file.onchange = () => handle(file.files[0]);
   drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; };
   drop.ondragleave = () => drop.style.borderColor = '';
   drop.ondrop = e => { e.preventDefault(); handle(e.dataTransfer.files[0]); };
-  const rm = $('#pRm'); if (rm) rm.onclick = async e => { e.preventDefault(); e.stopPropagation(); const j = await api('saveProfile', { foto: '' }); S.user = j.user; updateShell(); route(); };
+  const rm = $('#pRm'); if (rm) rm.onclick = e => { e.preventDefault(); e.stopPropagation(); run(rm, async () => { const j = await api('saveProfile', { foto: '' }); S.user = j.user; if (S.data) S.data.user = j.user; saveDataLocal(S.data); updateShell(); route(); toast('Foto removida'); }).catch(() => {}); };
   $('#pSave').onclick = e => run(e.currentTarget, async () => { const j = await api('saveProfile', { nome: $('#pN').value, cargo: $('#pC').value }); S.user = j.user; updateShell(); toast('Perfil salvo'); });
   $('#sOk').onclick = e => run(e.currentTarget, async () => {
     if ($('#sN').value !== $('#sC').value) throw new Error('As senhas não conferem');
@@ -1642,12 +1667,67 @@ function resizeImg(file, size) {
         c.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
         let q = .85, out = c.toDataURL('image/jpeg', q);
         while (out.length > 45000 && q > .3) { q -= .1; out = c.toDataURL('image/jpeg', q); }
+        if (out.length > 45000 && size > 160) return resizeImg(file, Math.round(size * .75)).then(res, rej);
         res(out);
       };
       img.onerror = () => rej(new Error('Imagem inválida'));
       img.src = rd.result;
     };
     rd.readAsDataURL(file);
+  });
+}
+// foto de outro usuário (somente administrador) — ação 'saveUserFoto' no Apps Script
+function bindFotoUsuario(el, u, done) {
+  const file = $('#uFile', el), drop = $('#uDrop', el); if (!file || !drop) return;
+  const salvar = async foto => {
+    busy(true);
+    try {
+      const j = await api('saveUserFoto', { id: u.id, foto }, { silent: true });
+      u.foto = foto;
+      $('#uAv', el).innerHTML = avatar(u.nome, foto, 'lg');
+      if (S.user && S.user.id === u.id) { S.user.foto = foto; if (S.data) S.data.user = S.user; updateShell(); }
+      if (j.users && done) done(j.users);
+      toast(foto ? 'Foto de ' + u.nome.split(' ')[0] + ' salva' : 'Foto removida');
+    } catch (e) {
+      toast(/desconhecid|inv[aá]lid|unknown|n[aã]o (existe|encontrad)/i.test(e.message) ? 'O servidor ainda não tem a função de foto de usuários — falta atualizar o Apps Script.' : e.message, true);
+    } finally { busy(false); }
+  };
+  const handle = async f => {
+    if (!f || !/^image\//.test(f.type)) return toast('Escolha uma imagem', true);
+    try { await salvar(await resizeImg(f, 240)); } catch (e) { toast(e.message, true); }
+  };
+  file.onchange = () => handle(file.files[0]);
+  drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; };
+  drop.ondragleave = () => drop.style.borderColor = '';
+  drop.ondrop = e => { e.preventDefault(); drop.style.borderColor = ''; handle(e.dataTransfer.files[0]); };
+  const rm = $('#uFRm', el); if (rm) rm.onclick = e => { e.preventDefault(); e.stopPropagation(); salvar(''); rm.remove(); };
+}
+// passo opcional depois da troca de senha / lembrete no início
+function askFoto() {
+  if (!S.user || S.user.foto || DEMO) return;
+  modal({
+    title: 'Adicione sua foto', icon: 'camera',
+    body: `<p class="muted" style="margin-top:0">Assim a equipe reconhece quem fez cada alteração no quadro. Leva 10 segundos.</p>
+      <label class="photo-drop" id="afDrop"><span id="afAv">${avatar(S.user.nome, '', 'lg')}</span><div><b>${ic('camera')} Escolher foto</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem. No celular, dá para tirar na hora.</div></div><input type="file" id="afFile" accept="image/*" hidden></label>`,
+    foot: `<button class="btn" data-close>Agora não</button>`,
+    onClose: () => ls.set('grc_fotoAdiada_' + S.user.id, Date.now()),
+    onMount: m => {
+      const drop = $('#afDrop', m.el), file = $('#afFile', m.el);
+      const handle = async f => {
+        if (!f || !/^image\//.test(f.type)) return toast('Escolha uma imagem', true);
+        try {
+          busy(true);
+          const data = await resizeImg(f, 240);
+          const j = await api('saveProfile', { foto: data }, { silent: true });
+          S.user = j.user; if (S.data) S.data.user = j.user; saveDataLocal(S.data); updateShell();
+          m.close(); toast('Foto salva. Obrigado!'); rerender_();
+        } catch (e) { toast(e.message, true); } finally { busy(false); }
+      };
+      file.onchange = () => handle(file.files[0]);
+      drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; };
+      drop.ondragleave = () => drop.style.borderColor = '';
+      drop.ondrop = e => { e.preventDefault(); handle(e.dataTransfer.files[0]); };
+    }
   });
 }
 function forcePassword() {
@@ -1659,8 +1739,10 @@ function forcePassword() {
     foot: `<button class="btn primary" id="fOk">Salvar e continuar</button>`,
     onMount: m => $('#fOk', m.el).onclick = e => run(e.currentTarget, async () => {
       if ($('#fN', m.el).value !== $('#fC', m.el).value) throw new Error('As senhas não conferem');
+      if ($('#fN', m.el).value.length < 6) throw new Error('A nova senha precisa ter pelo menos 6 caracteres');
       await api('changePassword', { atual: $('#fA', m.el).value, nova: $('#fN', m.el).value });
       S.user.trocarSenha = false; m.close(); toast('Senha definida. Bem-vindo!');
+      setTimeout(askFoto, 600);
     })
   });
 }
@@ -1708,7 +1790,7 @@ const NOTIF_IC = { APROVACAO: ['check', 'c-amber'], REQUISICAO: ['plus', 'c-viol
 function setupBell() {
   const btn = $('#btnBell'), panel = $('#bellPanel');
   btn.onclick = e => { e.stopPropagation(); panel.classList.toggle('hidden'); if (!panel.classList.contains('hidden')) renderBellPanel(); };
-  document.addEventListener('click', e => { if (!e.target.closest('.bell-wrap')) panel.classList.add('hidden'); });
+  if (!window.__grcBellDoc) { window.__grcBellDoc = 1; document.addEventListener('click', e => { const p = $('#bellPanel'); if (p && !e.target.closest('.bell-wrap')) p.classList.add('hidden'); }); }
 }
 function updateBell() {
   const n = $('#bellN'); if (!n) return;
@@ -1744,7 +1826,7 @@ async function localNotify(title, body, link) {
 let pollT = null;
 function startPolling() {
   if (pollT) return;
-  pollT = setInterval(pollNotifs, 45000);
+  pollT = setInterval(pollNotifs, 60000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollNotifs(); });
 }
 async function pollNotifs() {
@@ -1752,13 +1834,14 @@ async function pollNotifs() {
   try {
     const j = await api('notifs', {}, { silent: true });
     const prevTs = Math.max(0, ...(S.notif.items || []).map(i => i.ts || 0));
-    const novas = (j.items || []).filter(i => i.nova && i.ts > prevTs);
+    const primeira = !S.notifOk; S.notifOk = true;
+    const novas = primeira ? [] : (j.items || []).filter(i => i.nova && i.ts > prevTs);
     const pendChanged = j.pendentes !== S.notif.pendentes;
     S.notif = j; updateBell();
     if (novas.length) {
       const n = novas[0];
       toast(`${n.titulo}: ${n.texto}`.slice(0, 160));
-      if (document.visibilityState !== 'visible' || novas.length) localNotify(n.titulo, n.texto, n.link);
+      if (document.visibilityState !== 'visible' && !(S.cfg && S.cfg.onesignalAppId)) localNotify(n.titulo, n.texto, n.link);
       if (!$('.overlay') && !document.activeElement.matches('input,textarea,select')) loadAll(false, true);
     } else if (pendChanged) updateShell();
   } catch (e) {}
@@ -1949,11 +2032,12 @@ function openDesligar(l, r) {
 }
 function pgDesl() {
   setTitle('Desligamentos', 'Histórico de colaboradores desligados pelo sistema');
-  const D = (S.data.desligados || []).slice().reverse(), f = getF('desl');
+  const dtD = d => parseISO(d.data) || parseBR(d.data);
+  const D = (S.data.desligados || []).map((d, i) => Object.assign({ _i: i }, d)).sort((a, b) => ((dtD(b) || 0) - (dtD(a) || 0)) || (b._i - a._i)), f = getF('desl');
   $('#view').innerHTML = `
   <div class="grid g4">
     ${kpi({ lbl: 'Desligamentos registrados', val: D.length, icon: 'door', c: 'c-red' })}
-    ${kpi({ lbl: 'Últimos 30 dias', val: D.filter(d => daysTo(parseISO(d.data)) >= -30).length, icon: 'calendar', c: 'c-amber' })}
+    ${kpi({ lbl: 'Últimos 30 dias', val: D.filter(d => { const x = daysTo(dtD(d)); return x != null && x >= -30 && x <= 0; }).length, icon: 'calendar', c: 'c-amber' })}
     ${kpi({ lbl: 'Pedidos de demissão', val: D.filter(d => /PEDIDO/i.test(d.tipo)).length, icon: 'users', c: 'c-blue' })}
     ${kpi({ lbl: 'Término de experiência', val: D.filter(d => /EXPERI/i.test(d.tipo)).length, icon: 'clock', c: 'c-violet' })}
   </div>
@@ -1961,7 +2045,7 @@ function pgDesl() {
   <div id="dBody"></div>`;
   const filt = () => { const q = norm(f.q); return D.filter(d => (!q || norm(d.nome + ' ' + d.funcao).includes(q)) && (!f.loja || d.loja === f.loja) && (!f.tipo || d.tipo === f.tipo)); };
   const draw = () => table($('#dBody'), 'desl', [
-    { t: 'Data', k: 'data', r: d => isoToBR(d.data) }, { t: 'Loja', k: 'loja', r: d => d.loja ? lojaPill(d.loja) : '' },
+    { t: 'Data', k: 'data', r: d => h(isoToBR(d.data) || d.data || ''), sort: d => { const x = dtD(d); return x ? +x : null; } }, { t: 'Loja', k: 'loja', r: d => d.loja ? lojaPill(d.loja) : '' },
     { t: 'Colaborador', k: 'nome', r: d => `<div class="cell-person">${avatar(d.nome, '', 'sm soft')}<b>${h(d.nome)}</b></div>` },
     { t: 'Função', k: 'funcao' }, { t: 'Tipo', k: 'tipo', r: d => d.tipo ? `<span class="badge">${h(d.tipo)}</span>` : '' }, { t: 'Origem', k: 'origem' }
   ], filt());
@@ -2007,7 +2091,8 @@ async function pgAprov() {
       if (r) r.onclick = () => decidir(s, false, reload);
     });
   };
-  const reload = async () => { try { list = (await api('listSolicitacoes')).solicitacoes; draw(); } catch (e) { toast(e.message, true); } };
+  const rt = S.rt;
+  const reload = async () => { try { list = (await api('listSolicitacoes')).solicitacoes; if (rt !== S.rt || !$('#apTipo')) return; draw(); } catch (e) { toast(e.message, true); } };
   $('#apTipo').onchange = draw;
   await reload();
 }
@@ -2058,8 +2143,10 @@ async function pgSolic() {
   const v = $('#view');
   v.innerHTML = `<div class="toolbar" style="margin-top:0">${S.user.lojas.length ? `<button class="btn primary" id="msNew">${ic('plus')} Requisitar vaga</button>` : ''}<span class="spacer"></span></div><div id="msBody"><div class="sk" style="height:160px"></div></div>`;
   if ($('#msNew')) $('#msNew').onclick = () => openRequisicao();
+  const rt = S.rt;
   try {
     const list = (await api('listSolicitacoes', { minhas: true })).solicitacoes;
+    if (rt !== S.rt || !$('#msBody')) return;
     $('#msBody').innerHTML = list.length ? `<div class="grid" style="gap:12px">${list.map(s => solCard(s, false)).join('')}</div>` : `<div class="card empty">${ic('file')}<div>Você ainda não enviou solicitações.</div></div>`;
     $$('#msBody [data-cancel]').forEach(b => b.onclick = async () => { const id = b.closest('.sol').dataset.id; if (!await confirmBox('Cancelar esta solicitação?', 'Cancelar solicitação', true)) return; await run(null, () => api('cancelarSolicitacao', { id })); toast('Solicitação cancelada'); route(); });
   } catch (e) { toast(e.message, true); }
@@ -2238,13 +2325,14 @@ async function pgAdmin() {
   };
   $('#uq').oninput = draw;
   $('#uNew').onclick = () => openUser(null, us => { users = us; draw(); });
-  try { users = (await api('listUsers')).users; draw(); } catch (e) { toast(e.message, true); }
+  const rt = S.rt;
+  try { users = (await api('listUsers')).users; if (rt !== S.rt || !$('#uBody')) return; draw(); } catch (e) { toast(e.message, true); }
 }
 function openUser(u, done) {
   const L = ['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO'];
   modal({
     title: u ? 'Editar acesso' : 'Novo acesso', icon: 'shield', wide: true,
-    body: `<div class="row2">
+    body: `${u ? `<label class="photo-drop" id="uDrop" style="margin-bottom:16px"><span id="uAv">${avatar(u.nome, u.foto, 'lg')}</span><div><b>${ic('camera')} ${u.foto ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div>${u.foto ? '<button class="btn sm danger" id="uFRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="uFile" accept="image/*" hidden></label>` : ''}<div class="row2">
       <div class="field"><label>Nome completo</label><input class="input" id="uN" value="${h(u ? u.nome : '')}"></div>
       <div class="field"><label>Cargo</label><input class="input" id="uC" value="${h(u ? u.cargo : '')}" placeholder="Ex.: Gerente de loja"></div></div>
       <div class="row2">
@@ -2260,6 +2348,7 @@ function openUser(u, done) {
     foot: `${u && u.id !== S.user.id ? `<button class="btn danger" id="uDel" style="margin-right:auto">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="uOk">Salvar</button>`,
     onMount: m => {
       bindPickers(m.el);
+      if (u) bindFotoUsuario(m.el, u, done);
       $$('[data-picker=lojas] .chip', m.el).forEach(c => c.textContent = LOJA_NOMES[c.dataset.v] || c.dataset.v);
       $$('[data-picker=perfil] .chip', m.el).forEach(c => c.textContent = PERFIS[c.dataset.v]);
       $('#uE', m.el).addEventListener('input', () => { const l = $('#uL', m.el); if (!u && !l.dataset.touched) l.value = $('#uE', m.el).value.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, ''); });
@@ -2400,6 +2489,8 @@ function initOneSignal() {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   if (!osLoaded) { const sc = document.createElement('script'); sc.src = 'https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js'; sc.defer = true; document.head.appendChild(sc); osLoaded = true; }
   window.OneSignalDeferred.push(async function (OneSignal) {
+    if (initOneSignal.done === id) { try { await OneSignal.login(S.user.id); } catch (e) {} return; }
+    initOneSignal.done = id;
     try { await OneSignal.init({ appId: id, serviceWorkerPath: 'OneSignalSDKWorker.js', allowLocalhostAsSecureOrigin: true, notifyButton: { enable: false } }); await OneSignal.login(S.user.id); window.OneSignal = OneSignal; } catch (e) { console.warn(e); }
   });
 }
@@ -2789,7 +2880,7 @@ function vagasPDF(rows, f) {
   </style></head><body>
   <div class="bar"><span>Pré-visualização do PDF · escolha <b>Salvar como PDF</b> na impressão</span><button onclick="window.print()">Baixar / imprimir PDF</button></div>
   <div class="wrap">
-  <header>${logo ? `<img src="${logo}">` : '<div class="mark">GRC</div>'}<div><h1>Vagas em aberto</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · gerado em ${new Date().toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div><div class="tot"><b>${rows.filter(r => r.vagaAberta).length}</b><span>VAGAS ABERTAS</span></div></header>
+  <header>${logo && /^(data:image\/|https:)/.test(logo) ? `<img src="${esc(logo)}">` : '<div class="mark">GRC</div>'}<div><h1>Vagas em aberto</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · gerado em ${new Date().toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div><div class="tot"><b>${rows.filter(r => r.vagaAberta).length}</b><span>VAGAS ABERTAS</span></div></header>
   <div class="filtros">${esc(filtros)}</div>
   ${lojasSel.map(lojaBlock).join('')}
   <footer><span>${esc(cfgv('sistema', 'Quadro de Lojas'))}</span><span>SLA = dias em aberto / meta de dias para fechar</span></footer>

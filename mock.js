@@ -27,7 +27,7 @@
   ];
   const opcoes = {
     situacao: ['OK', 'VAGA', 'EM AVISO', 'TROCA', 'ANÁLISE'],
-    tag: ['CIPA', 'PCD', 'APRENDIZ', 'Lider Trainee'],
+    tag: ['CIPA', 'PCD', 'APRENDIZ', 'Líder Trainee'],
     contrato: ['INTEGRAL', 'PARCIAL', 'ESTÁGIO', 'APRENDIZ', 'JOVEM APRENDIZ', 'RATEIO', 'PCD']
   };
   const vinfo = {}; let vidN = 1;
@@ -147,6 +147,7 @@
         case 'listUsers': return { ok: true, users: clone(users) };
         case 'saveUser': { const d = p.data; if (d.id) Object.assign(users.find(u => u.id === d.id), { login: d.login, nome: d.nome, perfil: d.perfil, lojas: d.lojas, ativo: d.ativo !== false, cargo: d.cargo }); else users.push({ id: 'u' + Date.now(), login: d.login, nome: d.nome, perfil: d.perfil, lojas: d.lojas, ativo: true, cargo: d.cargo, foto: '', ultimoAcesso: '' }); L(d.id ? 'Editou acesso' : 'Criou acesso', '', d.login); return { ok: true, users: clone(users) }; }
         case 'deleteUser': users = users.filter(u => u.id !== p.id); return { ok: true, users: clone(users) };
+        case 'saveUserFoto': { const u = users.find(x => x.id === p.id); if (u) u.foto = p.foto || ''; L('Alterou foto', '', u ? u.login : ''); return { ok: true, users: clone(users) }; }
         case 'saveProfile': if (p.nome !== undefined) me.nome = p.nome; if (p.cargo !== undefined) me.cargo = p.cargo; if (p.foto !== undefined) me.foto = p.foto; return { ok: true, user: clone(me) };
         case 'changePassword': return { ok: true };
         case 'getLog': return { ok: true, log: clone(log) };

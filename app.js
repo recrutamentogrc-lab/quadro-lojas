@@ -10,7 +10,7 @@ const API_OK = /^https:\/\/script\.google(usercontent)?\.com\//.test(CFG.API_URL
 
 const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#94a3b8' };
 const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)' };
-const PERFIS = { ADMIN: 'Administrador', EDITOR: 'Editor (gestão)', RECRUTADOR: 'Recrutador', LEITOR: 'Gestor / Líder' };
+const PERFIS = { ADMIN: 'Administrador', EDITOR: 'Editor (gestão)', RECRUTADOR: 'Recrutador', LEITOR: 'Gestor / Líder', DP: 'Departamento Pessoal' };
 const GATED = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, desligarLote: 1, contrBulkSet: 1, cruzarContr: 1, setPadrao: 1, setVagaInfo: 'etapas', setVagaInfoLote: 'etapas' };
 const GATED_EDITOR = { setPadrao: 1, addPosicao: 1 };
 const MOTIVOS_REQ = ['Substituição (desligamento)', 'Troca / transferência', 'Vaga em aberto (já existe no quadro)', 'Aumento de quadro', 'Temporário / sazonal', 'Abertura de loja', 'Outro'];
@@ -252,6 +252,9 @@ const isAdmin = () => S.user && S.user.perfil === 'ADMIN';
 const canEdit = k => S.user && (S.user.perfil === 'ADMIN' || ((S.user.perfil === 'EDITOR' || S.user.perfil === 'RECRUTADOR') && (!k || S.user.lojas.includes(k))));
 const isRecrut = () => S.user && S.user.perfil === 'RECRUTADOR';
 const isGestor = () => S.user && S.user.perfil === 'LEITOR';
+const isDP = () => S.user && S.user.perfil === 'DP';
+// DP: quadro só leitura; contratações/admissões com edição nas lojas liberadas
+const canContr = k => canEdit(k) || (isDP() && (!k || S.user.lojas.includes(k)));
 const cfgv = (k, d) => (S.cfg && S.cfg[k]) || d;
 function brandHTML(dark) { const lg = cfgv('logo', ''); return lg ? `<div class="brand-img ${dark ? 'on-dark' : ''}"><img src="${h(lg)}" alt="logo"></div>` : '<div class="brand-logo">GRC</div>'; }
 function applyFavicon() { try { applyAppIcon(); } catch (e) {} }
@@ -597,7 +600,7 @@ function renderShell() {
         <button class="btn ghost icon mobile-only" id="sbOpen">${ic('menu')}</button>
         <div><div class="crumb" id="crumb"></div><h1 id="title"></h1></div>
         <div class="gsearch"><div class="input-icon">${ic('search')}<input class="input" id="gq" placeholder="Buscar colaborador, função…  ( / )" autocomplete="off"></div><div class="results hidden" id="gres"></div></div>
-        ${!isAdmin() && S.user.lojas.length ? `<button class="btn primary sm" id="btnReq" title="Requisitar vaga">${ic('plus')}<span class="desk-only">Requisitar vaga</span></button>` : ''}
+        ${!isAdmin() && !isDP() && S.user.lojas.length ? `<button class="btn primary sm" id="btnReq" title="Requisitar vaga">${ic('plus')}<span class="desk-only">Requisitar vaga</span></button>` : ''}
         <div class="bell-wrap"><button class="btn ghost icon" id="btnBell" title="Notificações">${ic('bell')}<span class="bell-n hidden" id="bellN"></span></button><div class="bell-panel hidden" id="bellPanel"></div></div>
         <button class="btn ghost icon desk-only" id="btnTheme" title="Tema claro/escuro">${ic(document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun')}</button>
         <button class="btn ghost icon" id="btnRefresh" title="Atualizar dados">${ic('refresh')}</button>
@@ -608,7 +611,7 @@ function renderShell() {
   <nav class="mbar">
     <a href="#/inicio" data-nav="/inicio">${ic('home')}<span>Início</span></a>
     <a href="#/vagas" data-nav="/vagas">${ic('briefcase')}<span>Vagas</span></a>
-    ${isAdmin() ? `<a href="#/aprovacoes" data-nav="/aprovacoes">${ic('check')}<span>Aprovar</span><i class="mb-n hidden" id="mbAp"></i></a>` : `<a id="mbReq">${ic('plus')}<span>Requisitar</span></a>`}
+    ${isAdmin() ? `<a href="#/aprovacoes" data-nav="/aprovacoes">${ic('check')}<span>Aprovar</span><i class="mb-n hidden" id="mbAp"></i></a>` : isDP() ? `<a href="#/contratacoes" data-nav="/contratacoes">${ic('userplus')}<span>Admissões</span></a>` : `<a id="mbReq">${ic('plus')}<span>Requisitar</span></a>`}
     <a id="mbBellBtn">${ic('bell')}<span>Alertas</span><i class="mb-n hidden" id="mbBell"></i></a>
     <a id="mbMenu">${ic('menu')}<span>Menu</span></a>
   </nav>`;
@@ -897,7 +900,7 @@ function pgDash() {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a class="btn" href="#/vagas">${ic('briefcase')} Ver vagas</a>
-        ${canEdit() ? `<a class="btn primary" href="#/contratacoes">${ic('userplus')} Contratações</a>` : ''}
+        ${canContr() ? `<a class="btn primary" href="#/contratacoes">${ic('userplus')} Contratações</a>` : ''}
       </div>
     </div>
     <div class="stats">
@@ -1033,7 +1036,7 @@ function pgLoja(l) {
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1">
       <div class="store" style="--lc:${l.color};cursor:default"><div class="num" style="width:54px;height:54px;font-size:20px;border-radius:16px">${l.num}</div></div>
       <div style="flex:1;min-width:200px"><div class="muted" style="font-weight:600">${h(l.sub)} ${l.nova ? '<span class="badge b-ok">LOJA NOVA</span>' : ''}</div><h2>${h(l.nome)}</h2></div>
-      ${!isAdmin() ? `<button class="btn primary" id="lReq">${ic('plus')} Requisitar vaga</button>` : ''}
+      ${!isAdmin() && !isDP() ? `<button class="btn primary" id="lReq">${ic('plus')} Requisitar vaga</button>` : ''}
       <div class="ring" style="--p:${Math.min(100, s.ocup)};--c:${l.color};width:78px;height:78px" data-v="${s.ocup}%"></div>
     </div>
     <div class="stats">
@@ -2115,7 +2118,7 @@ function pgContr() {
     <div class="seg" id="cvw"><button data-v="sem">${ic('calendar')}<span class="desk-only">Por semana</span></button><button data-v="tbl">${ic('table')}<span class="desk-only">Tabela</span></button></div>
     <button class="btn" id="cExp" title="Exportar Excel / PDF">${ic('download')}</button>
     ${canEdit() && !isGestor() ? `<button class="btn" id="cCruz" title="Marca como alocado quem já está no quadro e como desligado quem já saiu">${ic('swap')} Cruzar com o quadro</button>` : ''}
-    ${canEdit() ? `<button class="btn primary" id="cNew">${ic('plus')} Nova contratação</button>` : ''}
+    ${canContr() ? `<button class="btn primary" id="cNew">${ic('plus')} Nova contratação</button>` : ''}
   </div>
   <div id="cBulk" class="bulk hidden"></div>
   <div id="cBody"></div>`;
@@ -2216,6 +2219,7 @@ async function pgAdmin() {
     <div class="card"><b>${ic('edit')} Editor (gestão)</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Movimenta quadro, vagas e contratações das lojas liberadas sem aprovação. Aumento/redução de quadro e novas posições passam por você. Não acessa Acessos, Configurações, Aprovações nem Histórico.</p></div>
     <div class="card"><b>${ic('briefcase')} Recrutador</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Pode editar, abrir, fechar e contratar, mas cada alteração aguarda sua aprovação.</p></div>
     <div class="card"><b>${ic('eye')} Gestor / Líder</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Consulta as lojas liberadas e requisita vagas para aprovação do RH.</p></div>
+    <div class="card"><b>${ic('userplus')} Departamento Pessoal</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Visualiza o quadro das lojas liberadas (sem editar) e cadastra/edita contratações para fazer a admissão, com exportação em PDF e Excel.</p></div>
   </div>
   <div id="uBody"><div class="sk" style="height:200px"></div></div>`;
   let users = [];
@@ -2224,7 +2228,7 @@ async function pgAdmin() {
     table($('#uBody'), 'users', [
       { t: 'Usuário', k: 'nome', r: u => `<div class="cell-person">${avatar(u.nome, u.foto, 'sm')}<div><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(u.cargo || '')}</div></div></div>` },
       { t: 'Login', k: 'login', r: u => `<span class="mono">${h(u.login)}</span>${u.email ? `<div class="muted" style="font-size:11.5px">${h(u.email)}</div>` : ''}` },
-      { t: 'Perfil', k: 'perfil', r: u => `<span class="badge ${u.perfil === 'ADMIN' ? 'b-violet' : u.perfil === 'EDITOR' ? 'b-info' : u.perfil === 'RECRUTADOR' ? 'b-acc' : ''}">${h(PERFIS[u.perfil] || u.perfil)}</span>` },
+      { t: 'Perfil', k: 'perfil', r: u => `<span class="badge ${u.perfil === 'ADMIN' ? 'b-violet' : u.perfil === 'EDITOR' ? 'b-info' : u.perfil === 'RECRUTADOR' ? 'b-acc' : u.perfil === 'DP' ? 'b-ok' : ''}">${h(PERFIS[u.perfil] || u.perfil)}</span>` },
       { t: 'Lojas', k: 'lojas', r: u => u.lojas.length >= 4 ? '<span class="badge b-acc">Todas</span>' : u.lojas.map(lojaPill).join(' ') },
       { t: 'Status', k: 'ativo', r: u => u.ativo ? (u.trocarSenha ? '<span class="badge b-warn">Aguardando 1º acesso</span>' : '<span class="badge b-ok">Ativo</span>') : '<span class="badge b-bad">Inativo</span>' },
       { t: 'Último acesso', k: 'ultimoAcesso' },
@@ -2249,7 +2253,7 @@ function openUser(u, done) {
       <div class="row2">
       <div class="field"><label>${u ? 'Nova senha (deixe vazio para manter)' : 'Senha inicial (vazio = gerar automaticamente)'}</label><input class="input" id="uS" type="text" autocomplete="new-password" placeholder="mín. 6 caracteres"></div>
       <div class="field"><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-weight:600;padding-top:8px"><input type="checkbox" id="uM" ${u ? '' : 'checked'}> ${ic('mail')} ${u ? 'Enviar a nova senha por e-mail' : 'Enviar login, senha e link do sistema por e-mail'}</label></div></div>
-      <div class="field"><label>Perfil</label>${chipPicker('perfil', ['ADMIN', 'EDITOR', 'RECRUTADOR', 'LEITOR'], u ? u.perfil : 'LEITOR', false)}</div>
+      <div class="field"><label>Perfil</label>${chipPicker('perfil', ['ADMIN', 'EDITOR', 'RECRUTADOR', 'LEITOR', 'DP'], u ? u.perfil : 'LEITOR', false)}</div>
       <div class="field"><label>Lojas liberadas</label>${chipPicker('lojas', L, u ? u.lojas.join(', ') : L.join(', '))}</div>
       <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="uA" ${!u || u.ativo ? 'checked' : ''}> Acesso ativo</label>
       <p class="muted" style="font-size:12px">No primeiro login o usuário define a própria senha.</p>`,
@@ -2524,14 +2528,14 @@ const LOCAL = {
  * ===================================================================== */
 function openContr(r) {
   const C = S.data.contratacoes, K = S.ck, op = C.opcoes || {};
-  const ed = canEdit(r ? r._loja : null);
+  const ed = canContr(r ? r._loja : null), edQ = canEdit(r ? r._loja : null);
   const novo = !r;
   const lojasOpc = uniq([...(op[K.loja] || []), ...LOJAS_CONTR]).filter(x => !/FRALDA/i.test(x) || (r && r[K.loja] === x));
   const distinct = k => C.rows.map(x => x[k]).filter(Boolean);
   const listFor = k => uniq([...(op[k] || []), ...distinct(k), ...(k === K.aso ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : k === K.hcm ? ['SIM', 'NÃO'] : k === K.contrato ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : k === K.status ? ['Pendente', 'Alocado', 'Desligado'] : [])]);
   const field = k => {
     const val = r ? r[k] : '';
-    const dis = ed ? '' : 'disabled';
+    const dis = ed && (edQ || k !== K.status) ? '' : 'disabled';
     if (k === K.data) return `<div class="field"><label>${h(k)}</label><input class="input" type="date" data-k="${h(k)}" value="${r ? brToISO(val) : isoD(new Date())}" ${dis}></div>`;
     if (k === K.loja) return `<div class="field"><label>${h(k)}</label><select class="input" data-k="${h(k)}" ${dis}>${novo ? '<option value="">Selecione a loja</option>' : ''}${uniq([...lojasOpc, val]).filter(Boolean).map(x => `<option ${x === val ? 'selected' : ''}>${h(x)}</option>`).join('')}</select></div>`;
     if (k === K.colab) return `<div class="field"><label>${h(k)}</label><input class="input" data-k="${h(k)}" value="${h(val || '')}" ${ed ? '' : 'readonly'} placeholder="NOME COMPLETO"></div>`;
@@ -2547,8 +2551,8 @@ function openContr(r) {
     body: `<div class="row2">${hdr.map(field).join('')}</div>
       <datalist id="dlCF">${allFuncoes().map(x => `<option value="${h(x)}">`).join('')}</datalist>
       <datalist id="dlCS">${uniq(S.all.map(x => x.setor)).map(x => `<option value="${h(x)}">`).join('')}</datalist>
-      ${novo ? `<div class="card mt" style="background:var(--surface2);padding:14px"><div class="field" style="margin:0"><label>${ic('swap')} Vaga do quadro que será preenchida</label><select class="input" id="ncV"></select><div class="muted" style="font-size:12px;margin-top:6px" id="ncHint"></div></div></div>` : ''}`,
-    foot: ed ? `${r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
+      ${novo ? `<div class="card mt" style="background:var(--surface2);padding:14px${edQ ? '' : ';display:none'}"><div class="field" style="margin:0"><label>${ic('swap')} Vaga do quadro que será preenchida</label><select class="input" id="ncV"></select><div class="muted" style="font-size:12px;margin-top:6px" id="ncHint"></div></div></div>` : ''}`,
+    foot: ed ? `${edQ && r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${edQ && r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
     onMount: m => {
       const a = $('[data-a=aloc]', m.el); if (a) a.onclick = () => { m.close(); openAlocar(r); }; const am = $('[data-a=alocM]', m.el); if (am) am.onclick = () => { m.close(); openAlocar(r, true); };
       const dsl = $('[data-a=desl]', m.el); if (dsl) dsl.onclick = () => { m.close(); openMarcarDesl([r]); };
@@ -2600,7 +2604,7 @@ function openContr(r) {
           else {
             let vaga = null;
             const vs = $('#ncV', m.el);
-            if (vs && vs.value) { const lk = lojaKey(data[K.loja]); const vr = lojaBy(lk).rows.find(x => x.row === +vs.value); const ct = data[K.contrato] && opc(lojaBy(lk), 'contrato').includes(data[K.contrato]) ? data[K.contrato] : vr.contrato; vaga = { loja: lk, row: vr.row, expect: expectOf(vr), setor: vr.setor, contrato: ct, tag: /APRENDIZ/.test(norm(ct)) ? 'APRENDIZ' : '' }; if (!data[K.setor]) data[K.setor] = vr.setor; if (!data[K.funcao]) data[K.funcao] = vr.funcao; }
+            if (edQ && vs && vs.value) { const lk = lojaKey(data[K.loja]); const vr = lojaBy(lk).rows.find(x => x.row === +vs.value); const ct = data[K.contrato] && opc(lojaBy(lk), 'contrato').includes(data[K.contrato]) ? data[K.contrato] : vr.contrato; vaga = { loja: lk, row: vr.row, expect: expectOf(vr), setor: vr.setor, contrato: ct, tag: /APRENDIZ/.test(norm(ct)) ? 'APRENDIZ' : '' }; if (!data[K.setor]) data[K.setor] = vr.setor; if (!data[K.funcao]) data[K.funcao] = vr.funcao; }
             const statusOpc = op[K.status] || [];
             const j = await api('addContratacao', { data, vaga, statusAlocado: statusOpc.find(x => /ALOCAD/i.test(x)) || 'Alocado' });
             m.close(); if (!j.pendente) toast(j.alocado ? 'Contratação registrada e colaborador colocado no quadro — vaga fechada' : 'Contratação registrada (pendente de alocação)');

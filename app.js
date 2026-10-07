@@ -17,7 +17,7 @@ const MOTIVOS_REQ = ['Substituição (desligamento)', 'Troca / transferência', 
 const TIPOS_DESL = ['Pedido de demissão', 'Dispensa sem justa causa', 'Dispensa por justa causa', 'Término de contrato de experiência', 'Acordo entre as partes', 'Término de contrato (aprendiz/estágio)', 'Outro'];
 const DEF_OPC = {
   situacao: ['OK', 'VAGA', 'EM AVISO', 'TROCA', 'ANÁLISE'],
-  tag: ['CIPA', 'PCD', 'APRENDIZ', 'Líder Trainee'],
+  tag: ['CIPA', 'PCD', 'APRENDIZ', 'Lider Trainee'],
   contrato: ['INTEGRAL', 'PARCIAL', 'ESTÁGIO', 'APRENDIZ', 'JOVEM APRENDIZ', 'RATEIO', 'PCD', 'APOIO']
 };
 
@@ -585,7 +585,12 @@ function derive() {
   });
 }
 const lojaBy = k => S.data.lojas.find(l => l.key === k);
-const opc = (l, k) => { const o = (l && l.opcoes && l.opcoes[k]) || []; return uniq([...o, ...(o.length ? [] : DEF_OPC[k] || [])]); };
+const opc = (l, k) => {
+  const o = (l && l.opcoes && l.opcoes[k]) || [];
+  // tags padrão (CIPA, PCD, Aprendiz, Lider Trainee) sempre disponíveis em todas as lojas
+  const base = k === 'tag' ? [...o, ...DEF_OPC.tag] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
+  const vistos = new Set(); return uniq(base).filter(x => { const n = norm(x); if (vistos.has(n)) return false; vistos.add(n); return true; });
+};
 const allFuncoes = () => uniq(S.all.map(r => r.funcao)).sort();
 
 /* =====================================================================

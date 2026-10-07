@@ -27,7 +27,7 @@
   ];
   const opcoes = {
     situacao: ['OK', 'VAGA', 'EM AVISO', 'TROCA', 'ANÁLISE'],
-    tag: ['CIPA', 'PCD', 'APRENDIZ', 'Líder Trainee'],
+    tag: ['CIPA', 'PCD', 'APRENDIZ', 'Lider Trainee'],
     contrato: ['INTEGRAL', 'PARCIAL', 'ESTÁGIO', 'APRENDIZ', 'JOVEM APRENDIZ', 'RATEIO', 'PCD']
   };
   const vinfo = {}; let vidN = 1;

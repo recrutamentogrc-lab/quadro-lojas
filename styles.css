@@ -416,3 +416,12 @@ optgroup{font-weight:700}
 
 /* aviso de sincronização (dados do aparelho sendo atualizados) */
 .sync-badge{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:300;display:flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:12.5px;font-weight:600;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+
+/* líder do setor */
+.sec-lider{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 4px;border-radius:12px;background:var(--surface2);border:1px solid var(--border);max-width:220px;flex:none}
+.sec-lider.click{cursor:pointer}.sec-lider.click:hover{border-color:var(--accent)}
+.sec-lider .who{display:flex;flex-direction:column;min-width:0;line-height:1.15}
+.sec-lider .who small{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.sec-lider .who b{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sec-lider-add{flex:none;color:var(--muted)}
+@media (max-width:640px){.sec-lider .who small{display:none}.sec-lider{max-width:140px}.sec-lider-add{padding:0 8px}}

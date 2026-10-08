@@ -1294,6 +1294,7 @@ function pgLoja(l) {
         return `<div class="card sec ${isOpen(sec.nome) ? '' : 'collapsed'} ${sec.nVagas ? 'has-vaga' : ''}" data-sec="${h(sec.nome)}">
           <div class="sec-h" data-tog>
             <div style="flex:1;min-width:0"><h4>${h(sec.nome)}</h4><div class="meta">Padrão ${fmt(sec.pad)} · Atual ${fmt(sec.ocup)} ${sec.nVagas ? `· <span style="color:var(--bad);font-weight:700">${sec.nVagas} vaga(s)</span>` : ''}</div></div>
+            ${liderChip(l, sec.nome, ed)}
             <span class="badge ${p >= 100 ? 'b-ok' : p >= 85 ? 'b-warn' : 'b-bad'}">${p}%</span>
             ${ed ? `<button class="btn sm ghost" data-pad="${h(sec.nome)}" title="Editar quadro padrão do setor">${ic('edit')}</button><button class="btn sm ghost" data-add="${h(sec.nome)}" title="Adicionar posição">${ic('plus')}</button>` : ''}
             ${ic('chevron')}
@@ -1312,7 +1313,7 @@ function pgLoja(l) {
       $$('.prow', body).forEach(el => el.onclick = () => { const r = l.rows.find(x => x.row === +el.dataset.row); if (!r) return; if (selOn) toggleSel(r); else openRow(l, r); });
       if (selOn) $$('.sec-h', body).forEach(hd => { const b = document.createElement('button'); b.className = 'btn sm ghost'; b.textContent = 'Todos'; b.title = 'Selecionar todo o setor'; b.onclick = e => { e.stopPropagation(); const nm = hd.closest('.sec').dataset.sec; const rr = rows.filter(r => r.setor === nm); const all = rr.every(r => SEL.set.has(selKey(r))); rr.forEach(r => all ? SEL.set.delete(selKey(r)) : SEL.set.add(selKey(r))); draw(); }; hd.insertBefore(b, hd.querySelector(':scope > .badge')); });
       $$('[data-tog]', body).forEach(el => el.onclick = e => {
-        if (e.target.closest('[data-add],[data-pad]')) return;
+        if (e.target.closest('[data-add],[data-pad],[data-lider]')) return;
         const card = el.closest('.sec'); card.classList.toggle('collapsed');
         if (!autoOpen) { const c = ls.get(expKey, {}); if (card.classList.contains('collapsed')) delete c[card.dataset.sec]; else c[card.dataset.sec] = 1; ls.set(expKey, c); }
         syncAllBtn();
@@ -1333,6 +1334,7 @@ function pgLoja(l) {
       syncAllBtn();
       $$('[data-add]', body).forEach(b => b.onclick = e => { e.stopPropagation(); openAddPos(l, l.setores.find(x => x.nome === b.dataset.add)); });
       $$('[data-pad]', body).forEach(b => b.onclick = e => { e.stopPropagation(); openPadrao(l, l.setores.find(x => x.nome === b.dataset.pad)); });
+      $$('[data-lider]', body).forEach(b => b.onclick = e => { e.stopPropagation(); if (ed) openLider(l, b.dataset.lider, draw); });
       if (S.hl) { const el = $(`.prow[data-row="${S.hl}"]`, body); if (el) el.closest('.sec').classList.remove('collapsed'); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); S.hl = null; }
     }
   };
@@ -1955,6 +1957,47 @@ function resizeImg(file, size) {
     };
     rd.readAsDataURL(file);
   });
+}
+/* ---------------- líder do setor (nome + foto, salvo na configuração) ---------------- */
+const liderKey = (lk, setor) => 'lider_' + lk + '_' + norm(setor).replace(/[^A-Z0-9]+/g, '_');
+function getLider(lk, setor) {
+  let v = cfgv(liderKey(lk, setor), null);
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+  return v && v.nome ? v : null;
+}
+function liderChip(l, setor, ed) {
+  const ld = getLider(l.key, setor);
+  if (ld) return `<div class="sec-lider ${ed ? 'click' : ''}" data-lider="${h(setor)}" title="${ed ? 'Editar líder do setor' : 'Líder do setor'}">${avatar(ld.nome, ld.foto, 'sm')}<div class="who"><small>Líder</small><b>${h(ld.nome)}</b></div></div>`;
+  return ed ? `<button class="btn sm ghost sec-lider-add" data-lider="${h(setor)}" title="Definir líder do setor">${ic('plus')} Líder</button>` : '';
+}
+function openLider(l, setor, done) {
+  const atual = getLider(l.key, setor) || { nome: '', foto: '' };
+  let foto = atual.foto || '';
+  const m = modal({
+    title: 'Líder do setor · ' + h(setor), icon: 'camera',
+    body: `<label class="photo-drop" id="ldDrop" style="margin-bottom:16px"><span id="ldAv">${avatar(atual.nome || '?', foto, 'lg')}</span><div><b>${ic('camera')} <span id="ldFtLbl">${foto ? 'Trocar foto' : 'Colocar foto'}</span></b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div><button class="btn sm danger ${foto ? '' : 'hidden'}" id="ldFRm" style="margin-top:10px" type="button">Remover foto</button></div><input type="file" id="ldFile" accept="image/*" hidden></label>
+      <div class="field"><label>Nome do líder</label><input class="input" id="ldN" maxlength="60" placeholder="Ex.: Maria Souza" value="${h(atual.nome)}"></div>`,
+    foot: `${atual.nome ? '<button class="btn danger" id="ldDel" style="margin-right:auto">Remover líder</button>' : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="ldOk">Salvar</button>`
+  });
+  const el = m.el, file = $('#ldFile', el), drop = $('#ldDrop', el);
+  const paint = () => { $('#ldAv', el).innerHTML = avatar($('#ldN', el).value.trim() || '?', foto, 'lg'); $('#ldFtLbl', el).textContent = foto ? 'Trocar foto' : 'Colocar foto'; $('#ldFRm', el).classList.toggle('hidden', !foto); };
+  const handle = async f => { if (!f || !/^image\//.test(f.type)) return toast('Escolha uma imagem', true); try { foto = await resizeImg(f, 160); paint(); } catch (e) { toast(e.message, true); } };
+  file.onchange = () => handle(file.files[0]);
+  drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; };
+  drop.ondragleave = () => drop.style.borderColor = '';
+  drop.ondrop = e => { e.preventDefault(); drop.style.borderColor = ''; handle(e.dataTransfer.files[0]); };
+  $('#ldFRm', el).onclick = e => { e.preventDefault(); e.stopPropagation(); foto = ''; file.value = ''; paint(); };
+  $('#ldN', el).oninput = paint;
+  const salvar = async (btn, valor) => run(btn, async () => {
+    const k = liderKey(l.key, setor);
+    const j = await api('saveConfig', { data: { [k]: valor ? JSON.stringify(valor) : '' } });
+    if (j.cfg) { S.cfg = j.cfg; saveCfgLocal(); }
+    if (valor && !(j.cfg && j.cfg[k])) toast('O servidor não guardou o líder — falta liberar essa configuração no Apps Script.', true);
+    else toast(valor ? 'Líder de ' + setor + ' salvo' : 'Líder removido');
+    m.close(); if (done) done();
+  }).catch(() => {});
+  $('#ldOk', el).onclick = e => { const nome = $('#ldN', el).value.trim(); if (!nome) return toast('Informe o nome do líder', true); salvar(e.currentTarget, { nome, foto }); };
+  const del = $('#ldDel', el); if (del) del.onclick = async e => { if (!await confirmBox(`Remover o líder de <b>${h(setor)}</b>?`, 'Remover', true)) return; salvar(null, null); };
 }
 // foto de outro usuário (somente administrador) — ação 'saveUserFoto' no Apps Script
 function bindFotoUsuario(el, u, done) {

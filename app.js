@@ -1317,8 +1317,7 @@ function pgLoja(l) {
         const p = pct(sec.ocup, sec.pad);
         return `<div class="card sec ${isOpen(sec.nome) ? '' : 'collapsed'} ${sec.nVagas ? 'has-vaga' : ''}" data-sec="${h(sec.nome)}">
           <div class="sec-h" data-tog>
-            <div style="flex:1;min-width:0"><h4>${h(sec.nome)}</h4><div class="meta">Padrão ${fmt(sec.pad)} · Atual ${fmt(sec.ocup)} ${sec.nVagas ? `· <span style="color:var(--bad);font-weight:700">${sec.nVagas} vaga(s)</span>` : ''}</div></div>
-            ${liderChip(l, sec.nome, ed)}
+            <div style="flex:1;min-width:0"><h4>${h(sec.nome)}</h4><div class="meta">Padrão ${fmt(sec.pad)} · Atual ${fmt(sec.ocup)} ${sec.nVagas ? `· <span style="color:var(--bad);font-weight:700">${sec.nVagas} vaga(s)</span>` : ''}</div>${liderChip(l, sec.nome, ed)}</div>
             <span class="badge ${p >= 100 ? 'b-ok' : p >= 85 ? 'b-warn' : 'b-bad'}">${p}%</span>
             ${ed ? `<button class="btn sm ghost" data-pad="${h(sec.nome)}" title="Editar quadro padrão do setor">${ic('edit')}</button><button class="btn sm ghost" data-add="${h(sec.nome)}" title="Adicionar posição">${ic('plus')}</button>` : ''}
             ${ic('chevron')}
@@ -2029,8 +2028,9 @@ function getLider(lk, setor) {
 }
 function liderChip(l, setor, ed) {
   const ld = getLider(l.key, setor);
-  if (ld) return `<div class="sec-lider ${ed ? 'click' : ''}" data-lider="${h(setor)}" title="${ed ? 'Editar líder do setor' : 'Líder do setor'}">${avatar(ld.nome, ld.foto, 'sm')}<div class="who"><small>Líder</small><b>${h(ld.nome)}</b></div></div>`;
-  return ed ? `<button class="btn sm ghost sec-lider-add" data-lider="${h(setor)}" title="Definir líder do setor">${ic('plus')} Líder</button>` : '';
+  if (ld) { const p = String(ld.nome).trim().split(/\s+/); const nm = p.length > 1 ? p[0] + ' ' + p[p.length - 1] : p[0];
+    return `<span class="sec-lider ${ed ? 'click' : ''}" data-lider="${h(setor)}" title="Líder: ${h(ld.nome)}${ed ? ' — clique para alterar' : ''}">${avatar(ld.nome, ld.foto, '')}<b>${h(nm)}</b></span>`; }
+  return ed ? `<span class="sec-lider sec-lider-add click" data-lider="${h(setor)}" title="Definir líder do setor">${ic('plus')} definir líder</span>` : '';
 }
 function openLider(l, setor, done) {
   const atual = getLider(l.key, setor) || { nome: '', foto: '' };

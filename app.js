@@ -11,7 +11,7 @@ const API_OK = /^https:\/\/script\.google(usercontent)?\.com\//.test(CFG.API_URL
 const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#f5c451' };
 const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)' };
 const PERFIS = { ADMIN: 'Administrador', EDITOR: 'Editor (gestão)', RECRUTADOR: 'Recrutador', LEITOR: 'Gestor / Líder', DP: 'Departamento Pessoal' };
-const GATED = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, desligarLote: 1, contrBulkSet: 1, cruzarContr: 1, setPadrao: 1, setVagaInfo: 'etapas', setVagaInfoLote: 'etapas' };
+const GATED = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, desligarLote: 1, contrBulkSet: 1, cruzarContr: 1, setPadrao: 1, setVagaInfo: 'etapas', setVagaInfoLote: 'etapas' , movimentar: 1 };
 const GATED_EDITOR = { setPadrao: 1, addPosicao: 1 };
 const MOTIVOS_REQ = ['Substituição (desligamento)', 'Troca / transferência', 'Vaga em aberto (já existe no quadro)', 'Aumento de quadro', 'Temporário / sazonal', 'Abertura de loja', 'Outro'];
 const TIPOS_DESL = ['Pedido de demissão', 'Dispensa sem justa causa', 'Dispensa por justa causa', 'Término de contrato de experiência', 'Acordo entre as partes', 'Término de contrato (aprendiz/estágio)', 'Outro'];
@@ -148,7 +148,7 @@ const OTIMISTA = { saveRow: 1, abrirVaga: 1, setVagaInfo: 1, alocar: 1, desligar
 const PEND_MS = 150000; // mantém a alteração na tela até a publicação no Firebase chegar
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
-const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1 }; // ações que mudam a numeração das linhas
+const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, movimentar: 1 }; // ações que mudam a numeração das linhas
 const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1, criarQuadroAdm: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
@@ -1384,11 +1384,13 @@ function openRow(l, r) {
       <div class="field"><label>Contrato</label>${chipPicker('contrato', opc(l, 'contrato'), r.contrato)}</div>
       <div class="field"><label>Situação</label>${chipPicker('situacao', opc(l, 'situacao'), r.situacao)}</div>
       <div class="field"><label>Tag</label>${chipPicker('tag', opc(l, 'tag'), r.tag)}</div>
-      <div class="field" style="max-width:180px"><label>QT (peso no quadro)</label><input class="input" id="eQt" type="number" step="0.01" value="${r.qt}" ${ed ? '' : 'readonly'}></div>`,
+      <div class="field" style="max-width:180px"><label>QT (peso no quadro)</label><input class="input" id="eQt" type="number" step="0.01" value="${r.qt}" ${ed ? '' : 'readonly'}></div>
+      ${r.nome ? '<div id="rowMov"></div>' : ''}`,
     foot: ed ? `
       ${isAdmin() ? `<button class="btn danger" data-act="del" style="margin-right:auto">${ic('trash')} Remover posição</button>` : ''}
       ${r.nome ? `<button class="btn danger" data-act="desl">${ic('door')} Desligar colaborador</button>` : ''}
-      ${r.nome && !r.isVaga ? `<button class="btn" data-act="abrir">${ic('swap')} Aviso / transferência</button>` : ''}
+      ${r.nome && !r.isVaga ? `<button class="btn" data-act="abrir">${ic('door')} Aviso prévio</button>` : ''}
+      ${r.nome && !r.vagaAberta ? `<button class="btn ok" data-act="mov">${ic('swap')} Movimentar</button>` : ''}
       ${r.isVaga ? `<button class="btn ok" data-act="fill">${ic('check')} Preencher vaga</button>` : ''}
       <button class="btn primary" data-act="save">Salvar alterações</button>` : `<button class="btn" data-close>Fechar</button>`,
     onMount: m => {
@@ -1401,6 +1403,8 @@ function openRow(l, r) {
         m.close(); toast('Posição atualizada'); S.hl = r.row; bgReload();
       });
       if (act('abrir')) act('abrir').onclick = () => { m.close(); openAbrirVaga(l, r); };
+      if (act('mov')) act('mov').onclick = () => { m.close(); openMovimentar(l, r); };
+      if (r.nome && $('#rowMov', m.el)) api('listMovimentacoes', { nome: r.nome, n: 20 }, { silent: true }).then(j => { const el = $('#rowMov', m.el); if (!el || !(j.movimentacoes || []).length) return; movCss(); el.innerHTML = `<label style="font-weight:700;font-size:12.5px">${ic('history')} Movimentações</label><div class="mv-hist">${j.movimentacoes.map(x => `<div><b>${h(x.tipo)}</b> · ${h(x.efetiva ? isoToBR(x.efetiva) : x.data.slice(0, 10))}<br><span class="muted">${h(LOJA_NOMES[x.deLoja] || x.deLoja)} · ${h(x.deSetor)} · ${h(x.deFuncao)} → ${h(LOJA_NOMES[x.paraLoja] || x.paraLoja)} · ${h(x.paraSetor)} · ${h(x.paraFuncao)}</span>${x.obs ? `<br><span class="faint">${h(x.obs)}</span>` : ''}</div>`).join('')}</div>`; }).catch(() => {});
       if (act('desl')) act('desl').onclick = () => { m.close(); openDesligar(l, r); };
       if (act('fill')) act('fill').onclick = () => { m.close(); openFill(l, r); };
       if (act('info')) act('info').onclick = () => { m.close(); openVagaInfo(l, r); };
@@ -1410,6 +1414,126 @@ function openRow(l, r) {
       };
     }
   });
+}
+
+/* =====================================================================
+ * MOVIMENTAR COLABORADOR — transferência de setor/loja, promoção, mudança de função
+ * ===================================================================== */
+const MOV_TIPOS = [
+  { k: 'Transferência de setor', ic: 'swap', d: 'Mesma loja, outro setor' },
+  { k: 'Transferência de loja', ic: 'store', d: 'Vai para outra loja' },
+  { k: 'Promoção', ic: 'trend', d: 'Sobe de cargo' },
+  { k: 'Mudança de função', ic: 'edit', d: 'Troca de função' }
+];
+function openMovimentar(l, r) {
+  movCss();
+  const lojasEd = S.data.lojas.filter(x => canEdit(x.key));
+  const st = { tipo: 'Transferência de setor', loja: l.key, setor: r.setor, dest: '' };
+  const tagsIni = r.tag;
+  modal({
+    title: 'Movimentar colaborador', icon: 'swap', wide: true,
+    body: `
+      <div class="mv-who">${avatar(r.nome, '', '')}<div><b>${h(r.nome)}</b><div class="muted" style="font-size:12.5px">${lojaPill(l.key)} · ${h(r.setor)} · ${h(r.funcao)}${r.tempo ? ' · ' + h(r.tempo) : ''}</div></div></div>
+      <div class="field"><label>Tipo de movimentação</label><div class="mv-tipos" id="mvT">${MOV_TIPOS.map(t => `<button type="button" class="mv-tipo" data-t="${h(t.k)}">${ic(t.ic)}<b>${h(t.k)}</b><span>${h(t.d)}</span></button>`).join('')}</div></div>
+      <div class="row2">
+        <div class="field"><label>Para qual loja</label><select class="input" id="mvL">${lojasEd.map(x => `<option value="${h(x.key)}">${h(x.nome)}</option>`).join('')}</select></div>
+        <div class="field"><label>Para qual setor</label><select class="input" id="mvS"></select></div>
+      </div>
+      <div class="field"><label>Posição de destino</label><div class="mv-dest" id="mvD"></div></div>
+      <div class="field hidden" id="mvFw"><label id="mvFl">Função na nova posição</label><input class="input" id="mvF" list="mvFd" placeholder="Ex.: ENCARREGADO(A)"><datalist id="mvFd">${allFuncoes().map(x => `<option value="${h(x)}">`).join('')}</datalist></div>
+      <div class="field"><label>Tags no destino</label><div id="mvTag"></div></div>
+      <div class="field" id="mvOw"><label>E a posição que ele deixa?</label><div class="seg" id="mvO" style="flex-wrap:wrap"><button type="button" data-o="vaga" class="on">${ic('briefcase')} Abrir vaga para repor</button>${isAdmin() ? `<button type="button" data-o="remover">${ic('trash')} Remover a posição</button>` : ''}</div></div>
+      <div class="row2">
+        <div class="field"><label>Data efetiva</label><input class="input" type="date" id="mvDt" value="${isoD(new Date())}"></div>
+        <div class="field"><label>Observação</label><input class="input" id="mvOb" placeholder="Ex.: promoção aprovada pela diretoria"></div>
+      </div>
+      <div class="mv-resumo" id="mvR"></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="mvOk">${ic('check')} Confirmar movimentação</button>`,
+    onMount: m => {
+      const $m = s => $(s, m.el);
+      let origem = 'vaga';
+      const lojaD = () => lojaBy($m('#mvL').value);
+      const drawTipos = () => $$('.mv-tipo', m.el).forEach(b => b.classList.toggle('on', b.dataset.t === st.tipo));
+      const drawSetores = () => { const L = lojaD(); $m('#mvS').innerHTML = L.setores.map(s => `<option ${s.nome === st.setor ? 'selected' : ''}>${h(s.nome)}</option>`).join(''); if (!L.setores.some(s => s.nome === st.setor)) st.setor = L.setores[0] ? L.setores[0].nome : ''; };
+      const drawTags = () => { const L = lojaD(); const cur = $m('#mvTag').dataset.init ? pickVal(m.el, 'tag') : tagsIni; $m('#mvTag').innerHTML = chipPicker('tag', opc(L, 'tag'), cur); $m('#mvTag').dataset.init = 1; bindPickers($m('#mvTag'));
+        if (isAdmLoja(L)) { const SK = SEN.map(x => norm(x.k)); $$('[data-picker="tag"] .chip', m.el).forEach(c => { if (!SK.includes(norm(c.dataset.v))) return; const orig = c.onclick; c.onclick = () => { $$('[data-picker="tag"] .chip', m.el).forEach(x => { if (x !== c && SK.includes(norm(x.dataset.v))) x.classList.remove('on'); }); orig(); drawResumo(); }; }); } };
+      const vagasDest = () => { const L = lojaD(); return L.rows.filter(x => x.setor === st.setor && x.vagaAberta && !(L.key === l.key && x.row === r.row)); };
+      const drawDest = () => {
+        const V = vagasDest(), mesma = lojaD().key === l.key && st.setor === r.setor && /Promo|Mudan/.test(st.tipo);
+        const opts = V.map(v => `<button type="button" class="mv-op" data-d="${v.row}">${ic('briefcase')}<div><b>${h(v.funcao)}</b><span>Vaga aberta${v.dias != null ? ' há ' + v.dias + ' dia(s)' : ''}${v.etapa ? ' · ' + h(v.etapa) : ''}${v.contrato && norm(v.contrato) !== 'INTEGRAL' ? ' · ' + h(v.contrato) : ''}</span></div></button>`);
+        if (mesma) opts.unshift(`<button type="button" class="mv-op" data-d="mesma">${ic('edit')}<div><b>Mesma posição</b><span>Continua no mesmo lugar, só muda a função</span></div></button>`);
+        if (isAdmin()) opts.push(`<button type="button" class="mv-op" data-d="nova">${ic('plus')}<div><b>Criar nova posição</b><span>Aumenta o quadro do setor de destino</span></div></button>`);
+        $m('#mvD').innerHTML = opts.length ? opts.join('') : `<div class="muted" style="font-size:13px;padding:10px 0">Não há vaga aberta neste setor. ${isAdmin() ? '' : 'Peça ao administrador para abrir uma posição.'}</div>`;
+        if (!$(`.mv-op[data-d="${st.dest}"]`, m.el)) { const pri = $('.mv-op:not([data-d="nova"])', m.el); st.dest = pri ? pri.dataset.d : ''; } // "criar nova posição" só quando clicado
+        $$('.mv-op', m.el).forEach(b => { b.classList.toggle('on', b.dataset.d === st.dest); b.onclick = () => { st.dest = b.dataset.d; drawDest(); }; });
+        const precisaF = st.dest === 'nova' || st.dest === 'mesma';
+        $m('#mvFw').classList.toggle('hidden', !precisaF);
+        $m('#mvFl').textContent = st.dest === 'mesma' ? 'Nova função' : 'Função na nova posição';
+        if (precisaF && !$m('#mvF').value) $m('#mvF').value = st.dest === 'nova' ? r.funcao : '';
+        $m('#mvOw').classList.toggle('hidden', st.dest === 'mesma');
+        drawResumo();
+      };
+      const destInfo = () => { const L = lojaD(); if (st.dest === 'mesma') return { L: lojaBy(l.key), setor: r.setor, funcao: $m('#mvF').value.trim() }; if (st.dest === 'nova') return { L, setor: st.setor, funcao: $m('#mvF').value.trim() }; const v = L.rows.find(x => x.row === +st.dest); return v ? { L, setor: v.setor, funcao: v.funcao, v } : null; };
+      const drawResumo = () => {
+        const d = destInfo();
+        $m('#mvR').innerHTML = d ? `<div class="mv-flow"><div class="mv-box"><span>DE</span><b>${h(l.nome)}</b><small>${h(r.setor)}</small><small>${h(r.funcao)}</small></div><div class="mv-arrow">${ic('swap')}<em>${h(st.tipo)}</em></div><div class="mv-box to"><span>PARA</span><b>${h(d.L.nome)}</b><small>${h(d.setor)}</small><small>${h(d.funcao || '—')}</small></div></div>${st.dest !== 'mesma' ? `<div class="muted" style="font-size:12px;margin-top:8px;text-align:center">${origem === 'remover' ? 'A posição de origem será removida do quadro.' : `A posição de ${h(r.funcao)} em ${h(r.setor)} vira <b>vaga aberta</b> (motivo: ${h(st.tipo)}).`}</div>` : ''}` : '';
+      };
+      $$('.mv-tipo', m.el).forEach(b => b.onclick = () => {
+        st.tipo = b.dataset.t; drawTipos();
+        if (st.tipo === 'Transferência de loja' && $m('#mvL').value === l.key) { const outra = lojasEd.find(x => x.key !== l.key); if (outra) { $m('#mvL').value = outra.key; drawSetores(); drawTags(); } }
+        if (st.tipo !== 'Transferência de loja' && $m('#mvL').value !== l.key && lojasEd.some(x => x.key === l.key) && st.tipo === 'Transferência de setor') { $m('#mvL').value = l.key; drawSetores(); drawTags(); }
+        drawDest();
+      });
+      $m('#mvL').value = l.key;
+      $m('#mvL').onchange = () => { drawSetores(); drawTags(); drawDest(); };
+      $m('#mvS').onchange = () => { st.setor = $m('#mvS').value; drawDest(); };
+      $m('#mvF').oninput = drawResumo;
+      $$('#mvO button', m.el).forEach(b => b.onclick = () => { origem = b.dataset.o; $$('#mvO button', m.el).forEach(x => x.classList.toggle('on', x === b)); drawResumo(); });
+      // começa sugerindo outro setor quando for transferência de setor
+      const outros = lojaD().setores.filter(s => s.nome !== r.setor);
+      if (outros.length) st.setor = (outros.find(s => s.linhas.some(x => x.vagaAberta)) || outros[0]).nome;
+      drawTipos(); drawSetores(); drawTags(); drawDest();
+      $m('#mvOk').onclick = e => run(e.currentTarget, async () => {
+        const d = destInfo();
+        if (!d) throw new Error('Escolha a posição de destino');
+        if ((st.dest === 'nova' || st.dest === 'mesma') && !d.funcao) throw new Error('Informe a função');
+        if (st.dest === 'mesma' && norm(d.funcao) === norm(r.funcao)) throw new Error('A nova função é igual à atual');
+        const payload = {
+          tipo: st.tipo, origemAcao: origem, dataEfetiva: $m('#mvDt').value, obs: $m('#mvOb').value.trim(), responsavel: S.user.nome,
+          origem: { loja: l.key, row: r.row, setor: r.setor, expect: expectOf(r) },
+          destino: st.dest === 'mesma' ? { loja: l.key, mesmaPosicao: true, funcao: d.funcao.toUpperCase(), tag: pickVal(m.el, 'tag') }
+            : st.dest === 'nova' ? { loja: d.L.key, setor: d.setor, funcao: d.funcao.toUpperCase(), tag: pickVal(m.el, 'tag'), contrato: r.contrato }
+            : { loja: d.L.key, row: d.v.row, setor: d.setor, expect: expectOf(d.v), tag: pickVal(m.el, 'tag') }
+        };
+        const j = await api('movimentar', payload);
+        m.close();
+        if (!j.pendente) toast(`${r.nome.split(' ')[0]} movimentado(a): ${st.tipo.toLowerCase()} para ${d.L.nome} · ${d.setor}`);
+      });
+    }
+  });
+}
+function movCss() {
+  if (document.getElementById('movCss')) return;
+  const s = document.createElement('style'); s.id = 'movCss';
+  s.textContent = `
+  .mv-who{display:flex;gap:12px;align-items:center;padding:12px 14px;border-radius:14px;background:var(--surface2);margin-bottom:16px}
+  .mv-tipos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .mv-tipo{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px;border-radius:14px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;text-align:left;font:inherit}
+  .mv-tipo b{font-size:13px}.mv-tipo span{font-size:11.5px;color:var(--muted)}.mv-tipo .i{color:var(--accent)}
+  .mv-tipo.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+  .mv-dest{display:flex;flex-direction:column;gap:6px;max-height:230px;overflow:auto}
+  .mv-op{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:12px;border:1.5px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;text-align:left;font:inherit}
+  .mv-op b{display:block;font-size:13px}.mv-op span{font-size:11.5px;color:var(--muted)}
+  .mv-op.on{border-color:var(--ok,#34d399);background:color-mix(in srgb,var(--ok,#34d399) 10%,var(--surface))}
+  .mv-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;padding:14px;border-radius:16px;background:linear-gradient(120deg,color-mix(in srgb,var(--accent) 10%,var(--surface2)),var(--surface2))}
+  .mv-box{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)}
+  .mv-box span{font-size:10px;font-weight:800;letter-spacing:1.5px;color:var(--muted)}.mv-box b{font-size:14px}.mv-box small{font-size:12px;color:var(--muted)}
+  .mv-box.to{border-color:color-mix(in srgb,var(--ok,#34d399) 60%,transparent)}
+  .mv-arrow{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--accent)}.mv-arrow em{font-style:normal;font-size:11px;font-weight:700;text-align:center;max-width:110px}
+  .mv-hist{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+  .mv-hist div{font-size:12.5px;padding:8px 10px;border-radius:10px;background:var(--surface2)}
+  @media (max-width:700px){.mv-tipos{grid-template-columns:repeat(2,minmax(0,1fr))}.mv-flow{grid-template-columns:1fr}.mv-arrow{flex-direction:row}}`;
+  document.head.appendChild(s);
 }
 
 function openAbrirVaga(l, r) {
@@ -1921,6 +2045,7 @@ function describe(action, p) {
     case 'addContratacao': return `Nova contratação: ${d[S.ck.colab] || ''} — ${d[S.ck.funcao] || ''} (${d[S.ck.loja] || ''})${p.vaga ? ' · alocar no quadro' : ''}`;
     case 'setPadrao': return `Quadro padrão de ${p.setor} (${L}): ${fmt(p.padraoAtual)} → ${fmt(p.padrao)}${p.motivo ? ' · ' + p.motivo : ''}${p.novas ? ' · criar ' + p.novas.qtd + ' vaga(s)' : ''}`;
     case 'saveContratacao': return `Editar contratação de ${p.expectNome || ''}`;
+    case 'movimentar': return `${p.tipo || 'Movimentação'}: ${e.nome || (p.origem && p.origem.expect && p.origem.expect.nome) || ''} — ${(LOJA_NOMES[(p.origem || {}).loja] || '')} · ${(p.origem || {}).setor || ''} → ${(LOJA_NOMES[(p.destino || {}).loja] || '')} · ${(p.destino || {}).setor || ''} ${(p.destino || {}).funcao || ''}`;
     case 'marcarDesligadoContr': return `Marcar ${(p.rows || []).length} contratação(ões) como desligada(s): ${(p.rows || []).map(x => x.nome).join(', ')}`;
   }
   return action;

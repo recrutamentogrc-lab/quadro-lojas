@@ -114,6 +114,7 @@ function avatar(name, foto, cls = '') {
 
 /* ---------------- feedback ---------------- */
 function toast(msg, err) {
+  if (!msg) return;
   if (!err && S.muteUntil && Date.now() < S.muteUntil) return;
   const t = document.createElement('div');
   t.className = 'toast' + (err ? ' err' : '');
@@ -1963,7 +1964,63 @@ function pgPerfil() {
     ['sA', 'sN', 'sC'].forEach(i => $('#' + i).value = ''); toast('Senha alterada');
   });
 }
+
+/* ---------------- ajuste da foto (enquadrar: arrastar, zoom e girar) ---------------- */
+function ajustarFoto(file, size) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Imagem inválida. Use JPG ou PNG.')); };
+    img.onload = () => {
+      const V = 280; let rot = 0, z = 1, x = 0, y = 0, base = 1, feito = false;
+      const dims = () => rot % 180 ? [img.height, img.width] : [img.width, img.height];
+      const m = modal({
+        title: 'Ajustar foto', icon: 'camera',
+        body: `<p class="muted" style="margin:0 0 12px;font-size:13px">Arraste a foto para enquadrar o rosto e use o zoom.</p>
+          <div class="crop-wrap"><div class="crop-vp" id="cpV" style="width:${V}px;height:${V}px"><canvas id="cpC" width="${V * 2}" height="${V * 2}"></canvas><div class="crop-mask"></div></div></div>
+          <div class="crop-ctl"><button type="button" class="btn sm ghost" id="cpMenos" title="Diminuir">−</button><input type="range" id="cpZ" min="1" max="4" step="0.01" value="1"><button type="button" class="btn sm ghost" id="cpMais" title="Aumentar">+</button><button type="button" class="btn sm" id="cpRot" title="Girar 90°">${ic('refresh')} Girar</button></div>`,
+        foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="cpOk">${ic('check')} Usar foto</button>`,
+        onClose: () => { URL.revokeObjectURL(url); if (!feito) rej(new Error('')); }
+      });
+      const el = m.el, cv = $('#cpC', el), ctx = cv.getContext('2d'), vp = $('#cpV', el), zr = $('#cpZ', el);
+      const fit = () => { const [w, h2] = dims(); base = V / Math.min(w, h2); };
+      const clamp = () => { const [w, h2] = dims(); const s = base * z; const mx = Math.max(0, (w * s - V) / 2), my = Math.max(0, (h2 * s - V) / 2); x = Math.min(mx, Math.max(-mx, x)); y = Math.min(my, Math.max(-my, y)); };
+      const drawTo = (c2, N) => { const g = c2.getContext('2d'); const k = N / V; g.fillStyle = '#fff'; g.fillRect(0, 0, N, N); g.save(); g.translate(N / 2 + x * k, N / 2 + y * k); g.rotate(rot * Math.PI / 180); const s = base * z * k; g.drawImage(img, -img.width * s / 2, -img.height * s / 2, img.width * s, img.height * s); g.restore(); };
+      const draw = () => { clamp(); drawTo(cv, V * 2); };
+      fit(); draw();
+      const setZ = v => { z = Math.min(4, Math.max(1, v)); zr.value = z; draw(); };
+      zr.oninput = () => setZ(+zr.value);
+      $('#cpMenos', el).onclick = () => setZ(z - .15); $('#cpMais', el).onclick = () => setZ(z + .15);
+      $('#cpRot', el).onclick = () => { rot = (rot + 90) % 360; fit(); x = y = 0; draw(); };
+      vp.addEventListener('wheel', e => { e.preventDefault(); setZ(z * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); }, { passive: false });
+      const pts = new Map(); let last = null, pinch = null;
+      vp.addEventListener('pointerdown', e => { vp.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); last = [e.clientX, e.clientY]; if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), z }; } });
+      vp.addEventListener('pointermove', e => {
+        if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, [e.clientX, e.clientY]);
+        if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()]; setZ(pinch.z * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d); return; }
+        x += e.clientX - last[0]; y += e.clientY - last[1]; last = [e.clientX, e.clientY]; draw();
+      });
+      const up = e => { pts.delete(e.pointerId); pinch = null; const r = [...pts.values()][0]; if (r) last = r; };
+      vp.addEventListener('pointerup', up); vp.addEventListener('pointercancel', up);
+      $('#cpOk', el).onclick = () => {
+        let N = size, out;
+        for (;;) { const c2 = document.createElement('canvas'); c2.width = c2.height = N; drawTo(c2, N); let q = .85; out = c2.toDataURL('image/jpeg', q); while (out.length > 42000 && q > .35) { q -= .1; out = c2.toDataURL('image/jpeg', q); } if (out.length <= 42000 || N <= 120) break; N = Math.round(N * .8); }
+        feito = true; m.close(); res(out);
+      };
+    };
+    img.src = url;
+  });
+}
+// permite escolher o mesmo arquivo de novo (ex.: depois de cancelar o ajuste)
+document.addEventListener('change', e => { const t = e.target; if (t && t.type === 'file' && /File$/.test(t.id || '')) setTimeout(() => { try { t.value = ''; } catch (er) {} }, 0); }, true);
+(function cropCss() { try { const st = document.createElement('style'); st.textContent = `
+  .crop-wrap{display:flex;justify-content:center}
+  .crop-vp{position:relative;border-radius:18px;overflow:hidden;touch-action:none;cursor:grab;background:#0b1122;max-width:100%}
+  .crop-vp:active{cursor:grabbing}.crop-vp canvas{width:100%;height:100%;display:block}
+  .crop-mask{position:absolute;inset:0;pointer-events:none;border-radius:50%;box-shadow:0 0 0 999px rgba(5,8,18,.55);outline:2px solid rgba(255,255,255,.85);outline-offset:-2px}
+  .crop-ctl{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px}.crop-ctl input[type=range]{width:180px;accent-color:var(--accent)}`; document.head.appendChild(st); } catch (e) {} })();
 function resizeImg(file, size) {
+  if (!resizeImg.direto) return ajustarFoto(file, size);
   return new Promise((res, rej) => {
     const rd = new FileReader();
     rd.onload = () => {
@@ -1984,6 +2041,7 @@ function resizeImg(file, size) {
   });
 }
 function fotoMini(file, size = 96) {
+  return ajustarFoto(file, size);
   return new Promise((res, rej) => {
     const rd = new FileReader();
     rd.onload = () => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = c.height = size; const m = Math.min(img.width, img.height); c.getContext('2d').drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, size, size); res(c.toDataURL('image/jpeg', .72)); }; img.onerror = () => rej(new Error('Imagem inválida')); img.src = rd.result; };

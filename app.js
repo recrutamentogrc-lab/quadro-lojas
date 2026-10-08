@@ -96,7 +96,16 @@ const ICONS = {
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n] || ''}</svg>`;
 
+// foto do colaborador: guardada na configuração (chave foto_NOME); usuário logado usa a foto do perfil
+const fotoKey = nome => 'foto_' + norm(nome).replace(/[^A-Z0-9]+/g, '_');
+function fotoColab(nome) {
+  if (!nome) return '';
+  const f = (typeof S !== 'undefined' && S.cfg && S.cfg[fotoKey(nome)]) || '';
+  if (f) return f;
+  return (typeof S !== 'undefined' && S.user && S.user.foto && norm(S.user.nome) === norm(nome)) ? S.user.foto : '';
+}
 function avatar(name, foto, cls = '') {
+  if (!foto) foto = fotoColab(name);
   return `<div class="avatar ${cls}">${foto ? `<img src="${h(foto)}" alt="">` : h(initials(name))}</div>`;
 }
 
@@ -1281,7 +1290,7 @@ function pgLoja(l) {
       const resumo = rr => {
         const oc = rr.filter(r => r.nome && !r.isVaga).length, vg = rr.filter(r => r.vagaAberta).length, fu = rr.filter(r => r.vagaFutura).length, av = rr.filter(r => r.aviso).length;
         const pess = rr.filter(r => r.nome), mx = 5;
-        const stack = pess.slice(0, mx).map(r => `<span class="sx" title="${h(r.nome)}">${h(initials(r.nome))}</span>`).join('') + (pess.length > mx ? `<span class="sx more">+${pess.length - mx}</span>` : '');
+        const stack = pess.slice(0, mx).map(r => `<span class="sx" title="${h(r.nome)}">${fotoColab(r.nome) ? `<img src="${h(fotoColab(r.nome))}" alt="">` : h(initials(r.nome))}</span>`).join('') + (pess.length > mx ? `<span class="sx more">+${pess.length - mx}</span>` : '');
         return `<div class="sec-sum" data-tog><div class="stack">${stack}</div><div class="pills">
           <span class="pl ok" title="Ocupadas">${oc} ocup.</span>
           ${vg ? `<span class="pl bad" title="Vagas abertas">${vg} vaga${vg > 1 ? 's' : ''}</span>` : ''}
@@ -1369,11 +1378,13 @@ const expectOf = r => ({ nome: r.nome, funcao: r.funcao });
 
 function openRow(l, r) {
   const ed = canEdit(l.key);
+  if (r.nome && ed) setTimeout(() => bindFotoColab(r.nome), 0);
   const funcs = allFuncoes();
   const info = r.info || {};
   modal({
     title: r.nome ? h(r.nome) : 'Vaga em aberto', icon: r.nome ? 'users' : 'briefcase', wide: true,
     body: `
+      ${r.nome && ed ? `<label class="photo-drop" id="cfDrop" style="margin-bottom:16px"><span id="cfAv">${avatar(r.nome, '', 'lg')}</span><div><b>${ic('camera')} ${fotoColab(r.nome) ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem. Ela aparece no lugar das iniciais em todo o sistema.</div>${cfgv(fotoKey(r.nome), '') ? '<button class="btn sm danger" id="cfRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="cfFile" accept="image/*" hidden></label>` : ''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${lojaPill(l.key)}<span class="badge">${h(r.setor)}</span>${sitBadge(r)}${tagBadges(r)}${r.tempo ? `<span class="badge">${ic('clock')} ${h(r.tempo)}</span>` : ''}<span class="badge faint">Linha ${r.row} da aba ${h(l.sheet)}</span></div>
       ${r.isVaga ? `<div class="card" style="background:var(--surface2);margin-bottom:16px;padding:14px">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="flex:1">Acompanhamento da vaga</b>${etapaBadge(r.etapa)} ${diasBadge(r.dias)}${ed ? `<button class="btn sm" data-act="info">${ic('edit')} Editar</button>` : ''}</div>
@@ -1957,6 +1968,34 @@ function resizeImg(file, size) {
     };
     rd.readAsDataURL(file);
   });
+}
+function fotoMini(file, size = 96) {
+  return new Promise((res, rej) => {
+    const rd = new FileReader();
+    rd.onload = () => { const img = new Image(); img.onload = () => { const c = document.createElement('canvas'); c.width = c.height = size; const m = Math.min(img.width, img.height); c.getContext('2d').drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, size, size); res(c.toDataURL('image/jpeg', .72)); }; img.onerror = () => rej(new Error('Imagem inválida')); img.src = rd.result; };
+    rd.readAsDataURL(file);
+  });
+}
+function bindFotoColab(nome) {
+  const file = $('#cfFile'), drop = $('#cfDrop'); if (!file || !drop) return;
+  const paint = () => { $('#cfAv').innerHTML = avatar(nome, '', 'lg'); };
+  const salvar = async foto => {
+    busy(true);
+    try {
+      const k = fotoKey(nome);
+      const j = await api('saveConfig', { data: { [k]: foto } }, { silent: true });
+      if (j.cfg) { S.cfg = j.cfg; saveCfgLocal(); }
+      if (foto && !(j.cfg && j.cfg[k])) toast('O servidor não guardou a foto — falta liberar essa configuração no Apps Script.', true);
+      else toast(foto ? 'Foto de ' + nome.split(' ')[0] + ' salva' : 'Foto removida');
+      paint(); if (typeof S.rerender === 'function') S.rerender(); else if (typeof route === 'function') route();
+    } catch (e) { toast(e.message, true); } finally { busy(false); }
+  };
+  const handle = async f => { if (!f || !/^image\//.test(f.type)) return toast('Escolha uma imagem', true); try { await salvar(await fotoMini(f)); } catch (e) { toast(e.message, true); } };
+  file.onchange = () => handle(file.files[0]);
+  drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; };
+  drop.ondragleave = () => drop.style.borderColor = '';
+  drop.ondrop = e => { e.preventDefault(); drop.style.borderColor = ''; handle(e.dataTransfer.files[0]); };
+  const rm = $('#cfRm'); if (rm) rm.onclick = e => { e.preventDefault(); e.stopPropagation(); rm.remove(); salvar(''); };
 }
 /* ---------------- líder do setor (nome + foto, salvo na configuração) ---------------- */
 const liderKey = (lk, setor) => 'lider_' + lk + '_' + norm(setor).replace(/[^A-Z0-9]+/g, '_');

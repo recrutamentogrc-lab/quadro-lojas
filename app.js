@@ -1357,7 +1357,7 @@ function pgLoja(l) {
       syncAllBtn();
       $$('[data-add]', body).forEach(b => b.onclick = e => { e.stopPropagation(); openAddPos(l, l.setores.find(x => x.nome === b.dataset.add)); });
       $$('[data-pad]', body).forEach(b => b.onclick = e => { e.stopPropagation(); openPadrao(l, l.setores.find(x => x.nome === b.dataset.pad)); });
-      $$('[data-lider]', body).forEach(b => b.onclick = e => { e.stopPropagation(); if (ed) openLider(l, b.dataset.lider, draw); });
+      $$('[data-lider]', body).forEach(b => b.onclick = e => { e.stopPropagation(); if (ed) openLider(l, b.dataset.lider, draw, !!b.dataset.trainee); });
       if (S.hl) { const el = $(`.prow[data-row="${S.hl}"]`, body); if (el) el.closest('.sec').classList.remove('collapsed'); if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100); S.hl = null; }
     }
   };
@@ -1398,7 +1398,7 @@ function openRow(l, r) {
   modal({
     title: r.nome ? h(r.nome) : 'Vaga em aberto', icon: r.nome ? 'users' : 'briefcase', wide: true,
     body: `
-      ${r.nome && ed ? `<label class="photo-drop" id="cfDrop" style="margin-bottom:16px"><span id="cfAv">${avatar(r.nome, '', 'lg')}</span><div><b>${ic('camera')} ${fotoColab(r.nome) ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem. Ela aparece no lugar das iniciais em todo o sistema.</div>${cfgv(fotoKey(r.nome), '') ? '<button class="btn sm danger" id="cfRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="cfFile" accept="image/*" hidden></label>` : ''}
+      ${r.nome && ed ? `<label class="photo-drop" id="cfDrop" for="cfFile" style="margin-bottom:16px"><span id="cfAv">${avatar(r.nome, '', 'lg')}</span><div><b>${ic('camera')} ${fotoColab(r.nome) ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem. Ela aparece no lugar das iniciais em todo o sistema.</div>${cfgv(fotoKey(r.nome), '') ? '<button class="btn sm danger" id="cfRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="cfFile" accept="image/*" hidden></label>` : ''}
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${lojaPill(l.key)}<span class="badge">${h(r.setor)}</span>${sitBadge(r)}${tagBadges(r)}${r.tempo ? `<span class="badge">${ic('clock')} ${h(r.tempo)}</span>` : ''}<span class="badge faint">Linha ${r.row} da aba ${h(l.sheet)}</span></div>
       ${r.isVaga ? `<div class="card" style="background:var(--surface2);margin-bottom:16px;padding:14px">
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="flex:1">Acompanhamento da vaga</b>${etapaBadge(r.etapa)} ${diasBadge(r.dias)}${ed ? `<button class="btn sm" data-act="info">${ic('edit')} Editar</button>` : ''}</div>
@@ -1919,7 +1919,7 @@ function pgPerfil() {
   <div class="grid g2">
     <div class="card">
       <div class="card-h"><h3>Dados pessoais</h3></div>
-      <label class="photo-drop" id="pDrop">${avatar(u.nome, u.foto, 'lg')}<div><b>${ic('camera')} Alterar foto</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div>${u.foto ? '<button class="btn sm danger" id="pRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="pFile" accept="image/*" hidden></label>
+      <label class="photo-drop" id="pDrop" for="pFile">${avatar(u.nome, u.foto, 'lg')}<div><b>${ic('camera')} Alterar foto</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div>${u.foto ? '<button class="btn sm danger" id="pRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="pFile" accept="image/*" hidden></label>
       <div class="field" style="margin-top:18px"><label>Nome de exibição</label><input class="input" id="pN" value="${h(u.nome)}"></div>
       <div class="field"><label>Cargo</label><input class="input" id="pC" value="${h(u.cargo || '')}"></div>
       <button class="btn primary" id="pSave">Salvar</button>
@@ -2018,7 +2018,13 @@ function liderAuto(lk, setor) {
   const c = sec.linhas.filter(r => r.nome).map(r => ({ r, i: LIDER_RX.findIndex(rx => rx.test(norm(r.funcao))) })).filter(x => x.i >= 0).sort((a, b) => a.i - b.i)[0];
   return c ? { nome: c.r.nome, funcao: c.r.funcao, auto: true } : null;
 }
-function getLider(lk, setor) {
+function traineeAuto(lk, setor) {
+  const l = lojaBy(lk); const sec = l && l.setores.find(s => s.nome === setor); if (!sec) return null;
+  const r = sec.linhas.find(r => r.nome && /TRAIN/.test(norm(r.tag + ' ' + r.funcao)));
+  return r ? { nome: r.nome, funcao: r.funcao, auto: true } : null;
+}
+function getLider(lk, setor, trainee) {
+  if (trainee) { const t = S.lideres && S.lideres[lk + '|' + setor + '|TRAINEE']; if (t && t.nome) return { nome: t.nome, foto: fotoDe(t.nome) }; const a = traineeAuto(lk, setor); return a ? Object.assign(a, { foto: fotoDe(a.nome) }) : null; }
   const m = S.lideres && S.lideres[lk + '|' + setor];
   if (m && m.nome) return { nome: m.nome, foto: fotoDe(m.nome) };
   let v = cfgv(liderKey(lk, setor), null);
@@ -2027,19 +2033,25 @@ function getLider(lk, setor) {
   const a = liderAuto(lk, setor); return a ? Object.assign(a, { foto: fotoDe(a.nome) }) : null;
 }
 function liderChip(l, setor, ed) {
-  const ld = getLider(l.key, setor);
-  if (ld) { const p = String(ld.nome).trim().split(/\s+/); const nm = p.length > 1 ? p[0] + ' ' + p[p.length - 1] : p[0];
-    return `<span class="sec-lider ${ed ? 'click' : ''}" data-lider="${h(setor)}" title="Líder: ${h(ld.nome)}${ed ? ' — clique para alterar' : ''}">${avatar(ld.nome, ld.foto, '')}<b>${h(nm)}</b></span>`; }
-  return ed ? `<span class="sec-lider sec-lider-add click" data-lider="${h(setor)}" title="Definir líder do setor">${ic('plus')} definir líder</span>` : '';
+  const curto = n => { const p = String(n).trim().split(/\s+/); return p.length > 1 ? p[0] + ' ' + p[p.length - 1] : p[0]; };
+  const ld = getLider(l.key, setor), tr = getLider(l.key, setor, true);
+  const a = ld ? `<span class="sec-lider ${ed ? 'click' : ''}" data-lider="${h(setor)}" title="Líder: ${h(ld.nome)}${ed ? ' — clique para alterar' : ''}">${avatar(ld.nome, ld.foto, '')}<b>${h(curto(ld.nome))}</b></span>`
+    : ed ? `<span class="sec-lider sec-lider-add click" data-lider="${h(setor)}" title="Definir líder do setor">${ic('plus')} líder</span>` : '';
+  const b = tr ? `<span class="sec-lider trainee ${ed ? 'click' : ''}" data-lider="${h(setor)}" data-trainee="1" title="Líder trainee: ${h(tr.nome)}${ed ? ' — clique para alterar' : ''}">${avatar(tr.nome, tr.foto, '')}<b>${h(curto(tr.nome))}</b><i>trainee</i></span>`
+    : ed ? `<span class="sec-lider sec-lider-add click" data-lider="${h(setor)}" data-trainee="1" title="Definir líder trainee do setor">${ic('plus')} trainee</span>` : '';
+  return a || b ? `<div class="sec-lideres">${a}${b}</div>` : '';
 }
-function openLider(l, setor, done) {
-  const atual = getLider(l.key, setor) || { nome: '', foto: '' };
+function openLider(l, setor, done, trainee) {
+  const atual = getLider(l.key, setor, trainee) || { nome: '', foto: '' };
+  const papel = trainee ? 'Líder trainee' : 'Líder';
+  const chave = setor + (trainee ? '|TRAINEE' : '');
   let foto = atual.foto || '';
   const m = modal({
-    title: 'Líder do setor · ' + h(setor), icon: 'camera',
-    body: `<label class="photo-drop" id="ldDrop" style="margin-bottom:16px"><span id="ldAv">${avatar(atual.nome || '?', foto, 'lg')}</span><div><b>${ic('camera')} <span id="ldFtLbl">${foto ? 'Trocar foto' : 'Colocar foto'}</span></b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div><button class="btn sm danger ${foto ? '' : 'hidden'}" id="ldFRm" style="margin-top:10px" type="button">Remover foto</button></div><input type="file" id="ldFile" accept="image/*" hidden></label>
-      <div class="field"><label>Nome do líder</label><input class="input" id="ldN" maxlength="60" placeholder="Ex.: Maria Souza" value="${h(atual.nome)}"></div>`,
-    foot: `${atual.nome ? '<button class="btn danger" id="ldDel" style="margin-right:auto">Remover líder</button>' : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="ldOk">Salvar</button>`
+    title: papel + ' · ' + h(setor), icon: 'camera',
+    body: `<label class="photo-drop" id="ldDrop" for="ldFile" style="margin-bottom:16px"><span id="ldAv">${avatar(atual.nome || '?', foto, 'lg')}</span><div><b>${ic('camera')} <span id="ldFtLbl">${foto ? 'Trocar foto' : 'Colocar foto'}</span></b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div><button class="btn sm danger ${foto ? '' : 'hidden'}" id="ldFRm" style="margin-top:10px" type="button">Remover foto</button></div><input type="file" id="ldFile" accept="image/*" hidden></label>
+      <div class="field"><label>Nome ${trainee ? 'do líder trainee' : 'do líder'}</label><input class="input" id="ldN" maxlength="60" list="ldNl" placeholder="Comece a digitar o nome" value="${h(atual.nome)}"><datalist id="ldNl">${uniq(l.rows.filter(r => r.nome).map(r => r.nome)).sort().map(n => `<option value="${h(n)}">`).join('')}</datalist></div>
+      ${atual.auto ? `<p class="faint" style="font-size:12px;margin:0">Sugestão automática pela ${trainee ? 'tag Lider Trainee' : 'função'} (${h(atual.funcao || '')}). Salve para fixar.</p>` : ''}`,
+    foot: `${atual.nome && !atual.auto ? '<button class="btn danger" id="ldDel" style="margin-right:auto">Remover</button>' : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="ldOk">Salvar</button>`
   });
   const el = m.el, file = $('#ldFile', el), drop = $('#ldDrop', el);
   const paint = () => { $('#ldAv', el).innerHTML = avatar($('#ldN', el).value.trim() || '?', foto, 'lg'); $('#ldFtLbl', el).textContent = foto ? 'Trocar foto' : 'Colocar foto'; $('#ldFRm', el).classList.toggle('hidden', !foto); };
@@ -2052,14 +2064,14 @@ function openLider(l, setor, done) {
   $('#ldN', el).oninput = paint;
   const salvar = async (btn, valor) => run(btn, async () => {
     if (valor && valor.foto !== fotoDe(valor.nome)) { await api('saveFotoColab', { nome: valor.nome, foto: valor.foto || '', loja: l.key }); if (valor.foto) S.fotos[chaveNome(valor.nome)] = valor.foto; else delete S.fotos[chaveNome(valor.nome)]; }
-    await api('setLiderSetor', { loja: l.key, setor, nome: valor ? valor.nome : '' });
-    S.lideres = S.lideres || {}; if (valor) S.lideres[l.key + '|' + setor] = { nome: valor.nome }; else delete S.lideres[l.key + '|' + setor];
+    await api('setLiderSetor', { loja: l.key, setor: chave, nome: valor ? valor.nome : '' });
+    S.lideres = S.lideres || {}; if (valor) S.lideres[l.key + '|' + chave] = { nome: valor.nome }; else delete S.lideres[l.key + '|' + chave];
     guardarFotos_();
-    toast(valor ? 'Líder de ' + setor + ' salvo' : 'Líder removido');
+    toast(valor ? papel + ' de ' + setor + ' salvo' : papel + ' removido');
     m.close(); if (done) done();
   }).catch(() => {});
-  $('#ldOk', el).onclick = e => { const nome = $('#ldN', el).value.trim(); if (!nome) return toast('Informe o nome do líder', true); salvar(e.currentTarget, { nome, foto }); };
-  const del = $('#ldDel', el); if (del) del.onclick = async e => { if (!await confirmBox(`Remover o líder de <b>${h(setor)}</b>?`, 'Remover', true)) return; salvar(null, null); };
+  $('#ldOk', el).onclick = e => { const nome = $('#ldN', el).value.trim(); if (!nome) return toast('Informe o nome', true); salvar(e.currentTarget, { nome, foto }); };
+  const del = $('#ldDel', el); if (del) del.onclick = async e => { if (!await confirmBox(`Remover o ${papel.toLowerCase()} de <b>${h(setor)}</b>?`, 'Remover', true)) return; salvar(null, null); };
 }
 // foto de outro usuário (somente administrador) — ação 'saveUserFoto' no Apps Script
 function bindFotoUsuario(el, u, done) {
@@ -2093,7 +2105,7 @@ function askFoto() {
   modal({
     title: 'Adicione sua foto', icon: 'camera',
     body: `<p class="muted" style="margin-top:0">Assim a equipe reconhece quem fez cada alteração no quadro. Leva 10 segundos.</p>
-      <label class="photo-drop" id="afDrop"><span id="afAv">${avatar(S.user.nome, '', 'lg')}</span><div><b>${ic('camera')} Escolher foto</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem. No celular, dá para tirar na hora.</div></div><input type="file" id="afFile" accept="image/*" hidden></label>`,
+      <label class="photo-drop" id="afDrop" for="afFile"><span id="afAv">${avatar(S.user.nome, '', 'lg')}</span><div><b>${ic('camera')} Escolher foto</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem. No celular, dá para tirar na hora.</div></div><input type="file" id="afFile" accept="image/*" hidden></label>`,
     foot: `<button class="btn" data-close>Agora não</button>`,
     onClose: () => ls.set('grc_fotoAdiada_' + S.user.id, Date.now()),
     onMount: m => {
@@ -2965,7 +2977,7 @@ function openUser(u, done) {
   const L = todasLojas();
   modal({
     title: u ? 'Editar acesso' : 'Novo acesso', icon: 'shield', wide: true,
-    body: `${u ? `<label class="photo-drop" id="uDrop" style="margin-bottom:16px"><span id="uAv">${avatar(u.nome, u.foto, 'lg')}</span><div><b>${ic('camera')} ${u.foto ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div>${u.foto ? '<button class="btn sm danger" id="uFRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="uFile" accept="image/*" hidden></label>` : ''}<div class="row2">
+    body: `${u ? `<label class="photo-drop" id="uDrop" for="uFile" style="margin-bottom:16px"><span id="uAv">${avatar(u.nome, u.foto, 'lg')}</span><div><b>${ic('camera')} ${u.foto ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div>${u.foto ? '<button class="btn sm danger" id="uFRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="uFile" accept="image/*" hidden></label>` : ''}<div class="row2">
       <div class="field"><label>Nome completo</label><input class="input" id="uN" value="${h(u ? u.nome : '')}"></div>
       <div class="field"><label>Cargo</label><input class="input" id="uC" value="${h(u ? u.cargo : '')}" placeholder="Ex.: Gerente de loja"></div></div>
       <div class="row2">

@@ -8,7 +8,7 @@ const QS = new URLSearchParams(location.search);
 const DEMO = QS.has('demo');
 const API_OK = /^https:\/\/script\.google(usercontent)?\.com\//.test(CFG.API_URL || '');
 
-const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#94a3b8' };
+const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#f5c451' };
 const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)' };
 const PERFIS = { ADMIN: 'Administrador', EDITOR: 'Editor (gestão)', RECRUTADOR: 'Recrutador', LEITOR: 'Gestor / Líder', DP: 'Departamento Pessoal' };
 const GATED = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, desligarLote: 1, contrBulkSet: 1, cruzarContr: 1, setPadrao: 1, setVagaInfo: 'etapas', setVagaInfoLote: 'etapas' };
@@ -149,7 +149,7 @@ const PEND_MS = 150000; // mantém a alteração na tela até a publicação no 
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
 const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1 }; // ações que mudam a numeração das linhas
-const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
+const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1, criarQuadroAdm: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
   const agora = Date.now();
@@ -512,12 +512,12 @@ const CORES_EXTRA = ['#f472b6', '#60a5fa', '#fb923c', '#a3e635', '#e879f9', '#2d
 function registrarLojas_(lojas) {
   (lojas || []).forEach((l, i) => {
     if (!l || !l.key) return;
-    if (!LOJA_NOMES[l.key]) LOJA_NOMES[l.key] = l.nome || l.key;
+    if (l.nome) LOJA_NOMES[l.key] = l.nome;
     if (!LC[l.key]) LC[l.key] = CORES_EXTRA[(Object.keys(LC).length + i) % CORES_EXTRA.length];
   });
   if (lojas && lojas.length) ls.set('grc_lojas', lojas.map(l => ({ key: l.key, nome: l.nome })));
 }
-const todasLojas = () => Object.keys(LOJA_NOMES).filter(k => k !== 'GRC');
+const todasLojas = () => { const c = ls.get('grc_lojas', null); return c && c.length ? c.map(x => x.key) : ['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO']; };
 try { registrarLojas_(JSON.parse(localStorage.getItem('grc_lojas') || '[]')); } catch (e) {}
 function derive() {
   const D = S.data; S.all = [];
@@ -600,7 +600,7 @@ const lojaBy = k => S.data.lojas.find(l => l.key === k);
 const opc = (l, k) => {
   const o = (l && l.opcoes && l.opcoes[k]) || [];
   // tags padrão (CIPA, PCD, Aprendiz, Lider Trainee) sempre disponíveis em todas as lojas
-  const base = k === 'tag' ? [...o, ...DEF_OPC.tag] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
+  const base = k === 'tag' ? [...(isAdmLoja(l) ? SEN.map(x => x.k) : []), ...o, ...DEF_OPC.tag] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
   const vistos = new Set(); return uniq(base).filter(x => { const n = norm(x); if (vistos.has(n)) return false; vistos.add(n); return true; });
 };
 const allFuncoes = () => uniq(S.all.map(r => r.funcao)).sort();
@@ -683,7 +683,9 @@ function updateShell() {
     <div class="sb-label">Visão geral</div>
     ${navItem('/inicio', ic('home'), 'Dashboard')}
     <div class="sb-label">Lojas</div>
-    ${nl.map(l => navItem('/loja/' + l.key, `<span class="dot" style="background:${l.color}">${l.num}</span>`, l.nome, (l.nova ? '<span class="new">NOVA</span>' : '') + (l.st.vagas ? `<span class="cnt ${l.st.vagas > 5 ? 'hot' : ''}" title="Vagas abertas">${l.st.vagas}</span><span class="badge-mini"></span>` : ''))).join('')}
+    ${nl.filter(l => !isAdmLoja(l)).map(l => navItem('/loja/' + l.key, `<span class="dot" style="background:${l.color}">${l.num}</span>`, l.nome, (l.nova ? '<span class="new">NOVA</span>' : '') + (l.st.vagas ? `<span class="cnt ${l.st.vagas > 5 ? 'hot' : ''}" title="Vagas abertas">${l.st.vagas}</span><span class="badge-mini"></span>` : ''))).join('')}
+    ${nl.filter(isAdmLoja).map(l => navItem('/loja/' + l.key, `<span class="dot" style="background:linear-gradient(135deg,#fde68a,#f5c451 45%,#b8860b);color:#1a1204;font-size:11px">★</span>`, 'Administrativo', l.st.vagas ? `<span class="cnt">${l.st.vagas}</span>` : '')).join('')}
+    ${isAdmin() && !nl.some(isAdmLoja) ? `<a class="nav" href="#" id="navAdm" title="Criar o quadro do administrativo"><span class="dot" style="background:linear-gradient(135deg,#fde68a,#f5c451 45%,#b8860b);color:#1a1204;font-size:11px">★</span><span class="lbl">Criar quadro ADM</span></a>` : ''}
     ${isAdmin() ? `<a class="nav" href="#" id="navNovaLoja" title="Criar nova loja"><span class="dot" style="background:transparent;border:1.5px dashed var(--border2);color:var(--muted)">+</span><span class="lbl">Nova loja</span></a>` : ''}
     <div class="sb-label">Recrutamento</div>
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
@@ -696,6 +698,12 @@ function updateShell() {
   `;
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
   const nlB = $('#navNovaLoja'); if (nlB) nlB.onclick = e => { e.preventDefault(); openNovaLoja(); };
+  const naB = $('#navAdm'); if (naB) naB.onclick = async e => {
+    e.preventDefault();
+    if (!await confirmBox('Criar o <b>quadro do Administrativo</b>? O sistema monta uma aba nova na planilha (QUADRO ADM) com os colaboradores e setores da aba ADMINISTRATIVO e a senioridade que já está registrada na aba GRC. As abas ADMINISTRATIVO e GRC não são alteradas.', 'Criar quadro')) return;
+    try { busy(true); const j = await api('criarQuadroAdm', {}); toast(`Quadro do Administrativo criado: ${j.colaboradores} colaboradores em ${j.setores} setores`); await loadAll(false, true, true); location.hash = '#/loja/GRC'; }
+    catch (er) { toast(er.message, true); } finally { busy(false); }
+  };
   updateBell();
   const ma = $('#mbAp'); if (ma) { ma.textContent = S.notif.pendentes || ''; ma.classList.toggle('hidden', !S.notif.pendentes); }
   $$('.mbar a[data-nav]').forEach(a => a.classList.toggle('active', (location.hash.replace(/^#/, '') || '/inicio').startsWith(a.dataset.nav)));
@@ -1065,12 +1073,131 @@ const ETAPAS = () => S.data.etapas || ['Aberta', 'Divulgação', 'Triagem', 'Ent
 /* =====================================================================
  * LOJA
  * ===================================================================== */
+/* =====================================================================
+ * QUADRO ADMINISTRATIVO — visão executiva com senioridade
+ * ===================================================================== */
+const isAdmLoja = l => !!l && l.key === 'GRC';
+const SEN = [
+  { k: 'SÊNIOR', lbl: 'Sênior', c: '#f5c451', c2: '#b8860b', ico: '★★★' },
+  { k: 'PLENO', lbl: 'Pleno', c: '#a78bfa', c2: '#6d28d9', ico: '★★' },
+  { k: 'JÚNIOR', lbl: 'Júnior', c: '#22d3ee', c2: '#0e7490', ico: '★' }
+];
+const SEN_NADA = { k: '', lbl: 'Sem senioridade', c: '#64748b', c2: '#334155', ico: '·' };
+const senRank = s => s === SEN_NADA ? 9 : SEN.indexOf(s);
+const senOf = r => { const t = (r.tags || []).map(norm); return SEN.find(s => t.includes(norm(s.k))) || SEN_NADA; };
+const SETOR_CORES = ['#f5c451', '#a78bfa', '#22d3ee', '#f472b6', '#34d399', '#fb923c', '#60a5fa', '#e879f9', '#facc15', '#2dd4bf'];
+function admCss() {
+  if (document.getElementById('admCss')) return;
+  const st = document.createElement('style'); st.id = 'admCss';
+  st.textContent = `
+  .adm-hero{position:relative;overflow:hidden;border-radius:24px;padding:26px 28px;color:#f8fafc;
+    background:radial-gradient(1200px 400px at -10% -40%,rgba(245,196,81,.35),transparent 60%),radial-gradient(800px 380px at 110% 120%,rgba(167,139,250,.35),transparent 60%),linear-gradient(135deg,#0b1122 0%,#151b3a 55%,#1d1240 100%);
+    border:1px solid rgba(245,196,81,.35);box-shadow:0 20px 60px -20px rgba(245,196,81,.25),inset 0 1px 0 rgba(255,255,255,.06)}
+  .adm-hero::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:28px 28px;mask-image:linear-gradient(90deg,transparent,#000 30%,#000 70%,transparent);pointer-events:none}
+  .adm-hero .shine{position:absolute;top:-50%;left:-30%;width:40%;height:200%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.08),transparent);transform:rotate(12deg);animation:admShine 7s ease-in-out infinite;pointer-events:none}
+  @keyframes admShine{0%,60%{left:-40%}100%{left:130%}}
+  .adm-top{display:flex;gap:18px;align-items:center;flex-wrap:wrap;position:relative;z-index:1}
+  .adm-crest{width:66px;height:66px;border-radius:20px;display:grid;place-items:center;font-weight:900;font-size:18px;letter-spacing:.5px;color:#1a1204;background:linear-gradient(135deg,#fde68a,#f5c451 45%,#b8860b);box-shadow:0 10px 30px -8px rgba(245,196,81,.7),inset 0 2px 0 rgba(255,255,255,.5)}
+  .adm-kicker{font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;color:#f5c451}
+  .adm-title{font-size:30px;font-weight:900;line-height:1.05;margin:4px 0 2px;background:linear-gradient(90deg,#fff,#fde68a 60%,#f5c451);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .adm-sub{color:rgba(248,250,252,.7);font-size:13px}
+  .adm-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:22px;position:relative;z-index:1}
+  .adm-stat{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:12px 14px;backdrop-filter:blur(6px)}
+  .adm-stat b{display:block;font-size:24px;font-weight:900;color:#fff}.adm-stat span{font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:rgba(248,250,252,.6);font-weight:700}
+  .adm-donut{width:132px;height:132px;border-radius:50%;position:relative;flex:none;margin-left:auto;box-shadow:0 0 0 6px rgba(255,255,255,.04)}
+  .adm-donut::after{content:"";position:absolute;inset:14px;border-radius:50%;background:#10162e}
+  .adm-donut .c{position:absolute;inset:0;display:grid;place-items:center;z-index:1;text-align:center;font-weight:900;font-size:26px;color:#fff;line-height:1;align-content:center}
+  .adm-donut .c small{display:block;font-size:9px;letter-spacing:.5px;color:rgba(248,250,252,.6);font-weight:700;margin-top:3px}
+  .adm-leg{display:flex;flex-direction:column;gap:6px;font-size:12.5px;color:rgba(248,250,252,.85)}
+  .adm-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:7px;vertical-align:-1px}
+  .adm-ladder{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:18px 0}
+  .adm-step{border-radius:18px;padding:16px;position:relative;overflow:hidden;border:1px solid color-mix(in srgb,var(--sc) 35%,var(--border));background:linear-gradient(160deg,color-mix(in srgb,var(--sc) 16%,var(--surface)) 0%,var(--surface) 75%);cursor:pointer;transition:transform .15s,box-shadow .15s}
+  .adm-step:hover{transform:translateY(-2px);box-shadow:0 14px 30px -14px var(--sc)}
+  .adm-step.on{outline:2px solid var(--sc)}
+  .adm-step .h{display:flex;justify-content:space-between;align-items:center}
+  .adm-step .t{font-weight:900;font-size:15px;color:var(--sc)}.adm-step .st{font-size:12px;color:var(--sc);letter-spacing:2px}
+  .adm-step .n{font-size:34px;font-weight:900;margin:6px 0 8px}
+  .adm-step .n small{font-size:13px;color:var(--muted);font-weight:700;margin-left:6px}
+  .adm-faces{display:flex}.adm-faces .avatar{width:30px;height:30px;font-size:11px;margin-left:-8px;border:2px solid var(--surface)}.adm-faces .avatar:first-child{margin-left:0}
+  .adm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+  .adm-sec{border-radius:20px;border:1px solid var(--border);background:var(--surface);overflow:hidden;position:relative}
+  .adm-sec .sh{padding:16px 18px 14px;position:relative;background:linear-gradient(120deg,color-mix(in srgb,var(--sc) 22%,var(--surface)) 0%,var(--surface) 80%);border-bottom:1px solid var(--border)}
+  .adm-sec .sh::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(var(--sc),color-mix(in srgb,var(--sc) 30%,transparent))}
+  .adm-sec .sh h4{margin:0;font-size:15px;font-weight:900;letter-spacing:.3px;display:flex;align-items:center;gap:8px}
+  .adm-sec .sh .meta{font-size:12px;color:var(--muted);margin-top:4px;display:flex;gap:10px;flex-wrap:wrap}
+  .adm-sec .bar{height:6px;border-radius:9px;background:var(--surface2);margin-top:10px;overflow:hidden;display:flex}
+  .adm-sec .bar i{display:block;height:100%}
+  .adm-people{padding:10px;display:flex;flex-direction:column;gap:8px}
+  .adm-p{display:flex;gap:12px;align-items:center;padding:10px 12px;border-radius:14px;background:var(--surface2);border:1px solid transparent;transition:border-color .15s,transform .15s;position:relative}
+  .adm-p.click{cursor:pointer}.adm-p.click:hover{border-color:color-mix(in srgb,var(--pc) 55%,transparent);transform:translateX(2px)}
+  .adm-p .avatar{width:42px;height:42px;font-size:14px;flex:none;box-shadow:0 0 0 2px var(--surface2),0 0 0 4px var(--pc)}
+  .adm-p .who{flex:1;min-width:0}.adm-p .who b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .adm-p .who span{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .adm-sen{font-size:10.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;padding:5px 9px;border-radius:999px;color:#0b1122;background:linear-gradient(135deg,var(--pc),var(--pc2));white-space:nowrap;box-shadow:0 4px 14px -6px var(--pc)}
+  .adm-sen.none{background:transparent;color:var(--muted);border:1px dashed var(--border2);box-shadow:none}
+  .adm-p .side{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+  .adm-p .tm{font-size:11px;color:var(--muted)}
+  .adm-p.vaga{background:transparent;border:1.5px dashed color-mix(in srgb,var(--bad) 55%,transparent)}
+  .adm-p.vaga .avatar{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad);box-shadow:none}
+  .adm-mini{display:flex;gap:4px;flex-wrap:wrap}.adm-mini .badge{font-size:10px;padding:2px 6px}
+  @media (max-width:900px){.adm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.adm-ladder{grid-template-columns:1fr}.adm-donut{margin-left:0}.adm-title{font-size:24px}.adm-grid{grid-template-columns:1fr}}
+  `;
+  document.head.appendChild(st);
+}
+function admHero(l) {
+  admCss();
+  const P = l.rows.filter(r => r.nome), tot = P.length || 1;
+  const cnt = s => P.filter(r => senOf(r) === s).length;
+  const parts = [...SEN, SEN_NADA].map(s => ({ s, n: cnt(s) }));
+  let acc = 0;
+  const grad = parts.filter(p => p.n).map(p => { const a = acc; acc += p.n / tot * 360; return `${p.s.c} ${a}deg ${acc}deg`; }).join(',') || '#334155 0deg 360deg';
+  const st = l.st;
+  return `<div class="adm-hero"><div class="shine"></div>
+    <div class="adm-top">
+      <div class="adm-crest">ADM</div>
+      <div style="flex:1;min-width:220px"><div class="adm-kicker">Quadro executivo · Grupo R Center</div><div class="adm-title">${h(l.nome)}</div><div class="adm-sub">${h(l.sub || 'Escritório')} · ${l.setores.length} setores · senioridade por colaborador</div></div>
+      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+        <div class="adm-donut" style="background:conic-gradient(${grad})"><div class="c">${P.length}<small>PESSOAS</small></div></div>
+        <div class="adm-leg">${parts.map(p => `<div><i style="background:${p.s.c}"></i>${p.s.lbl} <b>${p.n}</b> <span style="opacity:.6">${Math.round(p.n / tot * 100)}%</span></div>`).join('')}</div>
+      </div>
+    </div>
+    <div class="adm-stats">
+      <div class="adm-stat"><b>${fmt(st.ideal)}</b><span>Quadro ideal</span></div>
+      <div class="adm-stat"><b>${fmt(st.atual)}</b><span>Quadro atual</span></div>
+      <div class="adm-stat"><b style="color:${st.vagas ? '#fca5a5' : '#fff'}">${st.vagas}</b><span>Vagas abertas</span></div>
+      <div class="adm-stat"><b>${st.tempoMedio != null ? fmt(st.tempoMedio / 12, 1) + ' anos' : '—'}</b><span>Tempo médio de casa</span></div>
+      <div class="adm-stat"><b>${Math.round(cnt(SEN[0]) / tot * 100)}%</b><span>Time sênior</span></div>
+    </div>
+  </div>`;
+}
+function admBoard(l, rows, f, ed) {
+  admCss();
+  const P = rows.filter(r => r.nome);
+  const ladder = SEN.map(s => { const ps = l.rows.filter(r => r.nome && senOf(r) === s); return `<div class="adm-step ${f.sen === s.k ? 'on' : ''}" data-sen="${h(s.k)}" style="--sc:${s.c}"><div class="h"><span class="t">${s.lbl}</span><span class="st">${s.ico}</span></div><div class="n">${ps.length}<small>${ps.length === 1 ? 'pessoa' : 'pessoas'}</small></div><div class="adm-faces">${ps.slice(0, 9).map(r => avatar(r.nome, '', '')).join('')}${ps.length > 9 ? `<div class="avatar" style="background:var(--surface2);color:var(--muted)">+${ps.length - 9}</div>` : ''}</div></div>`; }).join('');
+  const sem = l.rows.filter(r => r.nome && senOf(r) === SEN_NADA).length;
+  const secs = l.setores.map((sec, i) => ({ sec, cor: SETOR_CORES[i % SETOR_CORES.length], rows: rows.filter(r => r.setor === sec.nome) })).filter(x => x.rows.length);
+  const pessoa = r => {
+    if (!r.nome) return `<div class="adm-p vaga ${ed ? 'click' : ''}" data-row="${r.row}"><div class="avatar">${ic('briefcase')}</div><div class="who"><b style="color:var(--bad)">Vaga em aberto</b><span>${h(r.funcao)}${r.etapa ? ' · ' + h(r.etapa) : ''}</span></div><div class="side">${r.dias != null ? diasBadge(r.dias) : ''}</div></div>`;
+    const s = senOf(r);
+    const extra = (r.tags || []).filter(t => !SEN.some(x => norm(x.k) === norm(t)));
+    return `<div class="adm-p ${ed ? 'click' : ''}" data-row="${r.row}" style="--pc:${s.c};--pc2:${s.c2}">${avatar(r.nome, '', '')}<div class="who"><b>${h(r.nome)}</b><span>${h(r.funcao)}</span>${extra.length || r.aviso || (r.contrato && norm(r.contrato) !== 'INTEGRAL') ? `<div class="adm-mini" style="margin-top:4px">${r.aviso ? '<span class="badge b-warn">EM AVISO</span>' : ''}${norm(r.contrato) !== 'INTEGRAL' && r.contrato ? `<span class="badge">${h(r.contrato)}</span>` : ''}${extra.map(t => `<span class="badge b-acc">${h(t)}</span>`).join('')}</div>` : ''}</div><div class="side"><span class="adm-sen ${s === SEN_NADA ? 'none' : ''}">${s === SEN_NADA ? 'definir' : s.lbl}</span>${r.tempo ? `<span class="tm">${h(r.tempo.replace(/ e 0 m[eê]s(es)?/, '').replace('0 anos e ', ''))}</span>` : ''}</div></div>`;
+  };
+  return `<div class="adm-ladder">${ladder}</div>
+    ${sem ? `<div class="card" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;border-style:dashed;cursor:pointer" data-sen="__none">${ic('alert')}<div><b>${sem} colaborador(es) sem senioridade definida.</b> <span class="muted">Clique para ver e defina Júnior, Pleno ou Sênior na tag de cada um.</span></div></div>` : ''}
+    ${secs.length ? `<div class="adm-grid">${secs.map(({ sec, cor, rows: rs }) => {
+      const pp = rs.filter(r => r.nome), seg = [...SEN, SEN_NADA].map(s => ({ s, n: pp.filter(r => senOf(r) === s).length })).filter(x => x.n);
+      return `<div class="adm-sec" style="--sc:${cor}"><div class="sh"><h4>${h(sec.nome)}</h4><div class="meta"><span><b>${pp.length}</b> pessoa(s)</span><span>padrão <b>${fmt(sec.pad)}</b> · atual <b>${fmt(sec.ocup)}</b></span>${sec.nVagas ? `<span style="color:var(--bad)"><b>${sec.nVagas}</b> vaga(s)</span>` : ''}</div><div class="bar">${seg.map(x => `<i style="width:${x.n / (pp.length || 1) * 100}%;background:${x.s.c}" title="${x.s.lbl}: ${x.n}"></i>`).join('')}</div></div><div class="adm-people">${rs.slice().sort((a, b) => (!a.nome) - (!b.nome) || senRank(senOf(a)) - senRank(senOf(b)) || (b.meses || 0) - (a.meses || 0)).map(pessoa).join('')}</div></div>`;
+    }).join('')}</div>` : `<div class="card empty">${ic('search')}<div>Ninguém com esses filtros.</div></div>`}`;
+}
+
 function pgLoja(l) {
+  const adm = isAdmLoja(l);
+  if (adm) setTitle('Administrativo', 'Quadro do escritório · senioridade Júnior, Pleno e Sênior'); else
   setTitle(`Loja ${l.num} · ${l.nome}`, l.titulo || 'Quadro da loja');
   const fk = 'loja_' + l.key, f = getF(fk);
   const s = l.st, ed = canEdit(l.key);
   const v = $('#view');
-  v.innerHTML = `
+  v.innerHTML = `${adm ? admHero(l) + (!isAdmin() && !isDP() ? `<div style="margin-top:12px"><button class="btn primary" id="lReq">${ic('plus')} Requisitar vaga</button></div>` : '') : `
   <div class="hero" style="--lc:${l.color}">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1">
       <div class="store" style="--lc:${l.color};cursor:default"><div class="num" style="width:54px;height:54px;font-size:20px;border-radius:16px">${l.num}</div></div>
@@ -1089,7 +1216,7 @@ function pgLoja(l) {
       <div><b>${s.cipa}</b><span>CIPA</span></div>
       <div><b>${s.tempoMedio != null ? fmt(s.tempoMedio / 12, 1) + 'a' : '—'}</b><span>TEMPO MÉDIO DE CASA</span></div>
     </div>
-  </div>
+  </div>`}
   <div class="toolbar">
     <div class="input-icon search">${ic('search')}<input class="input" id="fq" placeholder="Buscar nome ou função" value="${h(f.q || '')}" style="width:100%"></div>
     ${selectHTML('fSetor', 'Setor', l.setores.map(x => x.nome), f.setor)}
@@ -1098,8 +1225,8 @@ function pgLoja(l) {
     ${selectHTML('fTag', 'Tag', uniq(l.rows.flatMap(r => r.tags)).sort(), f.tag, 'Todas')}
     <span class="spacer"></span>
     ${ed ? `<button class="btn ${SEL.on[fk] ? 'primary' : ''}" id="selTog" title="Selecionar várias posições">${ic('check')}<span class="desk-only">${SEL.on[fk] ? 'Selecionando' : 'Selecionar'}</span></button>` : ''}
-    ${getV(fk, 'sec') === 'sec' ? `<button class="btn" id="secAll" title="Expandir / recolher todos os setores">${ic('chevron')}<span class="desk-only">Expandir todos</span></button>` : ''}
-    <div class="seg" id="vw"><button data-v="sec" title="Por setor">${ic('grid')}<span class="desk-only">Setores</span></button><button data-v="tbl" title="Tabela">${ic('table')}<span class="desk-only">Tabela</span></button></div>
+    ${getV(fk, adm ? 'exec' : 'sec') === 'sec' ? `<button class="btn" id="secAll" title="Expandir / recolher todos os setores">${ic('chevron')}<span class="desk-only">Expandir todos</span></button>` : ''}
+    <div class="seg" id="vw">${adm ? `<button data-v="exec" title="Visão executiva">${ic('spark')}<span class="desk-only">Executiva</span></button>` : ''}<button data-v="sec" title="Por setor">${ic('grid')}<span class="desk-only">Setores</span></button><button data-v="tbl" title="Tabela">${ic('table')}<span class="desk-only">Tabela</span></button></div>
     <button class="btn" id="exp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
   <div class="chips" id="sitChips" style="margin-bottom:16px"></div>
@@ -1111,19 +1238,25 @@ function pgLoja(l) {
   const filt = () => {
     const q = norm(f.q);
     const sf = (SIT.find(x => x[0] === (f.sit || '')) || SIT[0])[2];
-    return l.rows.filter(r => (!q || norm(r.nome).includes(q) || norm(r.funcao).includes(q)) && (!f.setor || r.setor === f.setor) && (!f.func || r.funcao === f.func) && (!f.contr || r.contrato === f.contr) && (!f.tag || r.tags.includes(f.tag)) && sf(r));
+    return l.rows.filter(r => (!adm || !f.sen || (f.sen === '__none' ? (r.nome && senOf(r) === SEN_NADA) : (r.nome && senOf(r).k === f.sen))) && (!q || norm(r.nome).includes(q) || norm(r.funcao).includes(q)) && (!f.setor || r.setor === f.setor) && (!f.func || r.funcao === f.func) && (!f.contr || r.contrato === f.contr) && (!f.tag || r.tags.includes(f.tag)) && sf(r));
   };
   const drawChips = () => {
     $('#sitChips').innerHTML = SIT.map(([k, t, fn]) => { const n = l.rows.filter(fn).length; return (k && !n) ? '' : `<span class="chip ${(f.sit || '') === k ? 'on' : ''}" data-k="${k}">${t} <span class="n">${n}</span></span>`; }).join('') + (Object.values(f).some(Boolean) ? `<span class="chip" id="clr">${ic('eraser')} Limpar filtros</span>` : '');
     $$('#sitChips .chip[data-k]').forEach(c => c.onclick = () => { f.sit = c.dataset.k; saveF(); drawChips(); draw(); });
     const clr = $('#clr'); if (clr) clr.onclick = () => { Object.keys(f).forEach(k => f[k] = ''); saveF(); route(); };
   };
-  const view = getV(fk, 'sec');
+  const view = getV(fk, adm ? 'exec' : 'sec');
   $$('#vw button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.onclick = () => { setV(fk, b.dataset.v); route(); }; });
   let draw = () => {
     const rows = filt();
     const body = $('#lojaBody');
     const filtered = Object.entries(f).some(([k, x]) => x);
+    if (view === 'exec' && adm) {
+      body.innerHTML = admBoard(l, rows, f, ed);
+      $$('[data-sen]', body).forEach(c => c.onclick = () => { f.sen = f.sen === c.dataset.sen ? '' : c.dataset.sen; saveF(); drawChips(); draw(); });
+      if (ed) $$('.adm-p[data-row]', body).forEach(c => c.onclick = () => { const r = l.rows.find(x => x.row === +c.dataset.row); if (r) openRow(l, r); });
+      return;
+    }
     if (view === 'tbl') {
       table(body, fk, [
         ...(selOn ? [{ t: '', k: '', nosort: true, w: '30px', th: `<input type="checkbox" id="selAll" ${rows.length && rows.every(r => SEL.set.has(selKey(r))) ? 'checked' : ''}>`, r: r => `<input type="checkbox" data-stop data-qsel="${r.row}" ${SEL.set.has(selKey(r)) ? 'checked' : ''}>` }] : []),
@@ -1260,6 +1393,8 @@ function openRow(l, r) {
       <button class="btn primary" data-act="save">Salvar alterações</button>` : `<button class="btn" data-close>Fechar</button>`,
     onMount: m => {
       if (!ed) $$('.optchips .chip', m.el).forEach(c => c.style.pointerEvents = 'none'); else bindPickers(m.el);
+      // quadro ADM: só uma senioridade por pessoa (Júnior, Pleno ou Sênior)
+      if (ed && isAdmLoja(l)) { const SK = SEN.map(x => norm(x.k)); $$('[data-picker="tag"] .chip', m.el).forEach(c => { if (!SK.includes(norm(c.dataset.v))) return; const orig = c.onclick; c.onclick = () => { $$('[data-picker="tag"] .chip', m.el).forEach(x => { if (x !== c && SK.includes(norm(x.dataset.v))) x.classList.remove('on'); }); orig(); }; }); }
       const act = a => $(`[data-act="${a}"]`, m.el);
       if (act('save')) act('save').onclick = e => run(e.currentTarget, async () => {
         await api('saveRow', { loja: l.key, row: r.row, expect: expectOf(r), data: { nome: $('#eNome', m.el).value.trim().toUpperCase(), funcao: $('#eFunc', m.el).value.trim(), contrato: pickVal(m.el, 'contrato'), situacao: pickVal(m.el, 'situacao'), tag: pickVal(m.el, 'tag'), qt: +$('#eQt', m.el).value !== +r.qt ? $('#eQt', m.el).value : '' } });

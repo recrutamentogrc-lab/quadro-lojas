@@ -40,7 +40,7 @@ const parseISO = s => { const m = String(s || '').match(/(\d{4})-(\d{2})-(\d{2})
 const daysTo = d => d ? Math.round((d - today0()) / 864e5) : null;
 const isoToBR = s => { const d = parseISO(s); return d ? d.toLocaleDateString('pt-BR') : ''; };
 const brToISO = s => { const d = parseBR(s); return d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : ''; };
-const lojaKey = t => { const u = norm(t); if (!u) return ''; if (/MATRIZ|SANTA ROSA/.test(u)) return 'MATRIZ'; if (/MESSEJANA/.test(u)) return 'MESSEJANA'; if (/TORRA/.test(u)) return 'TORRA'; if (/EUSEBIO|FRALDA/.test(u)) return 'EUSEBIO'; if (/GRC|ADM/.test(u)) return 'GRC'; return u; };
+const lojaKey = t => { const u = norm(t); if (!u) return ''; { const ex = Object.keys(LOJA_NOMES).find(k => !['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO', 'GRC'].includes(k) && (u === k || u.includes(norm(LOJA_NOMES[k])) || u.includes(k.replace(/_/g, ' ')))); if (ex) return ex; } if (/MATRIZ|SANTA ROSA/.test(u)) return 'MATRIZ'; if (/MESSEJANA/.test(u)) return 'MESSEJANA'; if (/TORRA/.test(u)) return 'TORRA'; if (/EUSEBIO|FRALDA/.test(u)) return 'EUSEBIO'; if (/GRC|ADM/.test(u)) return 'GRC'; return u; };
 const splitMulti = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 const lojaPill = k => `<span class="loja-pill" style="--lc:${LC[k] || '#94a3b8'}"><i></i>${h(LOJA_NOMES[k] || k)}</span>`;
 
@@ -149,7 +149,7 @@ const PEND_MS = 150000; // mantém a alteração na tela até a publicação no 
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
 const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1 }; // ações que mudam a numeração das linhas
-const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
+const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
   const agora = Date.now();
@@ -302,7 +302,7 @@ function renderLogin(msg) {
         <p>Acompanhe o quadro ideal × atual de cada loja, abra e feche vagas, controle aprendizes, PCD e contratos de experiência — tudo sincronizado com a planilha oficial.</p>
       </div>
       <div class="hero-stats">
-        <div class="hero-stat"><b>4 lojas</b><span>Matriz · Messejana · Torra · Eusébio</span></div>
+        <div class="hero-stat"><b>${todasLojas().length} lojas</b><span>${todasLojas().map(k => h(LOJA_NOMES[k])).join(' · ')}</span></div>
         <div class="hero-stat"><b>Tempo real</b><span>Lê e grava no Google Sheets</span></div>
       </div>
     </section>
@@ -508,8 +508,20 @@ function enrich(r) {
   r.dias = r.info && r.info.abertura && parseISO(r.info.abertura) ? Math.max(0, -daysTo(parseISO(r.info.abertura))) : null;
   r.etapa = r.isVaga ? ((r.info && r.info.etapa) || 'Aberta') : '';
 }
+const CORES_EXTRA = ['#f472b6', '#60a5fa', '#fb923c', '#a3e635', '#e879f9', '#2dd4bf', '#facc15', '#f87171'];
+function registrarLojas_(lojas) {
+  (lojas || []).forEach((l, i) => {
+    if (!l || !l.key) return;
+    if (!LOJA_NOMES[l.key]) LOJA_NOMES[l.key] = l.nome || l.key;
+    if (!LC[l.key]) LC[l.key] = CORES_EXTRA[(Object.keys(LC).length + i) % CORES_EXTRA.length];
+  });
+  if (lojas && lojas.length) ls.set('grc_lojas', lojas.map(l => ({ key: l.key, nome: l.nome })));
+}
+const todasLojas = () => Object.keys(LOJA_NOMES).filter(k => k !== 'GRC');
+try { registrarLojas_(JSON.parse(localStorage.getItem('grc_lojas') || '[]')); } catch (e) {}
 function derive() {
   const D = S.data; S.all = [];
+  registrarLojas_(D.lojas);
   D.lojas.forEach(l => {
     l.color = LC[l.key]; l.rows = [];
     l.setores.forEach(s => {
@@ -672,6 +684,7 @@ function updateShell() {
     ${navItem('/inicio', ic('home'), 'Dashboard')}
     <div class="sb-label">Lojas</div>
     ${nl.map(l => navItem('/loja/' + l.key, `<span class="dot" style="background:${l.color}">${l.num}</span>`, l.nome, (l.nova ? '<span class="new">NOVA</span>' : '') + (l.st.vagas ? `<span class="cnt ${l.st.vagas > 5 ? 'hot' : ''}" title="Vagas abertas">${l.st.vagas}</span><span class="badge-mini"></span>` : ''))).join('')}
+    ${isAdmin() ? `<a class="nav" href="#" id="navNovaLoja" title="Criar nova loja"><span class="dot" style="background:transparent;border:1.5px dashed var(--border2);color:var(--muted)">+</span><span class="lbl">Nova loja</span></a>` : ''}
     <div class="sb-label">Recrutamento</div>
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
     ${navItem('/sla', ic('gauge'), 'SLA de vagas', S.slaEst ? `<span class="cnt hot" title="SLA estourado">${S.slaEst}</span>` : '')}
@@ -682,6 +695,7 @@ function updateShell() {
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
   `;
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
+  const nlB = $('#navNovaLoja'); if (nlB) nlB.onclick = e => { e.preventDefault(); openNovaLoja(); };
   updateBell();
   const ma = $('#mbAp'); if (ma) { ma.textContent = S.notif.pendentes || ''; ma.classList.toggle('hidden', !S.notif.pendentes); }
   $$('.mbar a[data-nav]').forEach(a => a.classList.toggle('active', (location.hash.replace(/^#/, '') || '/inicio').startsWith(a.dataset.nav)));
@@ -2062,7 +2076,7 @@ async function pgRecrut() {
   setTitle('Recrutamento', 'Controle de seleções e entrevistas');
   const f = getF('sel');
   const v = $('#view');
-  const lojasUser = isAdmin() ? Object.keys(LOJA_NOMES).filter(k => k !== 'GRC') : S.user.lojas;
+  const lojasUser = isAdmin() ? todasLojas() : S.user.lojas;
   v.innerHTML = `
   <div class="grid g4" id="selKpi">${'<div class="sk" style="height:118px"></div>'.repeat(4)}</div>
   <div class="toolbar">
@@ -2156,7 +2170,7 @@ async function pgRecrut() {
 
 function openSelecao(s, done) {
   done = done || openSelecao.after || (() => {});
-  const lojasUser = isAdmin() ? Object.keys(LOJA_NOMES).filter(k => k !== 'GRC') : S.user.lojas;
+  const lojasUser = isAdmin() ? todasLojas() : S.user.lojas;
   const lk0 = s ? s.loja : (getF('sel').loja || (lojasUser.length === 1 ? lojasUser[0] : ''));
   const opcs = lk => { const l = lojaBy(lk); return l ? { setores: uniq(l.setores.map(x => x.nome)).sort(), funcoes: uniq(l.rows.map(r => r.funcao)).sort() } : { setores: [], funcoes: [] }; };
   const n = (id, lbl, val) => `<div class="field"><label>${lbl}</label><input class="input" id="${id}" type="number" min="0" inputmode="numeric" value="${h(val == null ? '' : val)}"></div>`;
@@ -2226,16 +2240,20 @@ function openSelecao(s, done) {
 }
 
 async function openAcessoSel() {
+  if (openAcessoSel.lock) return; openAcessoSel.lock = 1;
+  const btn = $('#sAcc'); if (btn) { btn.disabled = true; btn.dataset.lbl = btn.innerHTML; btn.innerHTML = '<span class="spin" style="width:16px;height:16px;border-width:2px"></span> Carregando…'; }
+  const fim = () => { openAcessoSel.lock = 0; if (btn && btn.isConnected) { btn.disabled = false; btn.innerHTML = btn.dataset.lbl; } };
   let users = [], ids = (S.sel && S.sel.ids) || [];
   try { busy(true); users = (await api('listUsers', {}, { silent: true })).users || []; const a = await api('selecoesAcesso', {}, { silent: true }); ids = a.ids || ids; }
-  catch (e) { return toast(e.message, true); } finally { busy(false); }
+  catch (e) { fim(); return toast(e.message, true); } finally { busy(false); }
+  fim();
   const ativos = users.filter(u => u.ativo);
   modal({
     title: 'Quem acessa o Recrutamento', icon: 'key',
     body: `<p class="muted" style="margin-top:0">Marque os acessos ativos que podem ver e lançar seleções. Cada pessoa vê apenas as lojas liberadas no acesso dela. Depois de salvar, ela só precisa atualizar a página.</p>
       <div style="display:flex;flex-direction:column;gap:8px">${ativos.map(u => `<label class="card" style="display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:${u.perfil === 'ADMIN' ? 'default' : 'pointer'}">
         <input type="checkbox" data-uid="${h(u.id)}" ${u.perfil === 'ADMIN' || ids.includes(u.id) ? 'checked' : ''} ${u.perfil === 'ADMIN' ? 'disabled' : ''}>
-        ${avatar(u.nome, u.foto, 'sm')}<div style="flex:1"><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(PERFIS[u.perfil] || u.perfil)} · ${u.lojas.length >= 4 ? 'todas as lojas' : u.lojas.map(k => LOJA_NOMES[k] || k).join(', ')}</div></div>
+        ${avatar(u.nome, u.foto, 'sm')}<div style="flex:1"><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(PERFIS[u.perfil] || u.perfil)} · ${u.lojas.length >= todasLojas().length ? 'todas as lojas' : u.lojas.map(k => LOJA_NOMES[k] || k).join(', ')}</div></div>
         ${u.perfil === 'ADMIN' ? '<span class="badge b-violet">sempre</span>' : ''}</label>`).join('')}</div>`,
     foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="aOk">Salvar acessos</button>`,
     onMount: m => {
@@ -2244,6 +2262,37 @@ async function openAcessoSel() {
         const j = await api('setSelecoesAcesso', { ids: sel });
         S.sel = Object.assign({}, S.sel, { ids: j.ids });
         m.close(); toast(`Acesso salvo: ${j.ids.length} pessoa(s) além do administrador`);
+      });
+    }
+  });
+}
+
+
+/* =====================================================================
+ * NOVA LOJA — cria um novo quadro a partir de uma loja modelo
+ * ===================================================================== */
+function openNovaLoja() {
+  const L = S.data.lojas;
+  modal({
+    title: 'Nova loja', icon: 'store',
+    body: `<p class="muted" style="margin-top:0">Cria um novo quadro no sistema e uma aba nova na planilha, copiando os setores e as posições de uma loja que já existe. As posições entram como <b>vagas abertas</b>, sem colaboradores; depois é só ajustar o quadro padrão, incluir ou remover posições.</p>
+      <div class="row2">
+        <div class="field"><label>Nome da loja</label><input class="input" id="nlN" placeholder="Ex.: Aquiraz"></div>
+        <div class="field"><label>Descrição (aparece embaixo do nome)</label><input class="input" id="nlS" placeholder="Ex.: Loja 5 · Centro"></div>
+      </div>
+      <div class="field"><label>Copiar estrutura de</label><select class="input" id="nlB">${L.map(l => `<option value="${h(l.key)}" ${l.nova ? 'selected' : ''}>${h(l.nome)} — ${l.setores.length} setores · ${l.rows.length} posições</option>`).join('')}</select></div>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="nlNova" checked> Marcar como loja NOVA no menu</label>
+      <p class="faint" style="font-size:12px;margin-bottom:0">Quem tem acesso a "todas as lojas" passa a ver a nova loja automaticamente. Para os demais, libere em Acessos e configurações.</p>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="nlOk">${ic('plus')} Criar loja</button>`,
+    onMount: m => {
+      $('#nlOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const nome = $('#nlN', m.el).value.trim();
+        if (nome.length < 2) throw new Error('Informe o nome da loja');
+        if (todasLojas().some(k => norm(LOJA_NOMES[k]) === norm(nome))) throw new Error('Já existe uma loja com esse nome');
+        const j = await api('criarLoja', { data: { nome, sub: $('#nlS', m.el).value.trim(), base: $('#nlB', m.el).value, nova: $('#nlNova', m.el).checked } });
+        m.close(); toast(`Loja ${nome} criada. Carregando o novo quadro…`);
+        await loadAll(false, true, true);
+        if (j.loja && lojaBy(j.loja.key)) location.hash = '#/loja/' + j.loja.key;
       });
     }
   });
@@ -2535,7 +2584,7 @@ async function pgAdmin() {
       { t: 'Usuário', k: 'nome', r: u => `<div class="cell-person">${avatar(u.nome, u.foto, 'sm')}<div><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(u.cargo || '')}</div></div></div>` },
       { t: 'Login', k: 'login', r: u => `<span class="mono">${h(u.login)}</span>${u.email ? `<div class="muted" style="font-size:11.5px">${h(u.email)}</div>` : ''}` },
       { t: 'Perfil', k: 'perfil', r: u => `<span class="badge ${u.perfil === 'ADMIN' ? 'b-violet' : u.perfil === 'EDITOR' ? 'b-info' : u.perfil === 'RECRUTADOR' ? 'b-acc' : u.perfil === 'DP' ? 'b-ok' : ''}">${h(PERFIS[u.perfil] || u.perfil)}</span>` },
-      { t: 'Lojas', k: 'lojas', r: u => u.lojas.length >= 4 ? '<span class="badge b-acc">Todas</span>' : u.lojas.map(lojaPill).join(' ') },
+      { t: 'Lojas', k: 'lojas', r: u => u.lojas.length >= todasLojas().length ? '<span class="badge b-acc">Todas</span>' : u.lojas.map(lojaPill).join(' ') },
       { t: 'Status', k: 'ativo', r: u => u.ativo ? (u.trocarSenha ? '<span class="badge b-warn">Aguardando 1º acesso</span>' : '<span class="badge b-ok">Ativo</span>') : '<span class="badge b-bad">Inativo</span>' },
       { t: 'Último acesso', k: 'ultimoAcesso' },
       { t: '', k: '', nosort: true, r: u => u.email && u.id !== S.user.id ? `<button class="btn sm" data-stop data-mail="${u.id}" title="Gerar nova senha e enviar por e-mail">${ic('mail')} Reenviar acesso</button>` : '' }
@@ -2548,7 +2597,7 @@ async function pgAdmin() {
   try { users = (await api('listUsers')).users; if (rt !== S.rt || !$('#uBody')) return; draw(); } catch (e) { toast(e.message, true); }
 }
 function openUser(u, done) {
-  const L = ['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO'];
+  const L = todasLojas();
   modal({
     title: u ? 'Editar acesso' : 'Novo acesso', icon: 'shield', wide: true,
     body: `${u ? `<label class="photo-drop" id="uDrop" style="margin-bottom:16px"><span id="uAv">${avatar(u.nome, u.foto, 'lg')}</span><div><b>${ic('camera')} ${u.foto ? 'Trocar foto' : 'Colocar foto'}</b><div class="muted" style="font-size:12.5px;margin-top:4px">Clique ou arraste uma imagem (JPG/PNG). Ela é recortada e otimizada automaticamente.</div>${u.foto ? '<button class="btn sm danger" id="uFRm" style="margin-top:10px" type="button">Remover foto</button>' : ''}</div><input type="file" id="uFile" accept="image/*" hidden></label>` : ''}<div class="row2">

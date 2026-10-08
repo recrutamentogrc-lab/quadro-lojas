@@ -98,8 +98,11 @@ const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n
 
 // foto do colaborador: guardada na configuração (chave foto_NOME); usuário logado usa a foto do perfil
 const fotoKey = nome => 'foto_' + norm(nome).replace(/[^A-Z0-9]+/g, '_');
+const chaveNome = n => String(n || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Z ]/g, '').replace(/\s+/g, ' ').trim();
+const fotoDe = n => (typeof S !== 'undefined' && S.fotos && S.fotos[chaveNome(n)]) || '';
 function fotoColab(nome) {
   if (!nome) return '';
+  if (fotoDe(nome)) return fotoDe(nome);
   const f = (typeof S !== 'undefined' && S.cfg && S.cfg[fotoKey(nome)]) || '';
   if (f) return f;
   return (typeof S !== 'undefined' && S.user && S.user.foto && norm(S.user.nome) === norm(nome)) ? S.user.foto : '';
@@ -158,7 +161,7 @@ const PEND_MS = 150000; // mantém a alteração na tela até a publicação no 
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
 const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, movimentar: 1 }; // ações que mudam a numeração das linhas
-const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1, criarQuadroAdm: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
+const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveFotoColab: 1, setLiderSetor: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1, criarQuadroAdm: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
   const agora = Date.now();
@@ -408,6 +411,18 @@ function rerender_() {
   }
   route(true);
 }
+// fotos dos colaboradores (aba _FOTOS) e líderes dos setores (aba _LIDERES) — cache no aparelho
+try { S.fotos = JSON.parse(localStorage.getItem('grc_fotos') || '{}'); S.lideres = JSON.parse(localStorage.getItem('grc_lideres') || '{}'); } catch (e) { S.fotos = {}; S.lideres = {}; }
+function guardarFotos_() { try { localStorage.setItem('grc_fotos', JSON.stringify(S.fotos || {})); localStorage.setItem('grc_lideres', JSON.stringify(S.lideres || {})); } catch (e) {} }
+async function carregarFotos() {
+  if (DEMO) return;
+  try {
+    const j = await api('listFotosColab', {}, { silent: true });
+    const mudou = JSON.stringify([j.fotos || {}, j.lideres || {}]) !== JSON.stringify([S.fotos || {}, S.lideres || {}]);
+    S.fotos = j.fotos || {}; S.lideres = j.lideres || {}; guardarFotos_();
+    if (mudou && $('.app')) rerender_();
+  } catch (e) {}
+}
 function saveCfgLocal() { const c = S.cfg || {}; ls.set('grc_cfg', { logo: c.logo, logoHash: c.logoHash, empresa: c.empresa, sistema: c.sistema, siteUrl: c.siteUrl }); }
 function assembleLive() {
   const cp = o => o ? JSON.parse(JSON.stringify(o)) : o; // cópia: alterações locais não podem sujar o cache do Firebase
@@ -456,7 +471,7 @@ async function meRefresh() {
 }
 function afterBoot() {
   if (liveBooted) return; liveBooted = true;
-  startPolling(); initOneSignal(); carregarAcessoSel();
+  startPolling(); initOneSignal(); carregarAcessoSel(); carregarFotos();
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
   else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
 }
@@ -1378,7 +1393,7 @@ const expectOf = r => ({ nome: r.nome, funcao: r.funcao });
 
 function openRow(l, r) {
   const ed = canEdit(l.key);
-  if (r.nome && ed) setTimeout(() => bindFotoColab(r.nome), 0);
+  if (r.nome && ed) setTimeout(() => bindFotoColab(r.nome, l.key), 0);
   const funcs = allFuncoes();
   const info = r.info || {};
   modal({
@@ -1976,21 +1991,20 @@ function fotoMini(file, size = 96) {
     rd.readAsDataURL(file);
   });
 }
-function bindFotoColab(nome) {
+function bindFotoColab(nome, loja) {
   const file = $('#cfFile'), drop = $('#cfDrop'); if (!file || !drop) return;
   const paint = () => { $('#cfAv').innerHTML = avatar(nome, '', 'lg'); };
   const salvar = async foto => {
     busy(true);
     try {
-      const k = fotoKey(nome);
-      const j = await api('saveConfig', { data: { [k]: foto } }, { silent: true });
-      if (j.cfg) { S.cfg = j.cfg; saveCfgLocal(); }
-      if (foto && !(j.cfg && j.cfg[k])) toast('O servidor não guardou a foto — falta liberar essa configuração no Apps Script.', true);
-      else toast(foto ? 'Foto de ' + nome.split(' ')[0] + ' salva' : 'Foto removida');
+      await api('saveFotoColab', { nome, foto, loja: loja || '' }, { silent: true });
+      if (foto) S.fotos[chaveNome(nome)] = foto; else delete S.fotos[chaveNome(nome)];
+      guardarFotos_();
+      toast(foto ? 'Foto de ' + nome.split(' ')[0] + ' salva' : 'Foto removida');
       paint(); if (typeof S.rerender === 'function') S.rerender(); else if (typeof route === 'function') route();
     } catch (e) { toast(e.message, true); } finally { busy(false); }
   };
-  const handle = async f => { if (!f || !/^image\//.test(f.type)) return toast('Escolha uma imagem', true); try { await salvar(await fotoMini(f)); } catch (e) { toast(e.message, true); } };
+  const handle = async f => { if (!f || !/^image\//.test(f.type)) return toast('Escolha uma imagem', true); try { await salvar(await fotoMini(f, 160)); } catch (e) { toast(e.message, true); } };
   file.onchange = () => handle(file.files[0]);
   drop.ondragover = e => { e.preventDefault(); drop.style.borderColor = 'var(--accent)'; };
   drop.ondragleave = () => drop.style.borderColor = '';
@@ -1999,10 +2013,19 @@ function bindFotoColab(nome) {
 }
 /* ---------------- líder do setor (nome + foto, salvo na configuração) ---------------- */
 const liderKey = (lk, setor) => 'lider_' + lk + '_' + norm(setor).replace(/[^A-Z0-9]+/g, '_');
+const LIDER_RX = [/GERENTE/, /COORDENAD/, /SUPERVISOR/, /ENCARREGAD/, /LIDER|CHEFE/];
+function liderAuto(lk, setor) {
+  const l = lojaBy(lk); const sec = l && l.setores.find(s => s.nome === setor); if (!sec) return null;
+  const c = sec.linhas.filter(r => r.nome).map(r => ({ r, i: LIDER_RX.findIndex(rx => rx.test(norm(r.funcao))) })).filter(x => x.i >= 0).sort((a, b) => a.i - b.i)[0];
+  return c ? { nome: c.r.nome, funcao: c.r.funcao, auto: true } : null;
+}
 function getLider(lk, setor) {
+  const m = S.lideres && S.lideres[lk + '|' + setor];
+  if (m && m.nome) return { nome: m.nome, foto: fotoDe(m.nome) };
   let v = cfgv(liderKey(lk, setor), null);
   if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { v = null; } }
-  return v && v.nome ? v : null;
+  if (v && v.nome) return v;
+  const a = liderAuto(lk, setor); return a ? Object.assign(a, { foto: fotoDe(a.nome) }) : null;
 }
 function liderChip(l, setor, ed) {
   const ld = getLider(l.key, setor);
@@ -2028,11 +2051,11 @@ function openLider(l, setor, done) {
   $('#ldFRm', el).onclick = e => { e.preventDefault(); e.stopPropagation(); foto = ''; file.value = ''; paint(); };
   $('#ldN', el).oninput = paint;
   const salvar = async (btn, valor) => run(btn, async () => {
-    const k = liderKey(l.key, setor);
-    const j = await api('saveConfig', { data: { [k]: valor ? JSON.stringify(valor) : '' } });
-    if (j.cfg) { S.cfg = j.cfg; saveCfgLocal(); }
-    if (valor && !(j.cfg && j.cfg[k])) toast('O servidor não guardou o líder — falta liberar essa configuração no Apps Script.', true);
-    else toast(valor ? 'Líder de ' + setor + ' salvo' : 'Líder removido');
+    if (valor && valor.foto !== fotoDe(valor.nome)) { await api('saveFotoColab', { nome: valor.nome, foto: valor.foto || '', loja: l.key }); if (valor.foto) S.fotos[chaveNome(valor.nome)] = valor.foto; else delete S.fotos[chaveNome(valor.nome)]; }
+    await api('setLiderSetor', { loja: l.key, setor, nome: valor ? valor.nome : '' });
+    S.lideres = S.lideres || {}; if (valor) S.lideres[l.key + '|' + setor] = { nome: valor.nome }; else delete S.lideres[l.key + '|' + setor];
+    guardarFotos_();
+    toast(valor ? 'Líder de ' + setor + ' salvo' : 'Líder removido');
     m.close(); if (done) done();
   }).catch(() => {});
   $('#ldOk', el).onclick = e => { const nome = $('#ldN', el).value.trim(); if (!nome) return toast('Informe o nome do líder', true); salvar(e.currentTarget, { nome, foto }); };

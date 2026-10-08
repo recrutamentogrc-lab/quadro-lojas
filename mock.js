@@ -165,6 +165,9 @@
         case 'saveSelecao': { const L2 = window.__sel || (window.__sel = []); const d = Object.assign({}, p.data); if (d.id) Object.assign(L2.find(x => x.id === d.id), d); else { d.id = 's' + Date.now(); d.criado_por = me.nome; L2.push(d); } return { ok: true, selecoes: clone(L2) }; }
         case 'deleteSelecao': { window.__sel = (window.__sel || []).filter(x => x.id !== p.id); return { ok: true, selecoes: clone(window.__sel) }; }
         case 'saveUserFoto': { const u = users.find(x => x.id === p.id); if (u) u.foto = p.foto || ''; L('Alterou foto', '', u ? u.login : ''); return { ok: true, users: clone(users) }; }
+        case 'listFotosColab': return { ok: true, fotos: {}, lideres: {} };
+        case 'saveFotoColab': return { ok: true };
+        case 'setLiderSetor': return { ok: true };
         case 'saveProfile': if (p.nome !== undefined) me.nome = p.nome; if (p.cargo !== undefined) me.cargo = p.cargo; if (p.foto !== undefined) me.foto = p.foto; return { ok: true, user: clone(me) };
         case 'changePassword': return { ok: true };
         case 'getLog': return { ok: true, log: clone(log) };

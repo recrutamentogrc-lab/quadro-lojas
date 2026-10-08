@@ -9,6 +9,7 @@
   const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const br = d => d.toLocaleDateString('pt-BR');
   const today = new Date();
+  const br2iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   const addD = n => { const d = new Date(today); d.setDate(d.getDate() + n); return d; };
 
   const SETORES = [
@@ -147,6 +148,13 @@
         case 'listUsers': return { ok: true, users: clone(users) };
         case 'saveUser': { const d = p.data; if (d.id) Object.assign(users.find(u => u.id === d.id), { login: d.login, nome: d.nome, perfil: d.perfil, lojas: d.lojas, ativo: d.ativo !== false, cargo: d.cargo }); else users.push({ id: 'u' + Date.now(), login: d.login, nome: d.nome, perfil: d.perfil, lojas: d.lojas, ativo: true, cargo: d.cargo, foto: '', ultimoAcesso: '' }); L(d.id ? 'Editou acesso' : 'Criou acesso', '', d.login); return { ok: true, users: clone(users) }; }
         case 'deleteUser': users = users.filter(u => u.id !== p.id); return { ok: true, users: clone(users) };
+        case 'selecoesAcesso': return { ok: true, acesso: true, admin: true, ids: (window.__selIds || []) };
+        case 'setSelecoesAcesso': window.__selIds = p.ids || []; return { ok: true, ids: window.__selIds };
+        case 'listSelecoes': return { ok: true, selecoes: clone(window.__sel || (window.__sel = [
+          { id: 's1', loja: 'MATRIZ', setor: 'FRENTE DE CAIXA', funcao: 'OPERADOR(A) DE CAIXA', vagas: 3, data: br2iso(today), horario: '09:00', local: 'Sala do RH', responsavel: 'Aleff Palacio', origem: 'Banco de talentos', chamados: 12, confirmados: 9, compareceram: 8, aprov_lider: 4, aprov_rh: 3, admitidos: 2, banco_talentos: 2, status: 'Realizada', obs: '', criado_por: 'Aleff Palacio', criado_em: '' },
+          { id: 's2', loja: 'EUSEBIO', setor: 'AÇOUGUE', funcao: 'AÇOUGUEIRO', vagas: 2, data: br2iso(new Date(Date.now() + 2 * 864e5)), horario: '14:00', local: 'Loja Eusébio', responsavel: 'Luís Guilherme', origem: 'Instagram', chamados: 6, confirmados: 4, compareceram: '', aprov_lider: '', aprov_rh: '', admitidos: '', banco_talentos: '', status: 'Agendada', obs: '', criado_por: 'Luís Guilherme', criado_em: '' }])) };
+        case 'saveSelecao': { const L2 = window.__sel || (window.__sel = []); const d = Object.assign({}, p.data); if (d.id) Object.assign(L2.find(x => x.id === d.id), d); else { d.id = 's' + Date.now(); d.criado_por = me.nome; L2.push(d); } return { ok: true, selecoes: clone(L2) }; }
+        case 'deleteSelecao': { window.__sel = (window.__sel || []).filter(x => x.id !== p.id); return { ok: true, selecoes: clone(window.__sel) }; }
         case 'saveUserFoto': { const u = users.find(x => x.id === p.id); if (u) u.foto = p.foto || ''; L('Alterou foto', '', u ? u.login : ''); return { ok: true, users: clone(users) }; }
         case 'saveProfile': if (p.nome !== undefined) me.nome = p.nome; if (p.cargo !== undefined) me.cargo = p.cargo; if (p.foto !== undefined) me.foto = p.foto; return { ok: true, user: clone(me) };
         case 'changePassword': return { ok: true };

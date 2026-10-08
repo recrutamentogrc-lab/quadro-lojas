@@ -149,7 +149,7 @@ const PEND_MS = 150000; // mantém a alteração na tela até a publicação no 
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
 const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1 }; // ações que mudam a numeração das linhas
-const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
+const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
   const agora = Date.now();
@@ -343,7 +343,7 @@ async function logout(expired) {
   if (!expired && pendentesEnvio > 0) { toast('Aguardando terminar de salvar as alterações…'); await filaEnvio.catch(() => {}); }
   if (S.token && !expired && !DEMO) api('logout').catch(() => {});
   $$('.overlay').forEach(o => o.remove());
-  PEND.length = 0;
+  PEND.length = 0; S.sel = null; S.selCache = null;
   try { if (window.OneSignal && window.OneSignal.logout) window.OneSignal.logout(); } catch (e) {}
   try { fbStop(); } catch (e) {} liveBooted = false;
   S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
@@ -391,7 +391,7 @@ function startLive(keys) {
 function rerender_() {
   if ($('.overlay')) return;
   const pg = (location.hash.replace(/^#/, '') || '/inicio').split('/')[1];
-  if (/^(historico|admin|aprovacoes|solicitacoes|perfil)$/.test(pg)) return;
+  if (/^(historico|admin|aprovacoes|solicitacoes|perfil|recrutamento)$/.test(pg)) return;
   const a = document.activeElement;
   if (a && a.matches && a.matches('input,textarea,select') && $('#view') && $('#view').contains(a)) {
     if (!a.__grcRR) { a.__grcRR = 1; a.addEventListener('blur', () => { a.__grcRR = 0; setTimeout(rerender_, 50); }, { once: true }); }
@@ -447,7 +447,7 @@ async function meRefresh() {
 }
 function afterBoot() {
   if (liveBooted) return; liveBooted = true;
-  startPolling(); initOneSignal();
+  startPolling(); initOneSignal(); carregarAcessoSel();
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
   else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
 }
@@ -676,6 +676,7 @@ function updateShell() {
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
     ${navItem('/sla', ic('gauge'), 'SLA de vagas', S.slaEst ? `<span class="cnt hot" title="SLA estourado">${S.slaEst}</span>` : '')}
     ${navItem('/contratacoes', ic('userplus'), 'Contratações', nC ? `<span class="cnt">${nC}</span>` : '')}
+    ${temSel() ? navItem('/recrutamento', ic('target'), 'Seleções') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
@@ -743,6 +744,7 @@ function route(keep) {
     else if (page === 'perfil') pgPerfil();
     else if (page === 'sla') pgSLA();
     else if (page === 'desligamentos') pgDesl();
+    else if (page === 'recrutamento' && temSel()) pgRecrut();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();
@@ -2035,6 +2037,218 @@ function openDesligar(l, r) {
     })
   });
 }
+/* =====================================================================
+ * RECRUTAMENTO — controle de seleções / entrevistas (aba liberada por usuário)
+ * ===================================================================== */
+const SEL_STATUS = ['Agendada', 'Realizada', 'Cancelada'];
+const SEL_ORIGENS = ['Banco de talentos', 'Indicação', 'Instagram', 'WhatsApp', 'Indeed', 'SINE', 'Placa na loja', 'Agência', 'Outro'];
+const temSel = () => !!(S.user && (isAdmin() || (S.sel ? S.sel.acesso : ls.get('grc_selAcesso_' + S.user.id, false))));
+async function carregarAcessoSel() {
+  if (!S.user || DEMO) { S.sel = { acesso: isAdmin(), admin: isAdmin(), ids: [] }; return; }
+  try {
+    const j = await api('selecoesAcesso', {}, { silent: true });
+    const antes = temSel();
+    S.sel = { acesso: !!j.acesso, admin: !!j.admin, ids: j.ids || [] };
+    ls.set('grc_selAcesso_' + S.user.id, S.sel.acesso);
+    if (antes !== temSel() && $('.app')) { updateShell(); if (!temSel() && /^#\/recrutamento/.test(location.hash)) location.hash = '#/inicio'; }
+  } catch (e) { /* servidor sem a função ainda: mantém como está */ }
+}
+const selNum = v => (v === '' || v == null) ? null : +v;
+const selFalt = s => (selNum(s.chamados) != null && selNum(s.compareceram) != null) ? Math.max(0, s.chamados - s.compareceram) : null;
+const selPct = (a, b) => (a != null && b) ? Math.round(a / b * 100) : null;
+function selStatusBadge(st) { return `<span class="badge ${st === 'Realizada' ? 'b-ok' : st === 'Cancelada' ? 'b-bad' : 'b-info'}">${h(st || 'Agendada')}</span>`; }
+
+async function pgRecrut() {
+  setTitle('Recrutamento', 'Controle de seleções e entrevistas');
+  const f = getF('sel');
+  const v = $('#view');
+  const lojasUser = isAdmin() ? Object.keys(LOJA_NOMES).filter(k => k !== 'GRC') : S.user.lojas;
+  v.innerHTML = `
+  <div class="grid g4" id="selKpi">${'<div class="sk" style="height:118px"></div>'.repeat(4)}</div>
+  <div class="toolbar">
+    <div class="input-icon search">${ic('search')}<input class="input" id="sq" placeholder="Buscar setor, função, responsável" value="${h(f.q || '')}" style="width:100%"></div>
+    <select class="input" id="sLoja"><option value="">Loja: Todas</option>${lojasUser.map(k => `<option value="${k}" ${f.loja === k ? 'selected' : ''}>${h(LOJA_NOMES[k] || k)}</option>`).join('')}</select>
+    <select class="input" id="sSt"><option value="">Status: Todos</option>${SEL_STATUS.map(s => `<option ${f.st === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+    <select class="input" id="sPer"><option value="">Período: Tudo</option><option value="7" ${f.per === '7' ? 'selected' : ''}>Últimos 7 dias</option><option value="30" ${f.per === '30' ? 'selected' : ''}>Últimos 30 dias</option><option value="mes" ${f.per === 'mes' ? 'selected' : ''}>Este mês</option><option value="prox" ${f.per === 'prox' ? 'selected' : ''}>Próximas (agendadas)</option></select>
+    <span class="spacer"></span>
+    ${isAdmin() ? `<button class="btn" id="sAcc" title="Quem pode ver esta aba">${ic('key')} Acessos</button>` : ''}
+    <button class="btn" id="sExp" title="Exportar Excel / PDF">${ic('download')}</button>
+    <button class="btn primary" id="sNew">${ic('plus')} Nova seleção</button>
+  </div>
+  <div id="sBody"><div class="sk" style="height:220px"></div></div>
+  <div class="card mt" id="sResumo" style="display:none"></div>`;
+  const rt = S.rt;
+  let list = S.selCache || [];
+  const filt = () => {
+    const q = norm(f.q), hoje = today0();
+    return list.filter(s => {
+      if (f.loja && s.loja !== f.loja) return false;
+      if (f.st && s.status !== f.st) return false;
+      if (q && !norm([s.setor, s.funcao, s.responsavel, s.local, s.origem, s.obs].join(' ')).includes(q)) return false;
+      const d = parseISO(s.data), dd = d ? Math.round((d - hoje) / 864e5) : null;
+      if (f.per === '7' && !(dd != null && dd >= -7 && dd <= 0)) return false;
+      if (f.per === '30' && !(dd != null && dd >= -30 && dd <= 0)) return false;
+      if (f.per === 'mes' && !(d && d.getMonth() === hoje.getMonth() && d.getFullYear() === hoje.getFullYear())) return false;
+      if (f.per === 'prox' && !(dd != null && dd >= 0 && s.status !== 'Cancelada' && s.status !== 'Realizada')) return false;
+      return true;
+    });
+  };
+  const draw = () => {
+    if (rt !== S.rt || !$('#sBody')) return;
+    const R = filt(), real = R.filter(s => s.status !== 'Cancelada');
+    const tot = k => sum(real, s => +s[k] || 0);
+    // taxas só com seleções que já têm o comparecimento lançado
+    const feitas = real.filter(s => selNum(s.compareceram) != null && selNum(s.chamados) != null);
+    const cham = sum(feitas, s => +s.chamados || 0), comp = sum(feitas, s => +s.compareceram || 0), falt = sum(feitas, s => selFalt(s) || 0), apL = tot('aprov_lider'), apR = tot('aprov_rh'), adm = tot('admitidos');
+    const agend = R.filter(s => s.status === 'Agendada' && (daysTo(parseISO(s.data)) ?? -1) >= 0).length;
+    $('#selKpi').innerHTML = `
+      ${kpi({ lbl: 'Seleções', val: R.length, sub: `${agend} agendada(s) a partir de hoje`, icon: 'calendar', c: 'c-cyan' })}
+      ${kpi({ lbl: 'Comparecimento', val: comp + ` <span class="muted" style="font-size:15px">de ${cham} chamados</span>`, sub: `${selPct(comp, cham) ?? 0}% compareceram · ${falt} faltaram`, icon: 'users', c: 'c-blue', bar: selPct(comp, cham) || 0 })}
+      ${kpi({ lbl: 'Aprovados', val: `${apL} <span class="muted" style="font-size:15px">liderança</span> · ${apR} <span class="muted" style="font-size:15px">RH</span>`, sub: `${selPct(apR, comp) ?? 0}% dos que compareceram aprovados pelo RH`, icon: 'check', c: 'c-green' })}
+      ${kpi({ lbl: 'Admitidos', val: adm, sub: `${selPct(adm, cham) ?? 0}% dos chamados (seleções realizadas) viraram admissão`, icon: 'userplus', c: 'c-violet' })}`;
+    table($('#sBody'), 'selecoes', [
+      { t: 'Data', k: 'data', r: s => `<b>${h(isoToBR(s.data))}</b>${s.horario ? `<div class="muted" style="font-size:11.5px">${h(s.horario)}</div>` : ''}`, sort: s => { const d = parseISO(s.data); return d ? +d : null; } },
+      { t: 'Loja', k: 'loja', r: s => lojaPill(s.loja) },
+      { t: 'Setor / função', k: 'funcao', r: s => `<b>${h(s.funcao || s.setor)}</b>${s.funcao && s.setor ? `<div class="muted" style="font-size:11.5px">${h(s.setor)}</div>` : ''}` },
+      { t: 'Vagas', k: 'vagas', sort: s => selNum(s.vagas) },
+      { t: 'Chamados', k: 'chamados', sort: s => selNum(s.chamados) },
+      { t: 'Vieram', k: 'compareceram', r: s => s.compareceram === '' ? '<span class="faint">—</span>' : `${h(s.compareceram)}${selPct(selNum(s.compareceram), selNum(s.chamados)) != null ? ` <span class="faint" style="font-size:11px">${selPct(selNum(s.compareceram), selNum(s.chamados))}%</span>` : ''}`, sort: s => selNum(s.compareceram) },
+      { t: 'Faltaram', k: '_f', r: s => { const x = selFalt(s); return x == null ? '<span class="faint">—</span>' : x ? `<span class="badge b-warn">${x}</span>` : '0'; }, sort: s => selFalt(s) },
+      { t: 'Aprov. liderança', k: 'aprov_lider', sort: s => selNum(s.aprov_lider) },
+      { t: 'Aprov. RH', k: 'aprov_rh', sort: s => selNum(s.aprov_rh) },
+      { t: 'Admitidos', k: 'admitidos', sort: s => selNum(s.admitidos) },
+      { t: 'Status', k: 'status', r: s => selStatusBadge(s.status) },
+      { t: 'Responsável', k: 'responsavel' }
+    ], R, s => openSelecao(s));
+    // resumo por loja e setor
+    const grp = new Map();
+    real.forEach(s => { const k = s.loja + '|' + (s.setor || s.funcao); const g = grp.get(k) || { loja: s.loja, setor: s.setor || s.funcao, n: 0, cham: 0, comp: 0, apL: 0, apR: 0, adm: 0 }; g.n++; if (selNum(s.compareceram) != null && selNum(s.chamados) != null) { g.cham += +s.chamados || 0; g.comp += +s.compareceram || 0; } g.apL += +s.aprov_lider || 0; g.apR += +s.aprov_rh || 0; g.adm += +s.admitidos || 0; grp.set(k, g); });
+    const rs = $('#sResumo');
+    if (grp.size > 1) {
+      rs.style.display = '';
+      rs.innerHTML = `<div class="card-h"><h3>${ic('trend')} Resumo por setor</h3><span class="muted" style="font-size:12px">sem as canceladas</span></div><div id="sResT"></div>`;
+      table($('#sResT'), 'selResumo', [
+        { t: 'Loja', k: 'loja', r: g => lojaPill(g.loja) }, { t: 'Setor', k: 'setor' }, { t: 'Seleções', k: 'n' }, { t: 'Chamados', k: 'cham', th: 'Chamados <span class="faint" style="font-weight:500;text-transform:none">(realizadas)</span>' },
+        { t: 'Compareceram', k: 'comp', r: g => `${g.comp} <span class="faint" style="font-size:11px">${selPct(g.comp, g.cham) ?? 0}%</span>` },
+        { t: 'Faltaram', k: '_f', r: g => g.cham - g.comp, sort: g => g.cham - g.comp }, { t: 'Aprov. liderança', k: 'apL' }, { t: 'Aprov. RH', k: 'apR' }, { t: 'Admitidos', k: 'adm' }
+      ], [...grp.values()].sort((a, b) => b.cham - a.cham));
+    } else rs.style.display = 'none';
+  };
+  const bind = (id, k) => { const el = $('#' + id); el.oninput = el.onchange = () => { f[k] = el.value; saveF(); draw(); }; };
+  bind('sq', 'q'); bind('sLoja', 'loja'); bind('sSt', 'st'); bind('sPer', 'per');
+  const atualizar = l => { list = S.selCache = l || []; draw(); };
+  $('#sNew').onclick = () => openSelecao(null, atualizar);
+  if ($('#sAcc')) $('#sAcc').onclick = () => openAcessoSel();
+  $('#sExp').onclick = () => exportCSV('recrutamento', ['Data', 'Horário', 'Loja', 'Setor', 'Função', 'Vagas', 'Local', 'Origem', 'Chamados', 'Confirmados', 'Compareceram', 'Faltaram', 'Aprov. liderança', 'Aprov. RH', 'Admitidos', 'Banco de talentos', 'Status', 'Responsável', 'Observações'],
+    filt().map(s => [isoToBR(s.data), s.horario, LOJA_NOMES[s.loja] || s.loja, s.setor, s.funcao, s.vagas, s.local, s.origem, s.chamados, s.confirmados, s.compareceram, selFalt(s) ?? '', s.aprov_lider, s.aprov_rh, s.admitidos, s.banco_talentos, s.status, s.responsavel, s.obs]));
+  openSelecao.after = atualizar;
+  if (list.length) draw();
+  try {
+    const j = await api('listSelecoes', {}, { silent: !!list.length });
+    if (rt !== S.rt) return;
+    atualizar(j.selecoes);
+  } catch (e) {
+    if (rt !== S.rt) return;
+    toast(e.message, true);
+    if (!list.length) $('#sBody').innerHTML = `<div class="card empty">${ic('alert')}<div>${h(e.message)}</div></div>`;
+  }
+}
+
+function openSelecao(s, done) {
+  done = done || openSelecao.after || (() => {});
+  const lojasUser = isAdmin() ? Object.keys(LOJA_NOMES).filter(k => k !== 'GRC') : S.user.lojas;
+  const lk0 = s ? s.loja : (getF('sel').loja || (lojasUser.length === 1 ? lojasUser[0] : ''));
+  const opcs = lk => { const l = lojaBy(lk); return l ? { setores: uniq(l.setores.map(x => x.nome)).sort(), funcoes: uniq(l.rows.map(r => r.funcao)).sort() } : { setores: [], funcoes: [] }; };
+  const n = (id, lbl, val) => `<div class="field"><label>${lbl}</label><input class="input" id="${id}" type="number" min="0" inputmode="numeric" value="${h(val == null ? '' : val)}"></div>`;
+  modal({
+    title: s ? 'Editar seleção' : 'Nova seleção', icon: 'target', wide: true,
+    body: `
+      <div class="row2">
+        <div class="field"><label>Loja</label><select class="input" id="zL"><option value="">Escolha…</option>${lojasUser.map(k => `<option value="${k}" ${lk0 === k ? 'selected' : ''}>${h(LOJA_NOMES[k] || k)}</option>`).join('')}</select></div>
+        <div class="field"><label>Status</label><select class="input" id="zSt">${SEL_STATUS.map(x => `<option ${(s ? s.status : 'Agendada') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Setor marcado</label><input class="input" id="zS" list="zSl" value="${h(s ? s.setor : '')}" placeholder="Ex.: FRENTE DE CAIXA"><datalist id="zSl"></datalist></div>
+        <div class="field"><label>Função</label><input class="input" id="zF" list="zFl" value="${h(s ? s.funcao : '')}" placeholder="Ex.: OPERADOR(A) DE CAIXA"><datalist id="zFl"></datalist></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Data da seleção</label><input class="input" id="zD" type="date" value="${h(s ? s.data : isoD(new Date()))}"></div>
+        <div class="field"><label>Horário</label><input class="input" id="zH" type="time" value="${h(s ? s.horario : '')}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Local</label><input class="input" id="zLo" value="${h(s ? s.local : '')}" placeholder="Ex.: Sala do RH — Matriz"></div>
+        <div class="field"><label>Responsável</label><input class="input" id="zR" value="${h(s ? s.responsavel : S.user.nome)}"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Vagas a preencher</label><input class="input" id="zV" type="number" min="0" value="${h(s ? s.vagas : '')}"></div>
+        <div class="field"><label>Origem dos candidatos</label><input class="input" id="zO" list="zOl" value="${h(s ? s.origem : '')}" placeholder="Ex.: Banco de talentos"><datalist id="zOl">${SEL_ORIGENS.map(o => `<option value="${h(o)}">`).join('')}</datalist></div>
+      </div>
+      <div class="card" style="background:var(--surface2);padding:14px;margin:4px 0 14px">
+        <div style="font-weight:700;margin-bottom:10px">${ic('users')} Candidatos</div>
+        <div class="row2">${n('zC', 'Chamados', s ? s.chamados : '')}${n('zCf', 'Confirmaram presença', s ? s.confirmados : '')}</div>
+        <div class="row2">${n('zCp', 'Compareceram', s ? s.compareceram : '')}<div class="field"><label>Faltaram</label><input class="input" id="zFt" readonly tabindex="-1" style="opacity:.8"></div></div>
+        <div class="row2">${n('zAL', 'Aprovados pela liderança', s ? s.aprov_lider : '')}${n('zAR', 'Aprovados pelo RH', s ? s.aprov_rh : '')}</div>
+        <div class="row2">${n('zAd', 'Admitidos', s ? s.admitidos : '')}${n('zBT', 'Foram para o banco de talentos', s ? s.banco_talentos : '')}</div>
+        <div class="muted" id="zRes" style="font-size:12.5px"></div>
+      </div>
+      <div class="field"><label>Observações</label><textarea class="input" id="zOb" placeholder="Ex.: 2 desistiram após a dinâmica; candidata X fica no banco para fiscal">${h(s ? s.obs : '')}</textarea></div>
+      ${s ? `<p class="faint" style="font-size:11.5px;margin:0">Criada por ${h(s.criado_por || '—')} em ${h(s.criado_em || '—')}${s.atualizado_por ? ` · última alteração: ${h(s.atualizado_por)} em ${h(s.atualizado_em)}` : ''}</p>` : ''}`,
+    foot: `${s ? `<button class="btn danger" id="zDel" style="margin-right:auto">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="zOk">${ic('check')} Salvar</button>`,
+    onMount: m => {
+      const $m = id => $('#' + id, m.el);
+      const fillLists = () => { const o = opcs($m('zL').value); $m('zSl').innerHTML = o.setores.map(x => `<option value="${h(x)}">`).join(''); $m('zFl').innerHTML = o.funcoes.map(x => `<option value="${h(x)}">`).join(''); };
+      const calc = () => {
+        const c = $m('zC').value, p = $m('zCp').value;
+        $m('zFt').value = c !== '' && p !== '' ? Math.max(0, c - p) : '';
+        const pc = c && p !== '' ? Math.round(p / c * 100) : null, ar = $m('zAR').value;
+        $m('zRes').textContent = pc != null ? `Comparecimento de ${pc}%` + (ar !== '' && +p ? ` · aprovação RH de ${Math.round(ar / p * 100)}% dos presentes` : '') : '';
+      };
+      $m('zL').onchange = fillLists; fillLists();
+      ['zC', 'zCp', 'zAR'].forEach(id => $m(id).oninput = calc); calc();
+      $m('zOk').onclick = e => run(e.currentTarget, async () => {
+        const gv = id => $m(id).value;
+        if (!gv('zL')) throw new Error('Escolha a loja');
+        if (!gv('zS').trim() && !gv('zF').trim()) throw new Error('Informe o setor ou a função');
+        if (!gv('zD')) throw new Error('Informe a data da seleção');
+        const N = id => gv(id) === '' ? '' : +gv(id);
+        if (N('zCp') !== '' && N('zC') !== '' && N('zCp') > N('zC')) throw new Error('Compareceram não pode ser maior que chamados');
+        if (N('zCp') !== '' && ((N('zAL') !== '' && N('zAL') > N('zCp')) || (N('zAR') !== '' && N('zAR') > N('zCp')))) throw new Error('Aprovados não pode ser maior que quem compareceu');
+        const j = await api('saveSelecao', { data: { id: s ? s.id : '', loja: gv('zL'), status: gv('zSt'), setor: gv('zS').trim().toUpperCase(), funcao: gv('zF').trim().toUpperCase(), data: gv('zD'), horario: gv('zH'), local: gv('zLo'), responsavel: gv('zR'), vagas: N('zV'), origem: gv('zO'), chamados: N('zC'), confirmados: N('zCf'), compareceram: N('zCp'), aprov_lider: N('zAL'), aprov_rh: N('zAR'), admitidos: N('zAd'), banco_talentos: N('zBT'), obs: gv('zOb') } });
+        m.close(); toast(s ? 'Seleção atualizada' : 'Seleção registrada'); done(j.selecoes);
+      });
+      const del = $m('zDel');
+      if (del) del.onclick = async () => {
+        if (!await confirmBox(`Excluir a seleção de <b>${h(s.funcao || s.setor)}</b> do dia <b>${h(isoToBR(s.data))}</b>?`, 'Excluir', true)) return;
+        await run(del, async () => { const j = await api('deleteSelecao', { id: s.id }); m.close(); toast('Seleção excluída'); done(j.selecoes); }).catch(() => {});
+      };
+    }
+  });
+}
+
+async function openAcessoSel() {
+  let users = [], ids = (S.sel && S.sel.ids) || [];
+  try { busy(true); users = (await api('listUsers', {}, { silent: true })).users || []; const a = await api('selecoesAcesso', {}, { silent: true }); ids = a.ids || ids; }
+  catch (e) { return toast(e.message, true); } finally { busy(false); }
+  const ativos = users.filter(u => u.ativo);
+  modal({
+    title: 'Quem acessa o Recrutamento', icon: 'key',
+    body: `<p class="muted" style="margin-top:0">Marque os acessos ativos que podem ver e lançar seleções. Cada pessoa vê apenas as lojas liberadas no acesso dela. Depois de salvar, ela só precisa atualizar a página.</p>
+      <div style="display:flex;flex-direction:column;gap:8px">${ativos.map(u => `<label class="card" style="display:flex;align-items:center;gap:12px;padding:10px 12px;cursor:${u.perfil === 'ADMIN' ? 'default' : 'pointer'}">
+        <input type="checkbox" data-uid="${h(u.id)}" ${u.perfil === 'ADMIN' || ids.includes(u.id) ? 'checked' : ''} ${u.perfil === 'ADMIN' ? 'disabled' : ''}>
+        ${avatar(u.nome, u.foto, 'sm')}<div style="flex:1"><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(PERFIS[u.perfil] || u.perfil)} · ${u.lojas.length >= 4 ? 'todas as lojas' : u.lojas.map(k => LOJA_NOMES[k] || k).join(', ')}</div></div>
+        ${u.perfil === 'ADMIN' ? '<span class="badge b-violet">sempre</span>' : ''}</label>`).join('')}</div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="aOk">Salvar acessos</button>`,
+    onMount: m => {
+      $('#aOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const sel = $$('[data-uid]', m.el).filter(c => c.checked && !c.disabled).map(c => c.dataset.uid);
+        const j = await api('setSelecoesAcesso', { ids: sel });
+        S.sel = Object.assign({}, S.sel, { ids: j.ids });
+        m.close(); toast(`Acesso salvo: ${j.ids.length} pessoa(s) além do administrador`);
+      });
+    }
+  });
+}
+
 function pgDesl() {
   setTitle('Desligamentos', 'Histórico de colaboradores desligados pelo sistema');
   const dtD = d => parseISO(d.data) || parseBR(d.data);

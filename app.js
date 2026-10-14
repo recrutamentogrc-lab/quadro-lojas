@@ -2939,11 +2939,14 @@ function pgContr() {
     { t: 'Loja', k: '_loja', r: r => lojaPill(r._loja) },
     { t: 'Colaborador', k: K.colab, r: r => `<div class="cell-person">${avatar(r[K.colab], '', 'sm soft')}<div><b>${h(r[K.colab])}</b>${r._consta ? '<div><span class="badge b-bad">consta como desligado</span></div>' : r._pend && r._noQuadro ? '<div><span class="badge b-ok">já está no quadro</span></div>' : r._pend && r._data && daysTo(r._data) < -30 ? `<div><span class="badge b-warn">pendente há ${-daysTo(r._data)} dias</span></div>` : ''}</div></div>` },
     { t: 'Setor', k: K.setor }, { t: 'Função', k: K.funcao },
-    { t: 'ASO', k: K.aso, r: r => badgeFor(r[K.aso]) }, { t: 'HCM', k: K.hcm, r: r => badgeFor(r[K.hcm]) },
-    { t: 'Contrato', k: K.contrato }, { t: 'Alocação', k: K.status, r: r => badgeFor(r[K.status]) },
+    { t: 'ASO', k: K.aso, r: r => qEdit(r, 'aso', badgeFor(r[K.aso])) }, { t: 'HCM', k: K.hcm, r: r => qEdit(r, 'hcm', badgeFor(r[K.hcm])) },
+    { t: 'Contrato', k: K.contrato, r: r => qEdit(r, 'contrato', r[K.contrato] ? h(r[K.contrato]) : '<span class="faint">—</span>') }, { t: 'Alocação', k: K.status, r: r => badgeFor(r[K.status]) },
     { t: '', k: '', nosort: true, r: r => r._pend && canEdit(r._loja) && lojaBy(r._loja) ? `<div style="display:flex;gap:6px" data-stop><button class="btn sm primary" data-aloc="${r.row}">${ic('swap')} Alocar</button><button class="btn sm" data-dsl="${r.row}" title="Já saiu da empresa">${ic('door')}</button></div>` : '' }
   ];
+  // edição rápida: clicar no ASO / HCM / Contrato direto na lista, sem abrir a pessoa
+  const qEdit = (r, f, inner) => canEdit(r._loja) && !r._deslig && K[f] ? `<span class="qedit" data-stop data-qe="${r.row}" data-qf="${f}" title="Clique para alterar">${inner}${ic('chevron', 'qcar')}</span>` : inner;
   const bindRows = el => {
+    $$('[data-qe]', el).forEach(b => b.onclick = e => { e.stopPropagation(); openQuickEdit(b, rows.find(x => x.row === +b.dataset.qe), b.dataset.qf); });
     $$('[data-aloc]', el).forEach(b => b.onclick = () => openAlocar(rows.find(x => x.row === +b.dataset.aloc)));
     $$('[data-dsl]', el).forEach(b => b.onclick = () => openMarcarDesl([rows.find(x => x.row === +b.dataset.dsl)]));
     $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? sel.add(+c.dataset.sel) : sel.delete(+c.dataset.sel); drawBulk(); });
@@ -3254,6 +3257,38 @@ function openVagaLote(rs) {
         m.close(); SEL.set.clear(); loteResult(j, '{n} vaga(s) atualizada(s)'); bgReload();
       });
     }
+  });
+}
+function quickEditOpts(f) {
+  const C = S.data.contratacoes, K = S.ck, k = K[f], op = C.opcoes || {};
+  const def = f === 'aso' ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : f === 'hcm' ? ['SIM', 'NÃO'] : f === 'contrato' ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : [];
+  const seen = new Set(), out = [];
+  [...(op[k] || []), ...def, ...(C.rows || []).map(r => r[k])].forEach(v => { v = String(v || '').trim(); const n = norm(v); if (v && !seen.has(n)) { seen.add(n); out.push(v); } });
+  return out;
+}
+function openQuickEdit(anchor, r, f) {
+  const old = $('.qmenu'); if (old) { const same = old._a === anchor; old._close(); if (same) return; }
+  if (!r) return;
+  const K = S.ck, k = K[f], atual = norm(r[k]);
+  const m = document.createElement('div'); m.className = 'qmenu'; m._a = anchor;
+  m.innerHTML = `<div class="qmenu-h">${h(k)}</div>` + quickEditOpts(f).map(o => `<button data-v="${h(o)}" class="${norm(o) === atual ? 'on' : ''}">${h(o)}</button>`).join('');
+  document.body.appendChild(m);
+  const rc = anchor.getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(rc.left, innerWidth - mw - 8)) + 'px';
+  m.style.top = (rc.bottom + 6 + mh > innerHeight ? Math.max(8, rc.top - mh - 6) : rc.bottom + 6) + 'px';
+  const off = e => { if (!m.contains(e.target) && !anchor.contains(e.target)) close(); };
+  const esc = e => { if (e.key === 'Escape') close(); };
+  const close = () => { m.remove(); document.removeEventListener('mousedown', off, true); document.removeEventListener('keydown', esc, true); removeEventListener('scroll', close, true); removeEventListener('resize', close); };
+  m._close = close;
+  setTimeout(() => { document.addEventListener('mousedown', off, true); document.addEventListener('keydown', esc, true); addEventListener('scroll', close, true); addEventListener('resize', close); });
+  $$('button', m).forEach(b => b.onclick = async () => {
+    const v = b.dataset.v; close();
+    if (norm(v) === atual) return;
+    await run(null, async () => {
+      const j = await api('contrBulkSet', { rows: [{ row: r.row, nome: r[K.colab] }], campo: k, valor: v });
+      if (!j.pendente) toast(`${k} de ${String(r[K.colab] || '').split(' ')[0]} alterado para ${v}`);
+      bgReload();
+    });
   });
 }
 async function contrBulk(lista, campo, valor, done) {

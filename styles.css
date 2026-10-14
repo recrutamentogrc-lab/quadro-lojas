@@ -429,3 +429,13 @@ optgroup{font-weight:700}
 .sec-lider-add{font-size:11.5px;opacity:.75}.sec-lider-add .i{width:13px;height:13px}.sec-lider-add:hover{opacity:1;color:var(--accent)}
 .sec-lider.trainee .avatar{box-shadow:0 0 0 1.5px var(--surface),0 0 0 3px #a78bfa}.sec-lider i{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a78bfa}
 .avatar,.avatar img{border-radius:50%}
+/* edição rápida na lista de contratações */
+.qedit{display:inline-flex;align-items:center;gap:3px;cursor:pointer;border-radius:8px;padding:2px;margin:-2px;transition:background .15s}
+.qedit:hover{background:var(--surface3)}
+.qedit .qcar{width:13px;height:13px;opacity:.45;transition:opacity .15s}
+.qedit:hover .qcar{opacity:1}
+.qmenu{position:fixed;z-index:9999;min-width:160px;max-height:280px;overflow:auto;background:var(--surface);border:1px solid var(--border2);border-radius:10px;box-shadow:var(--shadow);padding:6px;display:flex;flex-direction:column;gap:2px}
+.qmenu-h{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:4px 8px 6px}
+.qmenu button{all:unset;cursor:pointer;padding:7px 10px;border-radius:7px;font-size:13px;font-weight:600;color:var(--text)}
+.qmenu button:hover{background:var(--surface3)}
+.qmenu button.on{background:var(--surface3);box-shadow:inset 3px 0 0 var(--accent)}

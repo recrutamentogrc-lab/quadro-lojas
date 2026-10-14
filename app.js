@@ -600,7 +600,7 @@ function derive() {
   const C = D.contratacoes || { header: [], rows: [] };
   const H = C.header || [];
   const find = re => H.find(x => re.test(norm(x))) || '';
-  S.ck = { data: H[0] || 'DATA', loja: find(/^LOJA/), colab: find(/COLABORADOR|NOME/), setor: find(/SETOR/), funcao: find(/FUNC/), aso: find(/ASO/), hcm: find(/HCM|EXPORT/), contrato: find(/CONTRATO/), status: find(/STATUS/) };
+  S.ck = { data: H[0] || 'DATA', loja: find(/^LOJA/), colab: find(/COLABORADOR|NOME/), setor: find(/SETOR/), funcao: find(/FUNC/), aso: find(/ASO/), hcm: find(/HCM|EXPORT/), contrato: find(/CONTRATO/), status: find(/STATUS/), dp: find(/SOLICIT|\bDP\b/) };
   (C.rows || []).forEach(r => {
     r._loja = lojaKey(r[S.ck.loja]);
     r._deslig = /DESLIG/.test(norm(r[S.ck.status]));
@@ -608,6 +608,8 @@ function derive() {
     r._data = parseBR(r[S.ck.data]);
     r._consta = r._pend && S.desl.has(norm(r[S.ck.colab]));
     r._noQuadro = !!S.nomesQuadro && S.nomesQuadro.has(norm(r[S.ck.colab]));
+    r._chk = chkSteps(r); r._chkOk = r._chk.filter(x => x.ok).length;
+    r._falta = r._chk.find(x => !x.ok) || null;
   });
   // experiências
   (D.experiencias || []).forEach(e => {
@@ -2870,6 +2872,43 @@ function matchVagas(lk, funcao, setor) {
   const score = r => (key && norm(r.funcao).startsWith(key) ? 0 : 4) + (sx && norm(r.setor).includes(sx) ? 0 : 2) + (r.vagaAberta ? 0 : 1);
   return l.rows.filter(r => r.isVaga).map(r => ({ r, sc: score(r) })).sort((a, b) => a.sc - b.sc).map(x => Object.assign(x.r, { _sc: x.sc }));
 }
+/* ---------- checklist da admissão (DP → ASO → HCM → Quadro) ---------- */
+const ASO_OK = v => /FEITO|NAO SE APLICA|DISPENS/.test(norm(v));
+const SIM = v => /^S/.test(norm(v));
+function chkSteps(r) {
+  const K = S.ck, out = [];
+  if (K.dp) out.push({ k: 'dp', lbl: 'Admissão solicitada ao DP', curto: 'DP', ok: SIM(r[K.dp]), sub: SIM(r[K.dp]) ? 'Solicitada no sistema do DP' : 'Ainda não solicitada' });
+  if (K.aso) out.push({ k: 'aso', lbl: 'ASO admissional', curto: 'ASO', ok: ASO_OK(r[K.aso]), mid: /MARCADO/.test(norm(r[K.aso])), sub: r[K.aso] ? String(r[K.aso]) : 'Sem informação' });
+  if (K.hcm) out.push({ k: 'hcm', lbl: 'Exportado ao HCM', curto: 'HCM', ok: SIM(r[K.hcm]), sub: SIM(r[K.hcm]) ? 'Exportado' : 'Não exportado' });
+  out.push({ k: 'aloc', lbl: 'Alocado no quadro', curto: 'Quadro', ok: !r._pend && !r._deslig, sub: r._deslig ? 'Desligado' : r._pend ? 'Pendente de alocação' : 'Alocado' });
+  return out;
+}
+const chkStatus = r => r._deslig ? '<span class="badge b-bad">Desligado</span>' : !r._falta ? `<span class="badge b-ok">${ic('check')} Concluída</span>` : `<span class="ck-falta">Falta: <b>${h(r._falta.curto)}</b></span>`;
+function chkCell(r) {
+  const can = canContr(r._loja) && !r._deslig, tot = r._chk.length, pc = Math.round(r._chkOk / tot * 100);
+  return `<div class="ck" data-stop>
+    <div class="ck-items">${r._chk.map(s => {
+      const pode = can && (s.k !== 'aloc' || (r._pend && canEdit(r._loja) && lojaBy(r._loja)));
+      const cls = s.ok ? 'ok' : s.mid ? 'mid' : r._falta === s ? 'next' : '';
+      return `<button class="ck-i ${cls} ${pode ? 'can' : ''}" ${pode ? `data-ck="${r.row}" data-cf="${s.k}"` : 'disabled'} title="${h(s.lbl)} — ${h(s.sub)}${pode ? (s.k === 'aloc' ? ' · clique para alocar' : ' · clique para alterar') : ''}"><span class="ck-b">${s.ok ? ic('check') : ''}</span>${h(s.curto)}${s.k === 'aso' && !s.ok && s.mid ? ' · marcado' : ''}</button>`;
+    }).join('')}</div>
+    <div class="ck-meta"><div class="ck-bar ${r._falta ? '' : 'full'}"><i style="width:${pc}%"></i></div><span>${r._chkOk}/${tot}</span>${chkStatus(r)}</div>
+  </div>`;
+}
+// grava um campo da contratação na hora (otimista), mandando a linha completa como no formulário
+function contrSet(r, k, v) {
+  const K = S.ck, data = {};
+  (S.data.contratacoes.header || []).filter(x => !/^COL\d+$/.test(x)).forEach(x => { data[x] = x === K.data ? brToISO(r[x]) || r[x] || '' : String(r[x] == null ? '' : r[x]); });
+  data[k] = v;
+  return run(null, () => api('saveContratacao', { row: r.row, expectNome: r[K.colab], data }));
+}
+function chkClick(anchor, r, f) {
+  const K = S.ck; if (!r) return;
+  if (f === 'aloc') return openAlocar(r);
+  if (f === 'aso') return openQuickEdit(anchor, r, 'aso');
+  const v = SIM(r[K[f]]) ? 'NÃO' : 'SIM';
+  contrSet(r, K[f], v).then(j => { if (j && !j.pendente) toast(`${String(r[K.colab] || '').split(' ')[0]}: ${f === 'dp' ? 'admissão no DP' : 'exportação ao HCM'} ${v === 'SIM' ? 'marcada' : 'desmarcada'}`); }).catch(() => {});
+}
 function pgContr() {
   setTitle('Contratações', 'Admissões semanais e alocação no quadro');
   const C = S.data.contratacoes, K = S.ck, f = getF('contr');
@@ -2886,15 +2925,20 @@ function pgContr() {
   const range = () => f.per === 'custom' ? [parseISO(f.de), parseISO(f.ate)] : [PER[f.per][1], PER[f.per][2]];
   const ativos = rows.filter(r => !r._deslig);
   const v = $('#view');
+  const cOk = ativos.filter(r => !r._falta).length;
   v.innerHTML = `
-  <div class="grid g4">
+  ${!K.dp && isAdmin() ? `<div class="card ck-aviso">${ic('file')}<div><b>Ative o item “Admissão solicitada ao DP” no checklist</b><span>Na planilha, na aba de contratações, dê o título <b>SOLICITADO DP</b> à primeira coluna vazia depois de “${h(K.status || 'Status Alocação')}”, com os valores SIM ou NÃO. O sistema reconhece a coluna sozinho na próxima atualização.</span></div></div>` : ''}
+  <div class="grid g5">
     ${kpi({ lbl: 'Admissões nesta semana', val: ativos.filter(r => r._data && r._data >= ws && r._data <= new Date(ws.getTime() + 6 * 864e5)).length, sub: `${ativos.filter(r => r._data && r._data >= new Date(ws.getTime() + 7 * 864e5) && r._data <= new Date(ws.getTime() + 13 * 864e5)).length} previstas para a próxima`, icon: 'calendar', c: 'c-cyan' })}
     ${kpi({ lbl: 'Pendentes de alocação', val: rows.filter(r => r._pend).length, sub: `${rows.filter(r => r._consta).length} constam como desligados`, icon: 'swap', c: 'c-amber' })}
     ${kpi({ lbl: 'ASO pendente', val: ativos.filter(r => K.aso && !/FEITO/.test(norm(r[K.aso]))).length, sub: 'Marcado ou aguardando', icon: 'file', c: 'c-red' })}
+    ${K.dp ? kpi({ lbl: 'Admissão não solicitada ao DP', val: ativos.filter(r => !SIM(r[K.dp])).length, sub: 'Solicitar no sistema do DP', icon: 'userplus', c: 'c-amber' }) : ''}
     ${kpi({ lbl: 'Não exportado ao HCM', val: ativos.filter(r => K.hcm && !/SIM/.test(norm(r[K.hcm]))).length, icon: 'refresh', c: 'c-violet' })}
+    ${kpi({ lbl: 'Checklist completo', val: `${cOk}<small> / ${ativos.length}</small>`, bar: ativos.length ? cOk / ativos.length * 100 : 0, sub: 'DP, ASO, HCM e quadro', icon: 'check', c: 'c-green' })}
   </div>
   <div class="card mt"><div class="card-h"><h3>Admissões por semana</h3><span class="sub">últimas 12 semanas + próximas 2</span></div><div class="chart-box sm"><canvas id="chWeek"></canvas></div></div>
   <div class="chips mt" id="perChips"></div>
+  <div class="chips ck-chips" id="ckChips"></div>
   <div class="toolbar">
     <div class="input-icon search">${ic('search')}<input class="input" id="cq" placeholder="Buscar colaborador ou função" value="${h(f.q || '')}" style="width:100%"></div>
     <input class="input" type="date" id="cDe" value="${h(f.de || '')}" title="De"><input class="input" type="date" id="cAte" value="${h(f.ate || '')}" title="Até">
@@ -2915,9 +2959,16 @@ function pgContr() {
   const view = getV('contr', 'sem');
   $$('#cvw button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.onclick = () => { setV('contr', b.dataset.v); route(); }; });
   const drawPer = () => { $('#perChips').innerHTML = Object.entries(PER).filter(([k]) => k !== 'custom' || f.per === 'custom').map(([k, x]) => `<span class="chip ${f.per === k ? 'on' : ''}" data-k="${k}">${ic('calendar')} ${x[0]}${x[1] ? ` <span class="n">${fmtD(x[1]).slice(0, 5)}–${fmtD(x[2]).slice(0, 5)}</span>` : ''}</span>`).join(''); $$('#perChips .chip').forEach(c => c.onclick = () => { f.per = c.dataset.k; if (f.per !== 'custom') { f.de = ''; f.ate = ''; $('#cDe').value = ''; $('#cAte').value = ''; } saveF(); drawPer(); draw(); }); };
+  const ckMatch = r => !f.ck || (f.ck === 'ok' ? !r._deslig && !r._falta : !r._deslig && r._chk.some(s => s.k === f.ck && !s.ok));
+  const drawCk = () => {
+    const base = rows.filter(r => !r._deslig), steps = (base[0] || rows[0] || { _chk: [] })._chk;
+    const lbl = { dp: 'Falta solicitar ao DP', aso: 'Falta ASO', hcm: 'Falta exportar ao HCM', aloc: 'Falta alocar' };
+    $('#ckChips').innerHTML = `<span class="ck-chips-t">Checklist</span><span class="chip ${!f.ck ? 'on' : ''}" data-c="">Todas</span>` + steps.map(s => `<span class="chip ${f.ck === s.k ? 'on' : ''}" data-c="${s.k}">${lbl[s.k]} <span class="n">${base.filter(r => r._chk.some(x => x.k === s.k && !x.ok)).length}</span></span>`).join('') + `<span class="chip ${f.ck === 'ok' ? 'on' : ''}" data-c="ok">${ic('check')} Concluídas <span class="n">${base.filter(r => !r._falta).length}</span></span>`;
+    $$('#ckChips .chip').forEach(c => c.onclick = () => { f.ck = c.dataset.c; saveF(); drawCk(); draw(); });
+  };
   const filt = () => {
     const q = norm(f.q); const [a, b] = range();
-    return rows.filter(r => (f.desl || !r._deslig) && (!f.noq || (r._pend && r._noQuadro)) && (!f.cdes || r._consta) && (!q || norm(r[K.colab] + ' ' + r[K.funcao]).includes(q)) && (!f.loja || r._loja === f.loja) && (!f.st || r[K.status] === f.st) && (!f.aso || r[K.aso] === f.aso) && (!a || (r._data && r._data >= a)) && (!b || (r._data && r._data <= b))).sort((x, y) => (y._data || 0) - (x._data || 0));
+    return rows.filter(r => (f.desl || !r._deslig) && (!f.noq || (r._pend && r._noQuadro)) && (!f.cdes || r._consta) && (!q || norm(r[K.colab] + ' ' + r[K.funcao]).includes(q)) && (!f.loja || r._loja === f.loja) && (!f.st || r[K.status] === f.st) && (!f.aso || r[K.aso] === f.aso) && (!a || (r._data && r._data >= a)) && (!b || (r._data && r._data <= b)) && ckMatch(r)).sort((x, y) => (y._data || 0) - (x._data || 0));
   };
   const badgeFor = val => { const n = norm(val); if (!n) return '<span class="faint">—</span>'; return `<span class="badge ${/FEITO|SIM|ALOCAD/.test(n) ? 'b-ok' : /DESLIG/.test(n) ? 'b-bad' : /MARCADO/.test(n) ? 'b-info' : /AGUARD|PEND|NAO/.test(n) ? 'b-warn' : ''}">${h(val)}</span>`; };
   selScope('contr');
@@ -2939,14 +2990,15 @@ function pgContr() {
     { t: 'Loja', k: '_loja', r: r => lojaPill(r._loja) },
     { t: 'Colaborador', k: K.colab, r: r => `<div class="cell-person">${avatar(r[K.colab], '', 'sm soft')}<div><b>${h(r[K.colab])}</b>${r._consta ? '<div><span class="badge b-bad">consta como desligado</span></div>' : r._pend && r._noQuadro ? '<div><span class="badge b-ok">já está no quadro</span></div>' : r._pend && r._data && daysTo(r._data) < -30 ? `<div><span class="badge b-warn">pendente há ${-daysTo(r._data)} dias</span></div>` : ''}</div></div>` },
     { t: 'Setor', k: K.setor }, { t: 'Função', k: K.funcao },
-    { t: 'ASO', k: K.aso, r: r => qEdit(r, 'aso', badgeFor(r[K.aso])) }, { t: 'HCM', k: K.hcm, r: r => qEdit(r, 'hcm', badgeFor(r[K.hcm])) },
-    { t: 'Contrato', k: K.contrato, r: r => qEdit(r, 'contrato', r[K.contrato] ? h(r[K.contrato]) : '<span class="faint">—</span>') }, { t: 'Alocação', k: K.status, r: r => badgeFor(r[K.status]) },
+    { t: 'Contrato', k: K.contrato, r: r => qEdit(r, 'contrato', r[K.contrato] ? h(r[K.contrato]) : '<span class="faint">—</span>') },
+    { t: 'Checklist', k: '_chkOk', sort: r => r._deslig ? -1 : r._chkOk, r: r => chkCell(r) },
     { t: '', k: '', nosort: true, r: r => r._pend && canEdit(r._loja) && lojaBy(r._loja) ? `<div style="display:flex;gap:6px" data-stop><button class="btn sm primary" data-aloc="${r.row}">${ic('swap')} Alocar</button><button class="btn sm" data-dsl="${r.row}" title="Já saiu da empresa">${ic('door')}</button></div>` : '' }
   ];
   // edição rápida: clicar no ASO / HCM / Contrato direto na lista, sem abrir a pessoa
   const qEdit = (r, f, inner) => canEdit(r._loja) && !r._deslig && K[f] ? `<span class="qedit" data-stop data-qe="${r.row}" data-qf="${f}" title="Clique para alterar">${inner}${ic('chevron', 'qcar')}</span>` : inner;
   const bindRows = el => {
     $$('[data-qe]', el).forEach(b => b.onclick = e => { e.stopPropagation(); openQuickEdit(b, rows.find(x => x.row === +b.dataset.qe), b.dataset.qf); });
+    $$('[data-ck]', el).forEach(b => b.onclick = e => { e.stopPropagation(); chkClick(b, rows.find(x => x.row === +b.dataset.ck), b.dataset.cf); });
     $$('[data-aloc]', el).forEach(b => b.onclick = () => openAlocar(rows.find(x => x.row === +b.dataset.aloc)));
     $$('[data-dsl]', el).forEach(b => b.onclick = () => openMarcarDesl([rows.find(x => x.row === +b.dataset.dsl)]));
     $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? sel.add(+c.dataset.sel) : sel.delete(+c.dataset.sel); drawBulk(); });
@@ -2959,7 +3011,7 @@ function pgContr() {
     const groups = {};
     list.forEach(r => { const k = r._data ? isoD(weekStart(r._data)) : 'sem-data'; (groups[k] = groups[k] || []).push(r); });
     const keys = Object.keys(groups).sort().reverse();
-    body.innerHTML = keys.length ? keys.map(k => { const g = groups[k]; const a = parseISO(k); const atual = a && +a === +ws; return `<div class="week ${atual ? 'cur' : ''}"><div class="week-h"><b>${a ? `Semana de ${fmtD(a)} a ${fmtD(new Date(a.getTime() + 6 * 864e5))}` : 'Sem data'}</b>${atual ? '<span class="badge b-acc">semana atual</span>' : ''}<span class="spacer"></span>${S.data.lojas.map(l => { const n = g.filter(r => r._loja === l.key).length; return n ? `${lojaPill(l.key)} <b style="margin-right:10px">${n}</b>` : ''; }).join('')}<span class="badge">${g.length} admissão(ões)</span>${g.filter(r => r._pend).length ? `<span class="badge b-warn">${g.filter(r => r._pend).length} p/ alocar</span>` : ''}</div><div class="wk" data-k="${k}"></div></div>`; }).join('') : `<div class="card empty">${ic('calendar')}<div>Nenhuma contratação no período.</div></div>`;
+    body.innerHTML = keys.length ? keys.map(k => { const g = groups[k]; const a = parseISO(k); const atual = a && +a === +ws; return `<div class="week ${atual ? 'cur' : ''}"><div class="week-h"><b>${a ? `Semana de ${fmtD(a)} a ${fmtD(new Date(a.getTime() + 6 * 864e5))}` : 'Sem data'}</b>${atual ? '<span class="badge b-acc">semana atual</span>' : ''}<span class="spacer"></span>${S.data.lojas.map(l => { const n = g.filter(r => r._loja === l.key).length; return n ? `${lojaPill(l.key)} <b style="margin-right:10px">${n}</b>` : ''; }).join('')}<span class="badge">${g.length} admissão(ões)</span>${(() => { const at = g.filter(r => !r._deslig), ok = at.filter(r => !r._falta).length; return at.length ? `<span class="badge ${ok === at.length ? 'b-ok' : ''}" title="Checklist completo">${ic('check')} ${ok}/${at.length}</span>` : ''; })()}${g.filter(r => r._pend).length ? `<span class="badge b-warn">${g.filter(r => r._pend).length} p/ alocar</span>` : ''}</div><div class="wk" data-k="${k}"></div></div>`; }).join('') : `<div class="card empty">${ic('calendar')}<div>Nenhuma contratação no período.</div></div>`;
     keys.forEach(k => { const el = $(`.wk[data-k="${k}"]`, body); table(el, 'contrW', cols, groups[k], r => openContr(r)); bindRows(el); });
     drawBulk();
   };
@@ -2973,7 +3025,7 @@ function pgContr() {
   $('#cExp').onclick = () => exportCSV('contratacoes', HX, filt().map(r => HX.map(k => r[k])));
   if ($('#cNew')) $('#cNew').onclick = () => openContr(null);
   if ($('#cCruz')) $('#cCruz').onclick = e => openCruzar(e.currentTarget);
-  drawPer(); draw();
+  drawPer(); drawCk(); draw();
   // gráfico semanal
   const weeks = []; for (let i = 11; i >= -2; i--) weeks.push(new Date(ws.getTime() - i * 7 * 864e5));
   chart($('#chWeek'), { type: 'bar', data: { labels: weeks.map(w => fmtD(w).slice(0, 5)), datasets: S.data.lojas.map(l => ({ label: l.nome, data: weeks.map(w => ativos.filter(r => r._loja === l.key && r._data && r._data >= w && r._data < new Date(w.getTime() + 7 * 864e5)).length), backgroundColor: l.color, borderRadius: 4, maxBarThickness: 26 })) }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { precision: 0 }, grid: { color: css('--border') } } } } });
@@ -3261,7 +3313,7 @@ function openVagaLote(rs) {
 }
 function quickEditOpts(f) {
   const C = S.data.contratacoes, K = S.ck, k = K[f], op = C.opcoes || {};
-  const def = f === 'aso' ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : f === 'hcm' ? ['SIM', 'NÃO'] : f === 'contrato' ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : [];
+  const def = f === 'aso' ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : f === 'hcm' || f === 'dp' ? ['SIM', 'NÃO'] : f === 'contrato' ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : [];
   const seen = new Set(), out = [];
   [...(op[k] || []), ...def, ...(C.rows || []).map(r => r[k])].forEach(v => { v = String(v || '').trim(); const n = norm(v); if (v && !seen.has(n)) { seen.add(n); out.push(v); } });
   return out;
@@ -3284,11 +3336,8 @@ function openQuickEdit(anchor, r, f) {
   $$('button', m).forEach(b => b.onclick = async () => {
     const v = b.dataset.v; close();
     if (norm(v) === atual) return;
-    await run(null, async () => {
-      const j = await api('contrBulkSet', { rows: [{ row: r.row, nome: r[K.colab] }], campo: k, valor: v });
-      if (!j.pendente) toast(`${k} de ${String(r[K.colab] || '').split(' ')[0]} alterado para ${v}`);
-      bgReload();
-    });
+    const j = await contrSet(r, k, v).catch(() => null);
+    if (j && !j.pendente) toast(`${k} de ${String(r[K.colab] || '').split(' ')[0]} alterado para ${v}`);
   });
 }
 async function contrBulk(lista, campo, valor, done) {
@@ -3300,8 +3349,8 @@ async function contrBulk(lista, campo, valor, done) {
 }
 function openContrBulkSet(lista, done) {
   const C = S.data.contratacoes, K = S.ck, op = C.opcoes || {};
-  const campos = [K.status, K.aso, K.hcm, K.contrato].filter(Boolean);
-  const opts = k => uniq([...(op[k] || []), ...C.rows.map(r => r[k]).filter(Boolean), ...(k === K.status ? ['Alocado', 'Pendente', 'Desligado'] : [])]);
+  const campos = [K.dp, K.aso, K.hcm, K.contrato, K.status].filter(Boolean);
+  const opts = k => uniq([...(op[k] || []), ...C.rows.map(r => r[k]).filter(Boolean), ...(k === K.status ? ['Alocado', 'Pendente', 'Desligado'] : k === K.dp || k === K.hcm ? ['SIM', 'NÃO'] : [])]);
   modal({
     title: `Alterar ${lista.length} contratação(ões)`, icon: 'edit',
     body: `<div class="row2"><div class="field"><label>Campo</label><select class="input" id="cbC">${campos.map(c => `<option>${h(c)}</option>`).join('')}</select></div><div class="field"><label>Novo valor</label><select class="input" id="cbV"></select></div></div>`,
@@ -3361,7 +3410,7 @@ function openContr(r) {
   const novo = !r;
   const lojasOpc = uniq([...(op[K.loja] || []), ...LOJAS_CONTR]).filter(x => !/FRALDA/i.test(x) || (r && r[K.loja] === x));
   const distinct = k => C.rows.map(x => x[k]).filter(Boolean);
-  const listFor = k => uniq([...(op[k] || []), ...distinct(k), ...(k === K.aso ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : k === K.hcm ? ['SIM', 'NÃO'] : k === K.contrato ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : k === K.status ? ['Pendente', 'Alocado', 'Desligado'] : [])]);
+  const listFor = k => uniq([...(op[k] || []), ...distinct(k), ...(k === K.aso ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : k === K.hcm || k === K.dp ? ['SIM', 'NÃO'] : k === K.contrato ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : k === K.status ? ['Pendente', 'Alocado', 'Desligado'] : [])]);
   const field = k => {
     const val = r ? r[k] : '';
     const dis = ed && (edQ || k !== K.status) ? '' : 'disabled';
@@ -3377,7 +3426,7 @@ function openContr(r) {
   const hdr = C.header.filter(k => !/^COL\d+$/.test(k) && (r || k !== K.status));
   modal({
     title: r ? h(r[K.colab]) : 'Nova contratação', icon: 'userplus', wide: true,
-    body: `<div class="row2">${hdr.map(field).join('')}</div>
+    body: `<div class="ckp" id="ckp"></div><div class="row2">${hdr.map(field).join('')}</div>
       <datalist id="dlCF">${allFuncoes().map(x => `<option value="${h(x)}">`).join('')}</datalist>
       <datalist id="dlCS">${uniq(S.all.map(x => x.setor)).map(x => `<option value="${h(x)}">`).join('')}</datalist>
       ${novo ? `<div class="card mt" style="background:var(--surface2);padding:14px${edQ ? '' : ';display:none'}"><div class="field" style="margin:0"><label>${ic('swap')} Vaga do quadro que será preenchida</label><select class="input" id="ncV"></select><div class="muted" style="font-size:12px;margin-top:6px" id="ncHint"></div></div></div>` : ''}`,
@@ -3387,6 +3436,29 @@ function openContr(r) {
       const dsl = $('[data-a=desl]', m.el); if (dsl) dsl.onclick = () => { m.close(); openMarcarDesl([r]); };
       const el = k => $(`[data-k="${CSS.escape(k)}"]`, m.el);
       const val = k => { const e = el(k); return e ? e.value : ''; };
+      // checklist no topo: espelha os campos do formulário e muda conforme avança
+      const ckDraw = () => {
+        const p = $('#ckp', m.el); if (!p) return;
+        const x = Object.assign({}, r || {});
+        [K.dp, K.aso, K.hcm].filter(Boolean).forEach(k => { const e = el(k); if (e) x[k] = e.value; });
+        if (novo) { const vs = $('#ncV', m.el); x._pend = !(vs && vs.value); x._deslig = false; }
+        const st = chkSteps(x), ok = st.filter(s => s.ok).length, falta = st.find(s => !s.ok);
+        const pode = s => ed && !x._deslig && (s.k === 'aloc' ? !novo && edQ && r._pend && !!lojaBy(r._loja) : !!el(K[s.k]) && !el(K[s.k]).disabled);
+        p.innerHTML = `<div class="ckp-h"><b>${ic('check')} Checklist da admissão</b><span>${ok} de ${st.length}${x._deslig ? ' · desligado' : falta ? ' · próximo: ' + h(falta.lbl) : ' · tudo pronto'}</span></div>
+          <div class="ck-bar ${falta ? '' : 'full'}"><i style="width:${Math.round(ok / st.length * 100)}%"></i></div>
+          <div class="ckp-steps">${st.map((s, i) => `<button type="button" class="ckp-s ${s.ok ? 'ok' : s.mid ? 'mid' : falta === s ? 'next' : ''}" data-s="${s.k}" ${pode(s) ? '' : 'disabled'}><span class="ckp-n">${s.ok ? ic('check') : i + 1}</span><span class="ckp-t"><b>${h(s.lbl)}</b><small>${h(novo && s.k === 'aloc' ? (x._pend ? 'Fica pendente ao salvar' : 'Será alocado ao salvar') : s.sub)}</small></span></button>`).join('')}</div>`;
+        $$('.ckp-s[data-s]', p).forEach(b => b.onclick = () => {
+          const k = b.dataset.s;
+          if (k === 'aloc') { m.close(); return openAlocar(r); }
+          const e = el(K[k]); if (!e) return;
+          const ok1 = st.find(s => s.k === k).ok;
+          const nv = k === 'aso' ? (ok1 ? 'AGUARDANDO' : 'FEITO') : (ok1 ? 'NÃO' : 'SIM');
+          if (e.tagName === 'SELECT' && ![...e.options].some(o => o.value === nv)) e.insertAdjacentHTML('beforeend', `<option>${h(nv)}</option>`);
+          e.value = nv; e.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+      };
+      m.el.addEventListener('change', () => setTimeout(ckDraw));
+      ckDraw();
       if (!novo) return bindSave();
       const sSel = el(K.setor), fSel = el(K.funcao), vsel = $('#ncV', m.el);
       const loja = () => lojaBy(lojaKey(val(K.loja)));
@@ -3416,6 +3488,7 @@ function openContr(r) {
         const exact = l.rows.filter(x => x.isVaga && x.setor === st && x.funcao === fn).sort((x, y) => (x.vagaAberta ? 0 : 1) - (y.vagaAberta ? 0 : 1));
         const others = matchVagas(l.key, fn, st).filter(x => !exact.includes(x)).slice(0, 30);
         vsel.innerHTML = `<option value="">Não alocar agora (fica pendente)</option>` + (exact.length ? `<optgroup label="Mesma função e setor">${exact.map((x, i) => `<option value="${x.row}" ${i === 0 ? 'selected' : ''}>${h(x.funcao)} · ${h(x.setor)}${x.vagaFutura ? ' · substitui ' + h(x.nome) : ''}${x.dias != null ? ' · aberta há ' + x.dias + 'd' : ''}</option>`).join('')}</optgroup>` : '') + (others.length ? `<optgroup label="Outras vagas da loja">${others.map(x => `<option value="${x.row}">${h(x.funcao)} · ${h(x.setor)}${x.vagaFutura ? ' · substitui ' + h(x.nome) : ''}</option>`).join('')}</optgroup>` : '');
+        setTimeout(ckDraw);
         $('#ncHint', m.el).innerHTML = exact.length ? `${ic('check')} A vaga será preenchida e fechada automaticamente ao salvar.` : (st && fn && st !== '__outro' && fn !== '__outro') ? 'Não há vaga aberta nessa função/setor. Escolha outra vaga da loja ou deixe pendente.' : `${l.rows.filter(x => x.vagaAberta).length} vaga(s) aberta(s) em ${h(l.nome)}.`;
       };
       el(K.loja).addEventListener('change', fillSetores);

@@ -65,10 +65,10 @@
     buildLoja('TORRA', 3, 'Torra Atacadista', 'Atacado', .12),
     buildLoja('EUSEBIO', 4, 'Eusébio', 'Loja nova', .82, true)
   ];
-  const contrHeader = ['DATA', 'LOJA', 'COLABORADOR', 'SETOR', 'FUNÇÃO', 'ASO ADMISSONAL', 'HCM/EXPORTADO', 'CONTRATO', 'Status Alocação'];
+  const contrHeader = ['DATA', 'LOJA', 'COLABORADOR', 'SETOR', 'FUNÇÃO', 'ASO ADMISSONAL', 'HCM/EXPORTADO', 'CONTRATO', 'Status Alocação', 'SOLICITADO DP'];
   const contr = [];
   for (let i = 0; i < 12; i++) {
-    contr.push({ row: i + 2, DATA: br(addD(Math.floor(rnd() * 14) - 4)), LOJA: pick(['Matriz', 'Messejana', 'Torra', 'Eusébio']), COLABORADOR: nome(), SETOR: pick(['FRENTE DE LOJA', 'PADARIA', 'FLV', 'DEPÓSITO']), 'FUNÇÃO': pick(['OPERADOR(A) DE CAIXA', 'REPOSITOR(A)', 'BALCONISTA', 'AUXILIAR']), 'ASO ADMISSONAL': pick(['FEITO', 'MARCADO', 'AGUARDANDO']), 'HCM/EXPORTADO': pick(['SIM', 'NÃO']), CONTRATO: 'INTEGRAL', 'Status Alocação': pick(['Pendente', 'Pendente', 'Alocado']) });
+    contr.push({ row: i + 2, DATA: br(addD(Math.floor(rnd() * 14) - 4)), LOJA: pick(['Matriz', 'Messejana', 'Torra', 'Eusébio']), COLABORADOR: nome(), SETOR: pick(['FRENTE DE LOJA', 'PADARIA', 'FLV', 'DEPÓSITO']), 'FUNÇÃO': pick(['OPERADOR(A) DE CAIXA', 'REPOSITOR(A)', 'BALCONISTA', 'AUXILIAR']), 'ASO ADMISSONAL': pick(['FEITO', 'MARCADO', 'AGUARDANDO']), 'HCM/EXPORTADO': pick(['SIM', 'NÃO']), CONTRATO: 'INTEGRAL', 'Status Alocação': pick(['Pendente', 'Pendente', 'Alocado']), 'SOLICITADO DP': pick(['SIM', 'SIM', 'NÃO']) });
   }
   { const r0 = lojas[0].setores[3].linhas.find(r => r.nome); if (r0) contr.push({ row: 98, DATA: br(addD(-20)), LOJA: 'Matriz', COLABORADOR: r0.nome, SETOR: 'FRENTE DE LOJA', 'FUNÇÃO': r0.funcao, 'ASO ADMISSONAL': 'FEITO', 'HCM/EXPORTADO': 'SIM', CONTRATO: 'INTEGRAL', 'Status Alocação': 'Pendente' }); }
   contr.push({ row: 99, DATA: br(addD(-60)), LOJA: 'Matriz', COLABORADOR: 'CARLOS ANTIGO SILVA', SETOR: 'MERCEARIA', 'FUNÇÃO': 'REPOSITOR(A)', 'ASO ADMISSONAL': 'FEITO', 'HCM/EXPORTADO': 'SIM', CONTRATO: 'INTEGRAL', 'Status Alocação': 'Pendente' });

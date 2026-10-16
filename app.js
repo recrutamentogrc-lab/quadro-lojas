@@ -558,7 +558,8 @@ function derive() {
     });
     const R = l.rows, colab = R.filter(r => r.nome);
     const st = {
-      ideal: l.ideal || sum(l.setores, s => s.pad),
+      ideal: Math.round(sum(l.setores, s => s.pad) * 100) / 100, // sempre a soma dos padrões dos setores (o valor fixo da planilha ficava desatualizado)
+      idealPlanilha: l.ideal,
       atual: sum(l.setores, s => s.ocup),
       atualPlanilha: l.atual,
       vagas: R.filter(r => r.vagaAberta).length,

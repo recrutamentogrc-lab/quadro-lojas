@@ -765,6 +765,7 @@ function enrich(r) {
   r.estagio = !!r.nome && /ESTAGIO/.test(ct);
   r.cipa = /CIPA/.test(norm(r.tag));
   r.trainee = /TRAIN/.test(norm(r.tag + ' ' + r.funcao));
+  r.treino = !!r.nome && /TREINAMENTO/.test(norm(r.tag));
   r.dias = r.info && r.info.abertura && parseISO(r.info.abertura) ? Math.max(0, -daysTo(parseISO(r.info.abertura))) : null;
   r.etapa = r.isVaga ? ((r.info && r.info.etapa) || 'Aberta') : '';
 }
@@ -860,10 +861,12 @@ function derive() {
   });
 }
 const lojaBy = k => S.data.lojas.find(l => l.key === k);
+// Eusébio (loja nova): tag para quem ainda está em treinamento
+const TREINO_LOJA = 'EUSEBIO', TREINO_TAG = 'EM TREINAMENTO';
 const opc = (l, k) => {
   const o = (l && l.opcoes && l.opcoes[k]) || [];
   // tags padrão (CIPA, PCD, Aprendiz, Lider Trainee) sempre disponíveis em todas as lojas
-  const base = k === 'tag' ? [...(isAdmLoja(l) ? SEN.map(x => x.k) : []), ...o, ...DEF_OPC.tag] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
+  const base = k === 'tag' ? [...(isAdmLoja(l) ? SEN.map(x => x.k) : []), ...o, ...DEF_OPC.tag, ...(l && l.key === TREINO_LOJA ? [TREINO_TAG] : [])] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
   const vistos = new Set(); return uniq(base).filter(x => { const n = norm(x); if (vistos.has(n)) return false; vistos.add(n); return true; });
 };
 const allFuncoes = () => uniq(S.all.map(r => r.funcao)).sort();
@@ -1099,7 +1102,7 @@ function selectHTML(id, label, values, cur, allLabel = 'Todos') {
   return `<select class="input" id="${id}" title="${h(label)}"><option value="">${h(label)}: ${allLabel}</option>${values.map(v => `<option ${v === cur ? 'selected' : ''} value="${h(v)}">${h(v)}</option>`).join('')}</select>`;
 }
 const EXP_TIT = { vagas: 'Vagas', experiencias: 'Contratos de experiência', historico: 'Histórico de alterações', sla_vagas_abertas: 'SLA · vagas abertas', sla_vagas_fechadas: 'SLA · vagas fechadas', desligamentos: 'Desligamentos', contratacoes: 'Contratações' };
-function expTitulo(name) { return EXP_TIT[name] || (name.indexOf('quadro_') === 0 ? 'Quadro · ' + ((lojaBy(name.slice(7).toUpperCase()) || {}).nome || name.slice(7)) : name); }
+function expTitulo(name) { if (/_treino$/.test(name)) return expTitulo(name.replace(/_treino$/, '')) + ' · Em treinamento'; return EXP_TIT[name] || (name.indexOf('quadro_') === 0 ? 'Quadro · ' + ((lojaBy(name.slice(7).toUpperCase()) || {}).nome || name.slice(7)) : name); }
 function exportCSV(name, head, rows) {
   if (!rows.length) return toast('Nada para exportar com esses filtros', true);
   modal({
@@ -1499,7 +1502,7 @@ function pgLoja(l) {
   <div id="lojaBody"></div>`;
   selScope(fk);
   const selOn = !!SEL.on[fk];
-  const SIT = [['', 'Todos', () => true], ['ok', 'Ocupadas', r => r.nome && !r.isVaga], ['vaga', 'Vagas abertas', r => r.vagaAberta], ['fut', 'Vagas futuras', r => r.vagaFutura], ['aviso', 'Em aviso', r => r.aviso], ['aprendiz', 'Aprendizes', r => r.aprendiz], ['pcd', 'PCD', r => r.pcd], ['cipa', 'CIPA', r => r.cipa], ['estagio', 'Estágio', r => r.estagio], ['trainee', 'Trainee', r => r.trainee]];
+  const SIT = [['', 'Todos', () => true], ['ok', 'Ocupadas', r => r.nome && !r.isVaga], ['vaga', 'Vagas abertas', r => r.vagaAberta], ['fut', 'Vagas futuras', r => r.vagaFutura], ['aviso', 'Em aviso', r => r.aviso], ['aprendiz', 'Aprendizes', r => r.aprendiz], ['pcd', 'PCD', r => r.pcd], ['cipa', 'CIPA', r => r.cipa], ['estagio', 'Estágio', r => r.estagio], ['trainee', 'Trainee', r => r.trainee]].concat(l.key === TREINO_LOJA ? [['treino', 'Em treinamento', r => r.treino]] : []);
   const filt = () => {
     const q = norm(f.q);
     const sf = (SIT.find(x => x[0] === (f.sit || '')) || SIT[0])[2];
@@ -1604,7 +1607,7 @@ function pgLoja(l) {
   };
   const bind = (id, k) => { const el = $('#' + id); el.oninput = el.onchange = () => { f[k] = el.value; saveF(); drawChips(); draw(); }; };
   bind('fq', 'q'); bind('fSetor', 'setor'); bind('fFunc', 'func'); bind('fContr', 'contr'); bind('fTag', 'tag');
-  $('#exp').onclick = () => exportCSV('quadro_' + l.key.toLowerCase(), ['Loja', 'Setor', 'QT', 'Colaborador', 'Função', 'Contrato', 'Situação', 'Tag', 'Tempo de empresa'], filt().map(r => [l.nome, r.setor, fmt(r.qt), r.nome, r.funcao, r.contrato, r.situacao, r.tag, r.tempo]));
+  $('#exp').onclick = () => exportCSV('quadro_' + l.key.toLowerCase() + (f.sit === 'treino' || /TREINAMENTO/.test(norm(f.tag)) ? '_treino' : ''), ['Loja', 'Setor', 'QT', 'Colaborador', 'Função', 'Contrato', 'Situação', 'Tag', 'Tempo de empresa'], filt().map(r => [l.nome, r.setor, fmt(r.qt), r.nome, r.funcao, r.contrato, r.situacao, r.tag, r.tempo]));
   if ($('#lReq')) $('#lReq').onclick = () => openRequisicao({ loja: l.key });
   if ($('#selTog')) $('#selTog').onclick = () => { SEL.on[fk] = !SEL.on[fk]; if (!SEL.on[fk]) SEL.set.clear(); route(true); };
   const toggleSel = r => { const k = selKey(r); SEL.set.has(k) ? SEL.set.delete(k) : SEL.set.add(k); draw(); };
@@ -3807,10 +3810,25 @@ function quadroBulk(el, redraw) {
   el.innerHTML = `<b>${rs.length} selecionada(s)</b><span class="faint" style="font-size:12px">${ocup.length} ocupada(s) · ${vagas.length} vaga(s)</span><span class="spacer"></span>
     <button class="btn sm" id="qbClr">Limpar</button>
     ${vagas.length ? `<button class="btn sm" id="qbEt">${ic('kanban')} Etapa / responsável</button>` : ''}
+    ${ocup.length && ocup.every(r => r.loja === TREINO_LOJA) ? `<button class="btn sm" id="qbTr">${ic('grad')} ${ocup.every(r => r.treino) ? 'Tirar de treinamento' : 'Marcar em treinamento'}</button>` : ''}
     ${ocup.length ? `<button class="btn sm danger" id="qbDesl">${ic('door')} Desligar ${ocup.length}</button>` : ''}`;
   $('#qbClr', el).onclick = () => { SEL.set.clear(); redraw(); };
   if ($('#qbDesl', el)) $('#qbDesl', el).onclick = () => openDesligarLote(ocup);
+  if ($('#qbTr', el)) $('#qbTr', el).onclick = e => treinoLote(ocup, e.currentTarget, redraw);
   if ($('#qbEt', el)) $('#qbEt', el).onclick = () => openVagaLote(vagas);
+}
+// marca / desmarca a tag EM TREINAMENTO em várias posições (Eusébio)
+async function treinoLote(rs, btn, redraw) {
+  const tirar = rs.every(r => r.treino);
+  if (!await confirmBox(`${tirar ? 'Tirar' : 'Marcar'} <b>${rs.length}</b> colaborador(es) ${tirar ? 'de' : 'como'} <b>em treinamento</b>?`, tirar ? 'Tirar' : 'Marcar')) return;
+  await run(btn, async () => {
+    for (const r of rs) {
+      const tags = splitMulti(r.tag).filter(t => !/TREINAMENTO/.test(norm(t)));
+      if (!tirar) tags.push(TREINO_TAG);
+      await api('saveRow', { loja: r.loja, row: r.row, expect: expectOf(r), data: { nome: r.nome, funcao: r.funcao, contrato: r.contrato, situacao: r.situacao, tag: tags.join(', '), qt: r.qt } }, { silent: true });
+    }
+    SEL.set.clear(); toast(`${rs.length} colaborador(es) ${tirar ? 'retirado(s) de' : 'marcado(s) como em'} treinamento`); redraw();
+  }).catch(() => {});
 }
 function loteResult(j, okMsg) {
   if (j.pendente) return;

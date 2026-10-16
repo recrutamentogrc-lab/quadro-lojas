@@ -169,8 +169,17 @@ let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
   const agora = Date.now();
   for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate && PEND[i].ate < agora) PEND.splice(i, 1);
-  if (!S.data || !PEND.length) return;
+  const fops = FB_OK && !DEMO && S.data ? filaOverlay_(S.data.ultimaOp).filter(o => LOCAL[o.action]) : [];
+  if (!S.data || (!PEND.length && !fops.length)) return;
   try { derive(); } catch (e) { return; }
+  fops.forEach(op => {
+    try {
+      const p = op.payload || {};
+      if (p.expect && p.row != null && p.loja) { const r = findRow(p.loja, p.row); if (!r || norm(r.nome) !== norm(p.expect.nome) || norm(r.funcao) !== norm(p.expect.funcao)) return; }
+      LOCAL[op.action](p, filaJ_(op));
+      if (op.action === 'setPadrao' || op.action === 'addContratacao') derive();
+    } catch (e) { console.warn('fila overlay', e); }
+  });
   PEND.forEach(op => {
     try {
       let p = op.payload;
@@ -216,7 +225,9 @@ window.addEventListener('beforeunload', e => { if (pendentesEnvio > 0) { e.preve
 async function send_(action, payload) {
   if (DEMO) return window.GRC_MOCK.call(action, payload);
   if (!API_OK) throw new Error('Sistema ainda não conectado: configure a URL do Apps Script no arquivo config.js.');
-  const body = JSON.stringify(Object.assign({ action, token: S.token, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
+  let uid = '';
+  if (FB_OK && (action === 'login' || action === 'me' || action === 'bootstrap' || action === 'logout')) { try { uid = await Promise.race([fbUid_(), new Promise(r => setTimeout(() => r(''), 5000))]); } catch (e) {} }
+  const body = JSON.stringify(Object.assign({ action, token: S.token, uid, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
   for (let tent = 1; ; tent++) {
     let txt = '', j;
     const ac = new AbortController(), to = setTimeout(() => ac.abort(), 75000);
@@ -231,6 +242,38 @@ async function send_(action, payload) {
 async function api(action, payload = {}, opt = {}) {
   const gated = !!(S.user && ((GATED[action] && S.user.perfil === 'RECRUTADOR' && (GATED[action] === 1 || (S.cfg && S.cfg.aprovarEtapas))) || (GATED_EDITOR[action] && S.user.perfil === 'EDITOR')));
   if (gated) payload = Object.assign({ resumo: describe(action, payload) }, payload);
+  // gravação instantânea pela fila do Firebase (a planilha é atualizada em segundo plano)
+  if (!opt.sync && S.data && filaPronta_() && (FILA_ASYNC[action] || FILA_SYNC[action])) {
+    if (action === 'saveSelecao' && payload.data && !payload.data.id && !payload.data.novoId) payload = Object.assign({}, payload, { data: Object.assign({}, payload.data, { novoId: 's' + Date.now() }) });
+    if (action === 'mobSave' && payload.data && !payload.data.id && !payload.data.novoId) payload = Object.assign({}, payload, { data: Object.assign({}, payload.data, { novoId: 'm' + Date.now() + Math.floor(Math.random() * 1000) }) });
+    const instant = FILA_ASYNC[action] && !(action === 'mobSave' && !(+(payload.data || {}).km > 0 && S.mob && S.mob.cfg));
+    if (instant) {
+      const { salvo } = filaEnviar_(action, payload, false, gated);
+      if (!gated && LOCAL[action]) { try { LOCAL[action](payload, filaJ_({ action, payload })); derive(); updateShell(); route(true); } catch (e) { console.warn('local', e); } }
+      const resp = filaResposta_(action, payload, gated);
+      salvo.catch(e => { console.warn('fila', e); filaOff = true; legacyEnviar_(action, payload); });
+      if (gated) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
+      return resp;
+    }
+    if (FILA_SYNC[action] && !(action === 'cruzarContr' && payload.simular)) {
+      if (!opt.silent) busy(true);
+      let enfileirou = true, j = null;
+      try {
+        const env = filaEnviar_(action, payload, true, gated);
+        try { await env.salvo; } catch (e) { enfileirou = false; filaOff = true; console.warn('fila', e); }
+        if (enfileirou) j = await filaAguardar_(env.id);
+      } finally { if (!opt.silent) busy(false); }
+      if (enfileirou) {
+        if (j.pendente) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
+        else if (!liveOn && LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); } catch (e) { console.warn('local', e); } }
+        if (MUDA_LINHAS[action] && !j.pendente) {
+          for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1);
+          if (!liveOn && !DEMO) { try { await loadAll(false, true, true); } catch (e) {} }
+        }
+        return j;
+      }
+    }
+  }
   // gravação otimista: aplica na tela na hora e envia ao servidor em segundo plano (fila, na ordem)
   if (OTIMISTA[action] && !gated && !DEMO && LOCAL[action] && S.data && !opt.sync) return otimista_(action, payload);
   if (!opt.silent) busy(true);
@@ -241,6 +284,9 @@ async function api(action, payload = {}, opt = {}) {
     j = await send_(action, payload);
     if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
     if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
+    if (action === 'listSelecoes' && j.selecoes) j.selecoes = overlaySel_(j.selecoes);
+    if (action === 'mobList' && j.simulacoes) j.simulacoes = overlayMob_(j.simulacoes);
+    if (action === 'listFotosColab') overlayFotos_(j);
     if (j.pendente) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
     else if (LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); if (OTIMISTA[action] || LOTE_PEND[action]) PEND.push({ action, payload, j, ate: Date.now() + PEND_MS }); } catch (e) { console.warn('local', e); } }
     if (MUDA_LINHAS[action] && !j.pendente) {
@@ -318,7 +364,7 @@ function renderLogin(msg) {
       </div>
       <div class="hero-stats">
         <div class="hero-stat"><b>${todasLojas().length} lojas</b><span>${todasLojas().map(k => h(LOJA_NOMES[k])).join(' · ')}</span></div>
-        <div class="hero-stat"><b>Tempo real</b><span>Lê e grava no Google Sheets</span></div>
+        <div class="hero-stat"><b>Tempo real</b><span>Salva na hora · cópia automática na planilha</span></div>
       </div>
     </section>
     <section class="login-box">
@@ -360,7 +406,7 @@ async function logout(expired) {
   $$('.overlay').forEach(o => o.remove());
   PEND.length = 0; S.sel = null; S.selCache = null; S.mob = null;
   try { if (window.OneSignal && window.OneSignal.logout) window.OneSignal.logout(); } catch (e) {}
-  try { fbStop(); } catch (e) {} liveBooted = false;
+  try { fbStop(); } catch (e) {} try { filaStop_(); } catch (e) {} liveBooted = false;
   S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
   if (DEMO) { location.href = location.pathname; return; }
   renderLogin(expired ? 'Sua sessão expirou. Entre novamente.' : '');
@@ -376,10 +422,197 @@ function syncBadge(on) {
 const FB_OK = !DEMO && !!(window.firebase && CFG.FIREBASE);
 let fbDb = null, fbUnsubs = [], fbKeysSig = '', live = {}, liveOn = false, liveBooted = false;
 function fbStop() { fbUnsubs.forEach(u => { try { u(); } catch (e) {} }); fbUnsubs = []; live = {}; liveOn = false; fbKeysSig = ''; }
+/* ---------------- fila de gravações (Firebase → planilha em segundo plano) ----------------
+ * As gravações vão direto para a coleção "fila" do Firestore (instantâneo) e aparecem na hora
+ * para todos que estão com o sistema aberto. O Apps Script aplica cada alteração na planilha
+ * em segundo plano, na ordem e com as mesmas regras de antes, e publica o resultado.
+ * Ninguém mais espera a planilha para continuar trabalhando. */
+const FILA_ASYNC = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
+const FILA_SYNC = { addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, decidirSolicitacao: 1, iniciarSLA: 1, criarLoja: 1, criarQuadroAdm: 1, cruzarContr: 1 };
+let filaSnap = [], filaLocal = [], filaUnsub = null, filaVivo = false, filaTent = 0, filaKickT = null, filaOff = false, fbUidP = null, filaRedraw = null;
+const filaEspera = {}, filaAvisados = new Set();
+function fbInit_() { if (!fbDb) { firebase.initializeApp(CFG.FIREBASE); fbDb = firebase.firestore(); } return fbDb; }
+function fbUid_() {
+  if (!FB_OK || !firebase.auth) return Promise.resolve('');
+  if (!fbUidP) fbUidP = new Promise(res => {
+    fbInit_();
+    const a = firebase.auth(); let ok = false;
+    const fim = uid => { if (!ok) { ok = true; res(uid || ''); } };
+    const un = a.onAuthStateChanged(u => {
+      un();
+      if (u) fim(u.uid);
+      else a.signInAnonymously().then(c => fim(c.user && c.user.uid)).catch(e => { console.warn('auth', e); fim(''); });
+    });
+    setTimeout(() => fim(a.currentUser ? a.currentUser.uid : ''), 10000);
+  }).then(uid => { if (!uid) fbUidP = null; return uid; });
+  return fbUidP;
+}
+const filaPronta_ = () => FB_OK && !DEMO && !filaOff && filaVivo && !!(S.user && S.user.id);
+function filaParse_(d) {
+  const x = d.data({ serverTimestamps: 'estimate' }) || {};
+  let p = {}; try { p = JSON.parse(x.payload || '{}'); } catch (e) {}
+  return { id: d.id, uid: x.uid, userId: x.userId, action: x.action, payload: p, status: x.status || 'pendente', sync: !!x.sync, gated: !!x.gated, erro: x.erro || '', resultado: x.resultado || '', criadoMs: x.criado && x.criado.toMillis ? x.criado.toMillis() : (x.cliT || Date.now()) };
+}
+function filaTodas_() {
+  const ids = new Set(filaSnap.map(o => o.id));
+  const agora = Date.now();
+  filaLocal = filaLocal.filter(o => !ids.has(o.id) && !o.visto && agora - o.criadoMs < 15 * 60000);
+  return filaSnap.concat(filaLocal).sort((a, b) => a.criadoMs - b.criadoMs || (a.id < b.id ? -1 : 1));
+}
+// operações ainda não incluídas nos dados publicados (aplicadas por cima, na ordem)
+function filaOverlay_(ult) {
+  return filaTodas_().filter(o => o.status !== 'erro' && !o.gated && (o.status === 'pendente' || o.criadoMs > (ult || 0)));
+}
+function filaStop_() { if (filaUnsub) { try { filaUnsub(); } catch (e) {} } filaUnsub = null; filaVivo = false; filaSnap = []; filaLocal = []; }
+async function filaStart_() {
+  if (!FB_OK || DEMO || filaOff || filaUnsub || !S.user || !firebase.auth) return;
+  const uid = await fbUid_(); if (!uid || filaUnsub) return;
+  filaUnsub = fbInit_().collection('fila').orderBy('criado').limit(400).onSnapshot(sn => {
+    filaVivo = true; filaTent = 0;
+    const ids = new Set();
+    filaSnap = sn.docs.map(d => { ids.add(d.id); return filaParse_(d); });
+    filaLocal.forEach(o => { if (ids.has(o.id)) o.visto = true; });
+    filaSnap.forEach(o => {
+      const w = filaEspera[o.id];
+      if (w && o.status === 'ok') { delete filaEspera[o.id]; let r = {}; try { r = JSON.parse(o.resultado || '{}'); } catch (e) {} w.res(Object.assign({ ok: true }, r)); }
+      else if (w && o.status === 'erro') { delete filaEspera[o.id]; w.rej(new Error(o.erro || 'Erro ao salvar')); }
+      else if (o.status === 'erro' && !o.sync && String(o.userId) === String(S.user && S.user.id) && o.uid === uid && !filaAvisados.has(o.id)) {
+        filaAvisados.add(o.id);
+        toast('Não foi possível salvar (' + (o.erro || 'erro') + '). A alteração foi desfeita na tela.', true);
+      }
+    });
+    clearTimeout(filaRedraw);
+    filaRedraw = setTimeout(() => { if (liveOn) applyLive(); }, 60);
+  }, err => {
+    console.warn('fila', err); filaUnsub = null; filaVivo = false;
+    if (++filaTent <= 6) setTimeout(() => { meRefreshSessao_().finally(filaStart_); }, 3000 * filaTent);
+  });
+}
+// garante que a sessão do Firebase está registrada no servidor (renova pelo "me")
+function meRefreshSessao_() { return send_('me', {}).catch(() => {}); }
+function filaKick_() {
+  clearTimeout(filaKickT);
+  filaKickT = setTimeout(() => { try { fetch(CFG.API_URL, { method: 'POST', body: JSON.stringify({ action: 'processarFila' }) }).catch(() => {}); } catch (e) {} }, 300);
+}
+// grava a operação na fila; devolve { id, salvo } (salvo = promessa da confirmação do Firestore)
+function filaEnviar_(action, payload, sync, gated) {
+  const db = fbInit_();
+  const ref = db.collection('fila').doc();
+  const op = { id: ref.id, uid: '', userId: String(S.user.id), action, payload, status: 'pendente', sync: !!sync, gated: !!gated, criadoMs: Date.now() };
+  filaLocal.push(op);
+  pendentesEnvio++; syncPend_();
+  const salvo = (async () => {
+    const uid = await fbUid_();
+    if (!uid) throw new Error('Não foi possível conectar ao Firebase.');
+    op.uid = uid;
+    const doc = { uid, userId: String(S.user.id), action, payload: JSON.stringify(payload), criado: firebase.firestore.FieldValue.serverTimestamp(), cliT: Date.now(), status: 'pendente', sync: !!sync, gated: !!gated };
+    // sem tempo limite: se a internet cair, o Firebase guarda e envia quando voltar (evita gravar duas vezes)
+    const grava = () => ref.set(doc);
+    try { await grava(); }
+    catch (e) {
+      if (e && (e.code === 'permission-denied' || e.code === 'unauthenticated')) { await meRefreshSessao_(); await grava(); }
+      else throw e;
+    }
+    filaKick_();
+    return ref.id;
+  })();
+  salvo.catch(() => { filaLocal = filaLocal.filter(o => o !== op); }).finally(() => { pendentesEnvio--; syncPend_(); });
+  return { id: ref.id, salvo };
+}
+// operações que mudam a estrutura: grava na fila e espera o servidor aplicar (mantém a ordem)
+function filaAguardar_(id) {
+  return new Promise((res, rej) => {
+    filaEspera[id] = { res, rej };
+    let n = 0;
+    const tick = setInterval(() => {
+      if (!filaEspera[id]) return clearInterval(tick);
+      n++; filaKick_();
+      if (n > 24) { clearInterval(tick); delete filaEspera[id]; rej(new Error('O servidor ainda está processando esta alteração. Ela será concluída em instantes — atualize a página em 1 minuto.')); }
+    }, 10000);
+  });
+}
+// caminho antigo (envio direto ao Apps Script), usado se o Firebase não estiver disponível
+function legacyEnviar_(action, payload) {
+  pendentesEnvio++; syncPend_();
+  filaEnvio = filaEnvio.then(async () => {
+    try {
+      const j = await send_(action, payload);
+      if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
+      if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
+      if (j.publicar) publicarBg_();
+    } catch (e) { toast('Não foi possível salvar (' + (e.message || e) + ').', true); refazerTela_(); }
+    finally { pendentesEnvio--; syncPend_(); }
+  });
+}
+// resposta imediata (calculada no aparelho) para as gravações instantâneas
+function filaResposta_(action, payload, gated) {
+  if (gated) return { ok: true, pendente: true };
+  if (action === 'addContratacao') return { ok: true, row: filaProxLinha_(), alocado: !!(payload.vaga && payload.vaga.row) };
+  if (action === 'saveSelecao' || action === 'deleteSelecao') return { ok: true, selecoes: overlaySel_(S.selCache || []) };
+  if (action === 'mobSave' || action === 'mobDelete') return { ok: true, simulacoes: overlayMob_((S.mob && S.mob.sims) || []) };
+  if (action === 'saveFotoColab') return { ok: true, chave: chaveNome(payload.nome), foto: payload.foto || '' };
+  return { ok: true, otimista: true };
+}
+function filaProxLinha_() { const rs = (S.data && S.data.contratacoes && S.data.contratacoes.rows) || []; const hr = (S.data && S.data.contratacoes && S.data.contratacoes.headerRow) || 1; return rs.length ? Math.max(...rs.map(r => +r.row || 0)) + 1 : hr + 1; }
+function filaJ_(op) { return op.action === 'addContratacao' ? { row: filaProxLinha_(), alocado: !!(op.payload.vaga && op.payload.vaga.row) } : {}; }
+// listas que não ficam no Firebase (seleções, mobilidade, fotos): aplica as gravações ainda na fila
+function filaListaOps_(acts) { return filaTodas_().filter(o => acts[o.action] && o.status !== 'erro' && !o.gated); }
+function selLocal_(d, list) {
+  const id = String(d.id || d.novoId || '');
+  const ant = (list || []).find(s => String(s.id) === id) || {};
+  const agora = new Date().toLocaleString('pt-BR').replace(',', '').slice(0, 16);
+  const n = v => v === '' || v == null ? '' : Math.max(0, Math.round(+v)) || 0;
+  const t = v => String(v == null ? '' : v).trim();
+  return Object.assign({}, ant, {
+    id, loja: t(d.loja).toUpperCase(), setor: t(d.setor), funcao: t(d.funcao), vagas: n(d.vagas), data: t(d.data).slice(0, 10), horario: t(d.horario).slice(0, 5), local: t(d.local), responsavel: t(d.responsavel), origem: t(d.origem),
+    chamados: n(d.chamados), confirmados: n(d.confirmados), compareceram: n(d.compareceram), aprov_lider: n(d.aprov_lider), aprov_rh: n(d.aprov_rh), admitidos: n(d.admitidos), banco_talentos: n(d.banco_talentos),
+    status: SEL_STATUS.includes(d.status) ? d.status : 'Agendada', obs: t(d.obs), criado_por: ant.criado_por || S.user.nome, criado_em: ant.criado_em || agora, atualizado_por: ant.id ? S.user.nome : (ant.atualizado_por || ''), atualizado_em: ant.id ? agora : (ant.atualizado_em || '')
+  });
+}
+function overlaySel_(list) {
+  let l = (list || []).slice();
+  filaListaOps_({ saveSelecao: 1, deleteSelecao: 1 }).forEach(o => {
+    const p = o.payload || {};
+    if (o.action === 'deleteSelecao') l = l.filter(s => String(s.id) !== String(p.id));
+    else { const r = selLocal_(p.data || {}, l); const i = l.findIndex(s => String(s.id) === r.id); if (i >= 0) l[i] = r; else l.unshift(r); }
+  });
+  return l.sort((a, b) => String(b.data).localeCompare(String(a.data)));
+}
+function mobLocal_(d, list) {
+  const id = String(d.id || d.novoId || '');
+  const ant = (list || []).find(s => String(s.id) === id) || {};
+  const agora = new Date().toLocaleString('pt-BR').replace(',', '').slice(0, 16);
+  const t = v => String(v == null ? '' : v).trim();
+  const km = Math.round(+d.km * 100) / 100, dias = Math.round(+d.dias), tipo = t(d.tipo).toUpperCase();
+  const c = mobCalc(km, dias, tipo, S.mob && S.mob.cfg);
+  return Object.assign({}, ant, {
+    id, nome: t(d.nome).toUpperCase(), cargo: t(d.cargo).toUpperCase(), loja: t(d.loja).toUpperCase(), tipo, rua: t(d.rua), numero: t(d.numero), bairro: t(d.bairro), cep: t(d.cep), cidade: t(d.cidade),
+    dias, km, sugerido: c ? c.valor : '', validado: d.validado === '' || d.validado == null ? '' : +d.validado, status: d.status || 'Simulação', obs: t(d.obs),
+    criado_em: ant.criado_em || agora, criado_por: ant.criado_por || S.user.nome, atualizado_em: ant.id ? agora : (ant.atualizado_em || ''), atualizado_por: ant.id ? S.user.nome : (ant.atualizado_por || '')
+  });
+}
+function overlayMob_(list) {
+  let l = (list || []).slice();
+  filaListaOps_({ mobSave: 1, mobDelete: 1 }).forEach(o => {
+    const p = o.payload || {};
+    if (o.action === 'mobDelete') l = l.filter(s => String(s.id) !== String(p.id));
+    else { const r = mobLocal_(p.data || {}, l); const i = l.findIndex(s => String(s.id) === r.id); if (i >= 0) l[i] = r; else l.unshift(r); }
+  });
+  return l;
+}
+function overlayFotos_(j) {
+  j.fotos = Object.assign({}, j.fotos || {}); j.lideres = Object.assign({}, j.lideres || {});
+  filaListaOps_({ saveFotoColab: 1, setLiderSetor: 1 }).forEach(o => {
+    const p = o.payload || {};
+    if (o.action === 'saveFotoColab') { const k = chaveNome(p.nome); if (p.foto) j.fotos[k] = p.foto; else delete j.fotos[k]; }
+    else { const k = p.loja + '|' + p.setor; if (p.nome) j.lideres[k] = { nome: p.nome }; else delete j.lideres[k]; }
+  });
+  return j;
+}
 function startLive(keys) {
   const sig = JSON.stringify(keys);
   if (liveOn && sig === fbKeysSig) return Promise.resolve(true);
-  if (!fbDb) { firebase.initializeApp(CFG.FIREBASE); fbDb = firebase.firestore(); }
+  fbInit_();
   fbStop(); fbKeysSig = sig;
   const ids = { G: keys.G }; if (keys.X) ids.X = keys.X;
   Object.keys(keys.lojas || {}).forEach(k => { ids['L_' + k] = keys.lojas[k]; });
@@ -443,7 +676,7 @@ function assembleLive() {
     etapas: G.etapas,
     vagasFechadas: cat('fechadas'),
     desligados: cat('desl').concat(X.desl || []),
-    pendentes: prev.pendentes || [], notif: prev.notif, log: prev.log || [],
+    pendentes: prev.pendentes || [], notif: prev.notif, log: prev.log || [], ultimaOp: Number(G.ultimaOp) || 0,
     atualizadoEm: (() => { const t = Math.max(...Object.values(live).filter(Boolean).map(x => x._t || 0)); return t ? new Date(t).toLocaleString('pt-BR').replace(',', '').slice(0, 16) : G.atualizadoEm; })()
   };
 }
@@ -474,7 +707,7 @@ async function meRefresh() {
 }
 function afterBoot() {
   if (liveBooted) return; liveBooted = true;
-  startPolling(); initOneSignal(); carregarAcessoSel(); carregarAcessoMob(); carregarFotos();
+  startPolling(); initOneSignal(); carregarAcessoSel(); carregarAcessoMob(); carregarFotos(); filaStart_();
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
   else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
 }

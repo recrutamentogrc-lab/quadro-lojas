@@ -92,6 +92,8 @@ const ICONS = {
   mail: '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  calc: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8"/><path d="M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 18h.01M12 18h4"/>',
+  car: '<path d="M5 16V11l2-5h10l2 5v5"/><path d="M3 16h18v3H3z"/><circle cx="7.5" cy="16.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/><path d="M5 11h14"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'
 };
 const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${ICONS[n] || ''}</svg>`;
@@ -356,7 +358,7 @@ async function logout(expired) {
   if (!expired && pendentesEnvio > 0) { toast('Aguardando terminar de salvar as alterações…'); await filaEnvio.catch(() => {}); }
   if (S.token && !expired && !DEMO) api('logout').catch(() => {});
   $$('.overlay').forEach(o => o.remove());
-  PEND.length = 0; S.sel = null; S.selCache = null;
+  PEND.length = 0; S.sel = null; S.selCache = null; S.mob = null;
   try { if (window.OneSignal && window.OneSignal.logout) window.OneSignal.logout(); } catch (e) {}
   try { fbStop(); } catch (e) {} liveBooted = false;
   S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
@@ -404,7 +406,7 @@ function startLive(keys) {
 function rerender_() {
   if ($('.overlay')) return;
   const pg = (location.hash.replace(/^#/, '') || '/inicio').split('/')[1];
-  if (/^(historico|admin|aprovacoes|solicitacoes|perfil|recrutamento)$/.test(pg)) return;
+  if (/^(historico|admin|aprovacoes|solicitacoes|perfil|recrutamento|mobilidade)$/.test(pg)) return;
   const a = document.activeElement;
   if (a && a.matches && a.matches('input,textarea,select') && $('#view') && $('#view').contains(a)) {
     if (!a.__grcRR) { a.__grcRR = 1; a.addEventListener('blur', () => { a.__grcRR = 0; setTimeout(rerender_, 50); }, { once: true }); }
@@ -472,7 +474,7 @@ async function meRefresh() {
 }
 function afterBoot() {
   if (liveBooted) return; liveBooted = true;
-  startPolling(); initOneSignal(); carregarAcessoSel(); carregarFotos();
+  startPolling(); initOneSignal(); carregarAcessoSel(); carregarAcessoMob(); carregarFotos();
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
   else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
 }
@@ -720,6 +722,7 @@ function updateShell() {
     ${navItem('/sla', ic('gauge'), 'SLA de vagas', S.slaEst ? `<span class="cnt hot" title="SLA estourado">${S.slaEst}</span>` : '')}
     ${navItem('/contratacoes', ic('userplus'), 'Contratações', nC ? `<span class="cnt">${nC}</span>` : '')}
     ${temSel() ? navItem('/recrutamento', ic('target'), 'Seleções') : ''}
+    ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
@@ -795,6 +798,7 @@ function route(keep) {
     else if (page === 'sla') pgSLA();
     else if (page === 'desligamentos') pgDesl();
     else if (page === 'recrutamento' && temSel()) pgRecrut();
+    else if (page === 'mobilidade' && temMob()) pgMob();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();
@@ -2705,6 +2709,306 @@ async function openAcessoSel() {
   });
 }
 
+
+/* =====================================================================
+ * MOBILIDADE — ajuda de combustível / transporte (antiga planilha MOBILIDADE GRC)
+ * Acesso restrito: só o responsável e quem ele liberar em "Acessos".
+ * ===================================================================== */
+const MOB_TIPOS = ['MOTO', 'CARRO', 'UBER'];
+const MOB_STATUS = ['Simulação', 'Validado', 'Cancelado'];
+const MOB_LOJAS = ['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO', 'GRC'];
+const MOB_TIPO_C = { MOTO: 'b-info', CARRO: 'b-violet', UBER: 'b-warn' };
+const brl = n => (n === '' || n == null || isNaN(+n)) ? '—' : 'R$ ' + (+n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const brl0 = n => (n === '' || n == null || isNaN(+n)) ? '—' : 'R$ ' + Math.round(+n).toLocaleString('pt-BR');
+const kmTxt = n => (n === '' || n == null || isNaN(+n)) ? '—' : (+n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' km';
+const numBR = v => { if (v === '' || v == null) return ''; const x = Number(String(v).replace(/\s|R\$/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')); return isFinite(x) ? x : NaN; };
+const temMob = () => !!(S.user && (S.mob ? S.mob.acesso : ls.get('grc_mobAcesso_' + S.user.id, false)));
+const mobDono = () => !!(S.mob && S.mob.dono);
+const mobAdm = () => !!(S.mob && (S.mob.dono || S.mob.adm));
+const mobTipoBadge = t => t ? `<span class="badge ${MOB_TIPO_C[t] || ''}">${h(t)}</span>` : '<span class="faint">—</span>';
+const mobStBadge = s => `<span class="badge ${s === 'Validado' ? 'b-ok' : s === 'Cancelado' ? 'b-bad' : ''}">${h(s || 'Simulação')}</span>`;
+// mesma regra da planilha: km × 2 (ida e volta) × (dias × semanas/mês) × R$/km, arredondado
+function mobCalc(km, dias, tipo, cfg) {
+  cfg = cfg || (S.mob && S.mob.cfg); if (!cfg) return null;
+  const t = cfg.taxas[tipo];
+  if (!(km > 0) || !(dias > 0) || t == null) return null;
+  const diasMes = dias * cfg.semanas, bruto = km * 2 * diasMes * t;
+  return { diasMes, taxa: t, bruto, valor: Math.round(bruto / cfg.arred) * cfg.arred };
+}
+const mobLojaKey = s => { const n = norm(s); if (/MATRIZ|SANTA ROSA/.test(n)) return 'MATRIZ'; if (/MESSEJANA/.test(n)) return 'MESSEJANA'; if (/TORRA/.test(n)) return 'TORRA'; if (/EUSEBIO/.test(n)) return 'EUSEBIO'; if (/ADM|GRC/.test(n)) return 'GRC'; return n; };
+
+async function carregarAcessoMob() {
+  if (!S.user || DEMO) { S.mob = Object.assign(S.mob || {}, { acesso: false, dono: false }); return; }
+  try {
+    const j = await api('mobAcesso', {}, { silent: true });
+    const antes = temMob();
+    S.mob = Object.assign(S.mob || {}, { acesso: !!j.acesso, dono: !!j.dono, adm: !!j.adm, ids: j.ids || [], adms: j.adms || [] });
+    ls.set('grc_mobAcesso_' + S.user.id, S.mob.acesso);
+    if (antes !== temMob() && $('.app')) { updateShell(); if (/^#\/mobilidade/.test(location.hash)) { if (!temMob()) location.hash = '#/inicio'; else route(); } }
+  } catch (e) { /* servidor sem a função ainda */ }
+}
+
+async function pgMob() {
+  setTitle('Mobilidade', 'Ajuda de combustível e transporte · acesso restrito');
+  const f = getF('mob'); if (!f.aba) f.aba = 'sim';
+  const v = $('#view'), rt = S.rt;
+  S.mob = S.mob || {};
+  v.innerHTML = `
+  <div class="grid g4" id="mKpi">${'<div class="sk" style="height:118px"></div>'.repeat(4)}</div>
+  <div class="toolbar">
+    <div class="seg" id="mAba"><button data-a="sim" class="${f.aba === 'sim' ? 'on' : ''}">${ic('calc')}<span>Simulações</span></button><button data-a="cen" class="${f.aba === 'cen' ? 'on' : ''}">${ic('users')}<span>Cenário atual</span></button></div>
+    <div class="input-icon search">${ic('search')}<input class="input" id="mq" placeholder="Buscar nome, cargo, cidade" value="${h(f.q || '')}" style="width:100%"></div>
+    <select class="input" id="mLoja"><option value="">Loja: Todas</option>${MOB_LOJAS.map(k => `<option value="${k}" ${f.loja === k ? 'selected' : ''}>${h(LOJA_NOMES[k] || k)}</option>`).join('')}</select>
+    <select class="input" id="mTipo"><option value="">Tipo: Todos</option>${MOB_TIPOS.map(t => `<option ${f.tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <select class="input" id="mSt" ${f.aba === 'cen' ? 'style="display:none"' : ''}><option value="">Status: Todos</option>${MOB_STATUS.map(s => `<option ${f.st === s ? 'selected' : ''}>${s}</option>`).join('')}</select>
+    <span class="spacer"></span>
+    <span id="mDonoBtns"></span>
+    <button class="btn" id="mExp" title="Exportar Excel">${ic('download')}</button>
+    <button class="btn primary" id="mNew">${ic('plus')} Nova simulação</button>
+  </div>
+  <div id="mBody"><div class="sk" style="height:220px"></div></div>
+  <div class="card mt" id="mResumo" style="display:none"></div>`;
+  let sims = S.mob.sims || [], cen = S.mob.cen || null;
+  const q = () => norm(f.q);
+  const fSim = () => sims.filter(s => (!f.loja || s.loja === f.loja) && (!f.tipo || s.tipo === f.tipo) && (!f.st || s.status === f.st)
+    && (!q() || norm([s.nome, s.cargo, s.cidade, s.bairro, s.rua].join(' ')).includes(q())));
+  const fCen = () => (cen ? cen.cenario : []).filter(c => (!f.loja || mobLojaKey(c.loja) === f.loja) && (!f.tipo || c.tipo === f.tipo)
+    && (!q() || norm([c.nome, c.cargo, c.loja].join(' ')).includes(q())));
+  const donoBtns = () => { $('#mDonoBtns').innerHTML = mobAdm() ? `<button class="btn" id="mRg" title="Valores por km, semanas e endereços das lojas">${ic('settings')} Regras</button> <button class="btn" id="mAcc" title="Quem pode ver esta aba">${ic('key')} Acessos</button>` : '';
+    if ($('#mRg')) $('#mRg').onclick = () => openMobRegras(() => draw()); if ($('#mAcc')) $('#mAcc').onclick = () => openMobAcesso(); };
+  const kpis = () => {
+    const R = fSim().filter(s => s.status !== 'Cancelado'), C = fCen();
+    const sug = sum(R, s => +s.sugerido || 0), val = sum(R.filter(s => s.validado !== ''), s => +s.validado || 0), nVal = R.filter(s => s.validado !== '').length;
+    const totC = sum(C, c => +c.valor || 0);
+    $('#mKpi').innerHTML = `
+      ${kpi({ lbl: 'Simulações', val: R.length, sub: `${R.filter(s => s.status === 'Validado').length} validada(s) · sem as canceladas`, icon: 'calc', c: 'c-cyan' })}
+      ${kpi({ lbl: 'Sugerido / mês', val: brl0(sug), sub: R.length ? `média de ${brl0(sug / R.length)} por pessoa` : 'pela regra de km', icon: 'trend', c: 'c-blue' })}
+      ${kpi({ lbl: 'Validado / mês', val: brl0(val), sub: nVal ? `${nVal} com valor validado · ${val - sum(R.filter(s => s.validado !== ''), s => +s.sugerido || 0) >= 0 ? '+' : ''}${brl0(val - sum(R.filter(s => s.validado !== ''), s => +s.sugerido || 0))} vs sugerido` : 'nenhum valor validado ainda', icon: 'check', c: 'c-green' })}
+      ${kpi({ lbl: 'Cenário atual', val: cen ? brl0(totC) : '…', sub: cen ? `${C.length} pessoa(s) recebendo hoje${cen.atualizado ? ' · ' + h(cen.atualizado) : ''}` : 'carregando…', icon: 'users', c: 'c-violet' })}`;
+  };
+  const drawSim = () => {
+    const R = fSim();
+    if (!R.length) { $('#mBody').innerHTML = `<div class="card empty">${ic('calc')}<div>${sims.length ? 'Nenhuma simulação com esses filtros.' : 'Nenhuma simulação ainda. Clique em <b>Nova simulação</b>.'}</div></div>`; $('#mResumo').style.display = 'none'; return; }
+    table($('#mBody'), 'mobSim', [
+      { t: 'Colaborador', k: 'nome', r: s => `<b>${h(s.nome)}</b>${s.cargo ? `<div class="muted" style="font-size:11.5px">${h(s.cargo)}</div>` : ''}` },
+      { t: 'Local de trabalho', k: 'loja', r: s => lojaPill(s.loja) },
+      { t: 'Tipo', k: 'tipo', r: s => mobTipoBadge(s.tipo) },
+      { t: 'Origem', k: 'cidade', r: s => `${h([s.rua, s.numero].filter(Boolean).join(', ') || '—')}<div class="muted" style="font-size:11.5px">${h([s.bairro, s.cidade].filter(Boolean).join(' · '))}</div>` },
+      { t: 'Escala', k: 'dias', r: s => s.dias ? `${s.dias}x/sem` : '—', sort: s => +s.dias || null },
+      { t: 'KM (ida)', k: 'km', r: s => kmTxt(s.km), sort: s => +s.km || null },
+      { t: 'Sugerido', k: 'sugerido', r: s => `<b>${brl0(s.sugerido)}</b>`, sort: s => +s.sugerido || null },
+      { t: 'Validado', k: 'validado', r: s => s.validado === '' ? '<span class="faint">—</span>' : `<b style="color:var(--ok)">${brl0(s.validado)}</b>${+s.validado !== +s.sugerido && s.sugerido !== '' ? `<div class="faint" style="font-size:11px">${+s.validado > +s.sugerido ? '+' : ''}${brl0(s.validado - s.sugerido)}</div>` : ''}`, sort: s => s.validado === '' ? null : +s.validado },
+      { t: 'Status', k: 'status', r: s => mobStBadge(s.status) }
+    ], R, s => openMobSim(s, atualizar));
+    $('#mResumo').style.display = 'none';
+  };
+  const drawCen = () => {
+    if (!cen) { $('#mBody').innerHTML = '<div class="sk" style="height:220px"></div>'; return; }
+    const C = fCen();
+    if (!C.length) { $('#mBody').innerHTML = `<div class="card empty">${ic('users')}<div>Ninguém encontrado com esses filtros.</div></div>`; $('#mResumo').style.display = 'none'; return; }
+    table($('#mBody'), 'mobCen', [
+      { t: 'Colaborador', k: 'nome', r: c => `<b>${h(c.nome)}</b><div class="muted" style="font-size:11.5px">${h(c.cargo)}</div>` },
+      { t: 'Loja', k: 'loja', r: c => { const k = mobLojaKey(c.loja); return LOJA_NOMES[k] ? lojaPill(k) : h(c.loja); } },
+      { t: 'CPF', k: 'cpf', r: c => c.cpf ? h(c.cpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')) : '<span class="faint">—</span>' },
+      { t: 'Tipo', k: 'tipo', r: c => mobTipoBadge(c.tipo) },
+      { t: 'Valor / mês', k: 'valor', r: c => `<b>${brl0(c.valor)}</b>`, sort: c => +c.valor || 0 }
+    ], C);
+    // resumo por loja × tipo
+    const g = new Map();
+    C.forEach(c => { const k = mobLojaKey(c.loja) + '|' + (c.tipo || '—'); const x = g.get(k) || { loja: mobLojaKey(c.loja), tipo: c.tipo || '—', n: 0, tot: 0 }; x.n++; x.tot += +c.valor || 0; g.set(k, x); });
+    const rs = $('#mResumo'); rs.style.display = '';
+    rs.innerHTML = `<div class="card-h"><h3>${ic('trend')} Resumo por loja e tipo</h3><span class="muted" style="font-size:12px">use como referência na hora de validar</span></div><div id="mResT"></div>`;
+    table($('#mResT'), 'mobCenRes', [
+      { t: 'Loja', k: 'loja', r: x => LOJA_NOMES[x.loja] ? lojaPill(x.loja) : h(x.loja) }, { t: 'Tipo', k: 'tipo', r: x => mobTipoBadge(x.tipo) },
+      { t: 'Pessoas', k: 'n' }, { t: 'Total / mês', k: 'tot', r: x => brl0(x.tot) }, { t: 'Média', k: '_m', r: x => brl0(x.tot / x.n), sort: x => x.tot / x.n }
+    ], [...g.values()].sort((a, b) => b.tot - a.tot));
+  };
+  const draw = () => {
+    if (rt !== S.rt || !$('#mBody')) return;
+    kpis(); donoBtns();
+    $('#mSt').style.display = f.aba === 'cen' ? 'none' : '';
+    $('#mNew').style.display = f.aba === 'cen' ? 'none' : '';
+    if (f.aba === 'cen') drawCen(); else drawSim();
+  };
+  const atualizar = l => { if (l) sims = S.mob.sims = l; draw(); };
+  openMobSim.after = atualizar;
+  const bind = (id, k) => { const el = $('#' + id); el.oninput = el.onchange = () => { f[k] = el.value; saveF(); draw(); }; };
+  bind('mq', 'q'); bind('mLoja', 'loja'); bind('mTipo', 'tipo'); bind('mSt', 'st');
+  $$('#mAba button').forEach(b => b.onclick = () => { f.aba = b.dataset.a; saveF(); $$('#mAba button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  $('#mNew').onclick = () => openMobSim(null, atualizar);
+  $('#mExp').onclick = () => f.aba === 'cen'
+    ? exportCSV('mobilidade_cenario_atual', ['Nome', 'Loja', 'Cargo', 'CPF', 'Tipo', 'Valor/mês'], fCen().map(c => [c.nome, c.loja, c.cargo, c.cpf, c.tipo, c.valor]))
+    : exportCSV('mobilidade_simulacoes', ['Nome', 'Cargo', 'Local de trabalho', 'Tipo', 'Rua', 'Nº', 'Bairro', 'CEP', 'Cidade', 'Dias/semana', 'KM (ida)', 'Sugerido', 'Validado', 'Status', 'Observações', 'Criado por', 'Criado em'],
+      fSim().map(s => [s.nome, s.cargo, LOJA_NOMES[s.loja] || s.loja, s.tipo, s.rua, s.numero, s.bairro, s.cep, s.cidade, s.dias, s.km, s.sugerido, s.validado, s.status, s.obs, s.criado_por, s.criado_em]));
+  if (sims.length || cen) draw();
+  try {
+    const j = await api('mobList', {}, { silent: !!sims.length });
+    if (rt !== S.rt) return;
+    S.mob.cfg = j.cfg; S.mob.dono = !!j.dono; S.mob.adm = !!j.adm;
+    atualizar(j.simulacoes);
+  } catch (e) {
+    if (rt !== S.rt) return;
+    toast(e.message, true);
+    if (!sims.length) $('#mBody').innerHTML = `<div class="card empty">${ic('alert')}<div>${h(e.message)}</div></div>`;
+    return;
+  }
+  try {
+    const c = await api('mobCenario', {}, { silent: true });
+    if (rt !== S.rt) return;
+    cen = S.mob.cen = c; draw();
+  } catch (e) { if (rt === S.rt) { cen = S.mob.cen = { cenario: [], atualizado: '', erro: e.message }; draw(); toast('Cenário atual: ' + e.message, true); } }
+}
+
+function openMobSim(s, done) {
+  done = done || openMobSim.after || (() => {});
+  const cfg = S.mob && S.mob.cfg;
+  if (!cfg) return toast('Aguarde carregar as regras da Mobilidade', true);
+  const val = (k, d = '') => s && s[k] !== undefined && s[k] !== '' ? s[k] : d;
+  modal({
+    title: s ? 'Editar simulação' : 'Nova simulação de mobilidade', icon: 'calc', wide: true,
+    body: `
+      <div class="row2">
+        <div class="field"><label>Nome do colaborador / candidato</label><input class="input" id="oN" value="${h(val('nome'))}" placeholder="Nome completo"></div>
+        <div class="field"><label>Cargo</label><input class="input" id="oC" value="${h(val('cargo'))}" placeholder="Ex.: REPOSITOR(A)"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Local de trabalho</label><select class="input" id="oL"><option value="">Escolha…</option>${MOB_LOJAS.filter(k => cfg.destinos[k]).map(k => `<option value="${k}" ${val('loja') === k ? 'selected' : ''}>${h(LOJA_NOMES[k] || k)}</option>`).join('')}</select><div class="faint" id="oLd" style="font-size:11.5px"></div></div>
+        <div class="row2">
+          <div class="field"><label>Tipo</label><select class="input" id="oT">${MOB_TIPOS.map(t => `<option ${val('tipo', 'MOTO') === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+          <div class="field"><label>Escala semanal</label><select class="input" id="oD">${[6, 5, 4, 3].map(d => `<option value="${d}" ${+val('dias', 6) === d ? 'selected' : ''}>${d} dias</option>`).join('')}</select></div>
+        </div>
+      </div>
+      <div class="card" style="background:var(--surface2);padding:14px;margin:4px 0 14px">
+        <div style="font-weight:700;margin-bottom:10px">${ic('home')} Endereço do colaborador (origem)</div>
+        <div class="row2">
+          <div class="field"><label>Rua</label><input class="input" id="oR" value="${h(val('rua'))}" placeholder="Ex.: Rua Denise Ferreira"></div>
+          <div class="row2">
+            <div class="field"><label>Nº</label><input class="input" id="oNu" value="${h(val('numero'))}"></div>
+            <div class="field"><label>CEP</label><input class="input" id="oCe" value="${h(val('cep'))}" placeholder="00000-000" inputmode="numeric"></div>
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Bairro</label><input class="input" id="oB" value="${h(val('bairro'))}"></div>
+          <div class="field"><label>Cidade</label><input class="input" id="oCi" value="${h(val('cidade', 'Fortaleza'))}" list="oCil"><datalist id="oCil">${['Fortaleza', 'Eusébio', 'Aquiraz', 'Itaitinga', 'Maracanaú', 'Caucaia', 'Pacatuba', 'Horizonte'].map(c => `<option value="${c}">`).join('')}</datalist></div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="margin:0;flex:0 1 180px"><label>Distância (só ida)</label><input class="input" id="oK" value="${h(s && s.km !== '' ? String(s.km).replace('.', ',') : '')}" placeholder="km" inputmode="decimal"></div>
+          <button class="btn" id="oKc" type="button">${ic('gauge')} Calcular pelo Google Maps</button>
+          <a class="btn" id="oMap" target="_blank" rel="noopener" style="display:none">${ic('eye')} Ver rota</a>
+        </div>
+        <div class="faint" style="font-size:11.5px;margin-top:6px">Rota de carro até a loja. Se o Maps não achar, digite os km manualmente.</div>
+      </div>
+      <div class="card" id="oCalc" style="padding:14px;margin:0 0 14px;border-color:var(--accent)"></div>
+      <div class="row2">
+        <div class="field"><label>Valor validado (R$ / mês)</label><div style="display:flex;gap:8px"><input class="input" id="oV" value="${h(s && s.validado !== '' ? String(s.validado).replace('.', ',') : '')}" placeholder="vazio = ainda não validado" inputmode="decimal"><button class="btn" id="oVs" type="button" title="Usar o valor sugerido">= sugerido</button></div></div>
+        <div class="field"><label>Status</label><select class="input" id="oS">${MOB_STATUS.map(x => `<option ${val('status', 'Simulação') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>Observações</label><textarea class="input" id="oO" placeholder="Ex.: combinado R$ 150 por ser escala 6x1 com folga no domingo">${h(val('obs'))}</textarea></div>
+      ${s ? `<p class="faint" style="font-size:11.5px;margin:0">Criada por ${h(s.criado_por || '—')} em ${h(s.criado_em || '—')}${s.atualizado_por ? ` · última alteração: ${h(s.atualizado_por)} em ${h(s.atualizado_em)}` : ''}</p>` : ''}`,
+    foot: `${s ? `<button class="btn danger" id="oDel" style="margin-right:auto">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="oOk">${ic('check')} Salvar</button>`,
+    onMount: m => {
+      const $m = id => $('#' + id, m.el), gv = id => $m(id).value;
+      const end = o => [o.rua, o.numero, o.bairro, o.cep, o.cidade].filter(x => String(x || '').trim()).join(', ');
+      const origem = () => ({ rua: gv('oR').trim(), numero: gv('oNu').trim(), bairro: gv('oB').trim(), cep: gv('oCe').trim(), cidade: gv('oCi').trim() });
+      let sugAtual = null;
+      const recalc = () => {
+        const L = gv('oL'), d = cfg.destinos[L];
+        $m('oLd').textContent = d ? end(d) : '';
+        const o = origem();
+        if (d && o.rua && o.cidade) { $m('oMap').style.display = ''; $m('oMap').href = 'https://www.google.com/maps/dir/' + encodeURIComponent(end(o)) + '/' + encodeURIComponent(end(d)); } else $m('oMap').style.display = 'none';
+        const km = numBR(gv('oK')), c = mobCalc(km, +gv('oD'), gv('oT'), cfg);
+        sugAtual = c ? c.valor : null;
+        // referência do cenário atual: média de quem já recebe na mesma loja e tipo
+        const cen = (S.mob.cen && S.mob.cen.cenario || []).filter(x => mobLojaKey(x.loja) === L && x.tipo === gv('oT') && +x.valor > 0);
+        const ref = cen.length ? `<div class="muted" style="font-size:12px;margin-top:8px">${ic('users')} Hoje, ${cen.length} pessoa(s) de ${h(LOJA_NOMES[L] || L)} recebem ${h(gv('oT'))}: média de <b>${brl0(sum(cen, x => +x.valor) / cen.length)}</b> (de ${brl0(Math.min(...cen.map(x => +x.valor)))} a ${brl0(Math.max(...cen.map(x => +x.valor)))})</div>` : '';
+        $m('oCalc').innerHTML = c
+          ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><div class="muted" style="font-size:12px">Cálculo do valor sugerido</div>
+              <div style="font-size:13px;margin-top:4px">${kmTxt(km)} × 2 (ida e volta) × ${fmt(c.diasMes, 1)} dias/mês × ${brl(c.taxa)}/km = <b>${brl(c.bruto)}</b></div></div>
+              <div style="text-align:right"><div class="muted" style="font-size:12px">Sugerido (arred. ${brl0(cfg.arred)})</div><div style="font-size:24px;font-weight:800">${brl0(c.valor)}</div></div></div>${ref}`
+          : `<div class="muted" style="font-size:13px">${ic('calc')} Informe a loja, o tipo, a escala e a distância (ou calcule pelo Maps) para ver o valor sugerido.</div>${ref}`;
+      };
+      ['oL', 'oT', 'oD', 'oK', 'oR', 'oNu', 'oB', 'oCe', 'oCi'].forEach(id => { $m(id).addEventListener('input', recalc); $m(id).addEventListener('change', recalc); });
+      $m('oCe').addEventListener('input', () => { const d = gv('oCe').replace(/\D/g, '').slice(0, 8); $m('oCe').value = d.length > 5 ? d.slice(0, 5) + '-' + d.slice(5) : d; });
+      recalc();
+      $m('oKc').onclick = e => run(e.currentTarget, async () => {
+        if (!gv('oL')) throw new Error('Escolha o local de trabalho');
+        const o = origem(); if (!o.rua || !o.cidade) throw new Error('Informe pelo menos a rua e a cidade');
+        const j = await api('mobCalcKm', { loja: gv('oL'), origem: o }, { silent: true });
+        $m('oK').value = String(j.km).replace('.', ','); recalc(); toast(`Distância: ${kmTxt(j.km)}`);
+      }).catch(() => {});
+      $m('oVs').onclick = () => { if (sugAtual != null) { $m('oV').value = sugAtual; if (gv('oS') === 'Simulação') $m('oS').value = 'Validado'; } else toast('Ainda não há valor sugerido', true); };
+      $m('oOk').onclick = e => run(e.currentTarget, async () => {
+        if (!gv('oN').trim()) throw new Error('Informe o nome');
+        if (!gv('oL')) throw new Error('Escolha o local de trabalho');
+        const km = numBR(gv('oK')); if (gv('oK') && !(km > 0)) throw new Error('Distância inválida');
+        const vv = numBR(gv('oV')); if (gv('oV') && !(vv >= 0)) throw new Error('Valor validado inválido');
+        const j = await api('mobSave', { data: Object.assign({ id: s ? s.id : '', nome: gv('oN'), cargo: gv('oC'), loja: gv('oL'), tipo: gv('oT'), dias: +gv('oD'), km: km === '' ? '' : km, validado: vv === '' ? '' : vv, status: gv('oS'), obs: gv('oO') }, origem()) });
+        m.close(); toast(s ? 'Simulação atualizada' : 'Simulação salva'); done(j.simulacoes);
+      });
+      const del = $m('oDel');
+      if (del) del.onclick = async () => {
+        if (!await confirmBox(`Excluir a simulação de <b>${h(s.nome)}</b>?`, 'Excluir', true)) return;
+        await run(del, async () => { const j = await api('mobDelete', { id: s.id }); m.close(); toast('Simulação excluída'); done(j.simulacoes); }).catch(() => {});
+      };
+    }
+  });
+}
+
+function openMobRegras(done) {
+  const c = S.mob && S.mob.cfg; if (!c) return;
+  const v2 = n => String(n).replace('.', ',');
+  modal({
+    title: 'Regras da Mobilidade', icon: 'settings', wide: true,
+    body: `<p class="muted" style="margin-top:0">Fórmula: <b>km × 2 (ida e volta) × (dias por semana × semanas no mês) × R$ por km</b>, arredondado. As simulações já salvas mantêm o valor sugerido da época; abra e salve de novo para recalcular.</p>
+      <div class="row3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">${MOB_TIPOS.map(t => `<div class="field"><label>${t} — R$ por km</label><input class="input" data-tx="${t}" value="${h(v2(c.taxas[t]))}" inputmode="decimal"></div>`).join('')}</div>
+      <div class="row2"><div class="field"><label>Semanas no mês</label><input class="input" id="rgS" value="${h(v2(c.semanas))}" inputmode="decimal"></div><div class="field"><label>Arredondar para múltiplos de (R$)</label><input class="input" id="rgA" value="${h(v2(c.arred))}" inputmode="decimal"></div></div>
+      <div style="font-weight:700;margin:6px 0 10px">${ic('store')} Endereço das lojas (destino)</div>
+      ${Object.keys(c.destinos).map(k => { const d = c.destinos[k]; return `<div class="card" style="background:var(--surface2);padding:10px 12px;margin-bottom:8px"><div style="margin-bottom:8px">${lojaPill(k)}</div>
+        <div style="display:grid;grid-template-columns:2fr .7fr 1fr 1.3fr;gap:8px" data-dst="${h(k)}"><input class="input" data-f="rua" value="${h(d.rua)}" placeholder="Rua"><input class="input" data-f="numero" value="${h(d.numero)}" placeholder="Nº"><input class="input" data-f="cep" value="${h(d.cep)}" placeholder="CEP"><input class="input" data-f="cidade" value="${h(d.cidade)}" placeholder="Cidade - UF"></div></div>`; }).join('')}`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="rgOk">${ic('check')} Salvar regras</button>`,
+    onMount: m => {
+      $('#rgOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const taxas = {}; $$('[data-tx]', m.el).forEach(i => { const x = numBR(i.value); if (!(x >= 0)) throw new Error('Valor por km inválido em ' + i.dataset.tx); taxas[i.dataset.tx] = x; });
+        const destinos = {}; $$('[data-dst]', m.el).forEach(g => { const o = {}; $$('[data-f]', g).forEach(i => o[i.dataset.f] = i.value.trim()); destinos[g.dataset.dst] = o; });
+        const j = await api('mobSetCfg', { cfg: { taxas, semanas: numBR($('#rgS', m.el).value), arred: numBR($('#rgA', m.el).value), destinos } });
+        S.mob.cfg = j.cfg; m.close(); toast('Regras salvas'); if (done) done();
+      });
+    }
+  });
+}
+
+async function openMobAcesso() {
+  if (openMobAcesso.lock) return; openMobAcesso.lock = 1;
+  let j;
+  try { busy(true); j = await api('mobUsuarios', {}, { silent: true }); }
+  catch (e) { return toast(e.message, true); } finally { busy(false); openMobAcesso.lock = 0; }
+  const ids = j.ids || [], adms = j.adms || [], souDono = !!j.souDono;
+  const dono = (j.users || []).find(u => u.id === j.dono);
+  const ativos = (j.users || []).filter(u => u.ativo && u.id !== j.dono).sort((a, b) => (adms.includes(b.id) - adms.includes(a.id)) || (ids.includes(b.id) - ids.includes(a.id)) || String(a.nome).localeCompare(b.nome));
+  const nivel = u => adms.includes(u.id) ? 'adm' : ids.includes(u.id) ? 'ver' : '';
+  const NIV = [['', 'Sem acesso'], ['ver', 'Acesso'], ['adm', 'Adm. secundário']];
+  modal({
+    title: 'Quem acessa a Mobilidade', icon: 'key',
+    body: `<p class="muted" style="margin-top:0;line-height:1.55"><b>Dono</b>: administrador máximo, faz tudo. <b>Adm. secundário</b>: lança simulações, edita as regras e libera acessos. <b>Acesso</b>: vê e lança simulações. Administradores do Quadro não entram sem estar marcados aqui.${souDono ? '' : ' Só o dono altera os administradores secundários.'}</p>
+      ${dono ? `<div class="card" style="display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:8px">${avatar(dono.nome, dono.foto, 'sm')}<div style="flex:1"><b>${h(dono.nome)}</b><div class="muted" style="font-size:11.5px">${h(dono.cargo || PERFIS[dono.perfil] || '')}</div></div><span class="badge b-violet">Dono</span></div>` : ''}
+      <div class="input-icon search" style="margin:10px 0">${ic('search')}<input class="input" id="maq" placeholder="Buscar pessoa" style="width:100%"></div>
+      <div style="display:flex;flex-direction:column;gap:8px" id="maL">${ativos.map(u => `<div class="card" data-nm="${h(norm(u.nome))}" style="display:flex;align-items:center;gap:12px;padding:10px 12px">
+        ${avatar(u.nome, u.foto, 'sm')}<div style="flex:1;min-width:0"><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(PERFIS[u.perfil] || u.perfil)}${u.cargo ? ' · ' + h(u.cargo) : ''}</div></div>
+        <select class="input" data-uid="${h(u.id)}" style="width:auto;padding:7px 9px;font-size:12.5px" ${!souDono && nivel(u) === 'adm' ? 'disabled' : ''}>${NIV.filter(n => souDono || n[0] !== 'adm' || nivel(u) === 'adm').map(n => `<option value="${n[0]}" ${nivel(u) === n[0] ? 'selected' : ''}>${n[1]}</option>`).join('')}</select></div>`).join('') || '<div class="empty">Nenhum outro acesso ativo.</div>'}</div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="maOk">Salvar acessos</button>`,
+    onMount: m => {
+      $('#maq', m.el).oninput = e => { const t = norm(e.target.value); $$('#maL [data-nm]', m.el).forEach(l => l.style.display = !t || l.dataset.nm.includes(t) ? '' : 'none'); };
+      $('#maOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const sels = $$('[data-uid]', m.el);
+        const pl = { ids: sels.filter(c => c.value === 'ver').map(c => c.dataset.uid) };
+        if (souDono) pl.adms = sels.filter(c => c.value === 'adm').map(c => c.dataset.uid);
+        const r = await api('mobSetAcesso', pl);
+        S.mob.ids = r.ids; S.mob.adms = r.adms; m.close();
+        toast(`Acessos salvos: ${r.adms.length} adm. secundário(s) e ${r.ids.length} com acesso`);
+      });
+    }
+  });
+}
 
 /* =====================================================================
  * NOVA LOJA — cria um novo quadro a partir de uma loja modelo

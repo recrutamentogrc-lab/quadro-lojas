@@ -491,3 +491,51 @@ optgroup{font-weight:700}
 .ckp-s.next{border-color:var(--warn)}
 .ckp-s.next .ckp-n{border-color:var(--warn);color:var(--warn)}
 @media (max-width:560px){.ckp-steps{grid-template-columns:1fr 1fr}}
+
+/* ===================== celular (otimizado) ===================== */
+@media (max-width:860px){
+  html{-webkit-text-size-adjust:100%}
+  body{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:contain}
+  /* evita o zoom automático do iPhone ao tocar num campo */
+  .input,select.input,textarea.input,.toolbar .input{font-size:16px}
+  .content{padding:12px 12px calc(84px + env(safe-area-inset-bottom))}
+  /* topo enxuto: busca abre pela lupa */
+  .topbar{flex-wrap:nowrap;padding:8px 10px;padding-top:calc(8px + env(safe-area-inset-top));gap:4px}
+  .topbar>div:nth-child(2){flex:1;min-width:0}
+  .topbar h1{max-width:none;font-size:17px;overflow:hidden;text-overflow:ellipsis}
+  .topbar .gsearch{display:none}
+  .topbar.gs-open{flex-wrap:wrap}
+  .topbar.gs-open .gsearch{display:block;order:9;flex:1 1 100%;margin-top:6px}
+  .topbar .btn.icon{width:40px;height:40px;flex:none}
+  /* filtros: busca em linha inteira, filtros 2 por linha */
+  .toolbar{gap:8px;margin:12px 0 10px}
+  .toolbar .search,.toolbar .input-icon.search{flex:1 1 100%!important;max-width:none;min-width:0;width:100%}
+  .toolbar select.input,.toolbar input[type=date].input{flex:1 1 calc(50% - 4px);min-width:0;width:auto}
+  .toolbar .spacer{display:none}
+  .toolbar .btn{min-height:40px}
+  /* chips deslizam para o lado em vez de ocupar várias linhas */
+  .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px;margin-left:-12px;margin-right:-12px;padding-left:12px;padding-right:12px}
+  .chips::-webkit-scrollbar{display:none}
+  .chips>*{flex:none}
+  /* cartões de indicadores mais compactos */
+  .g4,.g5{gap:8px}
+  .g4 .kpi,.g5 .kpi{padding:12px;gap:6px;border-radius:16px}
+  .g4 .kpi .lbl,.g5 .kpi .lbl{font-size:12px;line-height:1.25}
+  .g4 .kpi .ico,.g5 .kpi .ico{width:28px;height:28px}
+  .card{border-radius:16px}
+  .btn{min-height:40px}
+  .modal-f{position:sticky;bottom:0;background:var(--surface);padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+}
+/* tabelas viram cartões no celular */
+@media (max-width:640px){
+  .tbl-wrap:has(.tbl-cards){overflow:visible;border:none;background:none;border-radius:0}
+  .tbl-cards,.tbl-cards tbody{display:block;width:100%}
+  .tbl-cards thead{display:none}
+  .tbl-cards tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:8px}
+  .tbl-cards tbody tr:hover{background:var(--surface)}
+  .tbl-cards tbody tr.click:active{background:var(--surface2)}
+  .tbl-cards td{display:block;padding:0;border:none;min-width:0;overflow-wrap:anywhere;font-size:13.5px}
+  .tbl-cards td:first-child{grid-column:1/-1;font-weight:700}
+  .tbl-cards td[data-l]:not([data-l=""])::before{content:attr(data-l);display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;margin-bottom:2px}
+  .tbl-cards td:empty{display:none}
+}

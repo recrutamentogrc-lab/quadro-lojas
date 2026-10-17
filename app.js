@@ -1034,6 +1034,7 @@ function renderShell() {
       <header class="topbar">
         <button class="btn ghost icon mobile-only" id="sbOpen">${ic('menu')}</button>
         <div><div class="crumb" id="crumb"></div><h1 id="title"></h1></div>
+        <button class="btn ghost icon mobile-only" id="btnGs" title="Buscar">${ic('search')}</button>
         <div class="gsearch"><div class="input-icon">${ic('search')}<input class="input" id="gq" placeholder="Buscar colaborador, função…  ( / )" autocomplete="off"></div><div class="results hidden" id="gres"></div></div>
         ${!isAdmin() && !isDP() && S.user.lojas.length ? `<button class="btn primary sm" id="btnReq" title="Requisitar vaga">${ic('plus')}<span class="desk-only">Requisitar vaga</span></button>` : ''}
         <div class="bell-wrap"><button class="btn ghost icon" id="btnBell" title="Notificações">${ic('bell')}<span class="bell-n hidden" id="bellN"></span></button><div class="bell-panel hidden" id="bellPanel"></div></div>
@@ -1054,6 +1055,7 @@ function renderShell() {
   $('#sbToggle').onclick = () => { S.collapsed = !S.collapsed; ls.set('grc_sb', S.collapsed); $('#sb').classList.toggle('collapsed', S.collapsed); setTimeout(() => S.charts.forEach(c => c.resize()), 260); };
   const sbOpen = on => { $('#sb').classList.toggle('open', on); $('#sbBack').classList.toggle('on', on); };
   $('#sbOpen').onclick = () => sbOpen(true);
+  $('#btnGs').onclick = () => { const tb = $('.topbar'); tb.classList.toggle('gs-open'); if (tb.classList.contains('gs-open')) $('#gq').focus(); else { $('#gq').value = ''; $('#gq').dispatchEvent(new Event('input')); } };
   $('#sbClose').onclick = () => sbOpen(false);
   $('#sbBack').onclick = () => sbOpen(false);
   let tx0 = null;
@@ -1302,7 +1304,7 @@ function table(el, key, cols, data, onRow) {
       const c = cols[st.i]; const f = c.sort || (r => r[c.k]);
       rows.sort((a, b) => { const x = f(a), y = f(b); return (x == null ? 1e12 : x) > (y == null ? 1e12 : y) ? st.d : (x == null ? 1e12 : x) < (y == null ? 1e12 : y) ? -st.d : 0; });
     }
-    el.innerHTML = rows.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr>${cols.map((c, i) => `<th data-i="${i}" class="${st.i === i ? 'sorted' : ''}" style="${c.w ? 'width:' + c.w : ''}">${c.th || h(c.t)}${st.i === i ? (st.d > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map((r, ri) => `<tr data-ri="${ri}" class="${onRow ? 'click' : ''}">${cols.map(c => `<td>${c.r ? c.r(r) : h(r[c.k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<div class="card empty">${ic('search')}<div>Nenhum registro com esses filtros.</div></div>`;
+    el.innerHTML = rows.length ? `<div class="tbl-wrap"><table class="tbl tbl-cards"><thead><tr>${cols.map((c, i) => `<th data-i="${i}" class="${st.i === i ? 'sorted' : ''}" style="${c.w ? 'width:' + c.w : ''}">${c.th || h(c.t)}${st.i === i ? (st.d > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}</tr></thead><tbody>${rows.map((r, ri) => `<tr data-ri="${ri}" class="${onRow ? 'click' : ''}">${cols.map(c => `<td data-l="${h(c.t || '')}">${c.r ? c.r(r) : h(r[c.k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : `<div class="card empty">${ic('search')}<div>Nenhum registro com esses filtros.</div></div>`;
     $$('th', el).forEach(th => th.onclick = () => { const i = +th.dataset.i; if (cols[i].nosort) return; st.d = st.i === i ? -st.d : 1; st.i = i; draw(); });
     if (onRow) $$('tbody tr', el).forEach(tr => tr.onclick = e => { if (e.target.closest('[data-stop]')) return; onRow(rows[+tr.dataset.ri], e); });
     el._rows = rows;

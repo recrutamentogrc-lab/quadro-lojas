@@ -1,1 +1,1 @@
-versao: aba Mobilidade (ajuda de combustivel) 2026-10-16
+versao: estrutura instantanea + recrutamento/mobilidade pelo Firebase 2026-10-17

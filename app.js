@@ -177,7 +177,7 @@ function reaplicarPend_() {
       const p = op.payload || {};
       if (p.expect && p.row != null && p.loja) { const r = findRow(p.loja, p.row); if (!r || norm(r.nome) !== norm(p.expect.nome) || norm(r.funcao) !== norm(p.expect.funcao)) return; }
       LOCAL[op.action](p, filaJ_(op));
-      if (op.action === 'setPadrao' || op.action === 'addContratacao') derive();
+      if (MUDA_LINHAS[op.action]) derive();
     } catch (e) { console.warn('fila overlay', e); }
   });
   PEND.forEach(op => {
@@ -421,14 +421,28 @@ function syncBadge(on) {
 /* ---------------- Firebase (leitura rápida em tempo real) ---------------- */
 const FB_OK = !DEMO && !!(window.firebase && CFG.FIREBASE);
 let fbDb = null, fbUnsubs = [], fbKeysSig = '', live = {}, liveOn = false, liveBooted = false;
-function fbStop() { fbUnsubs.forEach(u => { try { u(); } catch (e) {} }); fbUnsubs = []; live = {}; liveOn = false; fbKeysSig = ''; }
+function fbStop() { fbUnsubs.forEach(u => { try { u(); } catch (e) {} }); fbUnsubs = []; live = {}; liveOn = false; fbKeysSig = ''; liveSel = {}; liveSelOn = false; S.selRaw = null; S.mobRaw = null; S.mobLive = false; }
+let liveSel = {}, liveSelOn = false;
+// recrutamento e mobilidade: lista vinda do Firebase + gravações ainda na fila
+function selMobLive_(semTela) {
+  if (liveSelOn) {
+    S.selRaw = [].concat(...Object.values(liveSel)).sort((a, b) => String(b.data).localeCompare(String(a.data)));
+    S.selCache = overlaySel_(S.selRaw);
+    if (!semTela && /^#\/recrutamento/.test(location.hash) && openSelecao.after && !$('.overlay')) openSelecao.after(S.selCache);
+  }
+  if (S.mobLive && S.mobRaw) {
+    S.mob = S.mob || {};
+    S.mob.sims = overlayMob_(S.mobRaw);
+    if (!semTela && /^#\/mobilidade/.test(location.hash) && openMobSim.after && !$('.overlay')) openMobSim.after(S.mob.sims);
+  }
+}
 /* ---------------- fila de gravações (Firebase → planilha em segundo plano) ----------------
  * As gravações vão direto para a coleção "fila" do Firestore (instantâneo) e aparecem na hora
  * para todos que estão com o sistema aberto. O Apps Script aplica cada alteração na planilha
  * em segundo plano, na ordem e com as mesmas regras de antes, e publica o resultado.
  * Ninguém mais espera a planilha para continuar trabalhando. */
-const FILA_ASYNC = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
-const FILA_SYNC = { addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, decidirSolicitacao: 1, iniciarSLA: 1, criarLoja: 1, criarQuadroAdm: 1, cruzarContr: 1 };
+const FILA_ASYNC = { addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
+const FILA_SYNC = { decidirSolicitacao: 1, iniciarSLA: 1, criarLoja: 1, criarQuadroAdm: 1, cruzarContr: 1 };
 let filaSnap = [], filaLocal = [], filaUnsub = null, filaVivo = false, filaTent = 0, filaKickT = null, filaOff = false, fbUidP = null, filaRedraw = null;
 const filaEspera = {}, filaAvisados = new Set();
 function fbInit_() { if (!fbDb) { firebase.initializeApp(CFG.FIREBASE); fbDb = firebase.firestore(); } return fbDb; }
@@ -474,7 +488,7 @@ async function filaStart_() {
     filaLocal.forEach(o => { if (ids.has(o.id)) o.visto = true; });
     filaSnap.forEach(o => {
       const w = filaEspera[o.id];
-      if (w && o.status === 'ok') { delete filaEspera[o.id]; let r = {}; try { r = JSON.parse(o.resultado || '{}'); } catch (e) {} w.res(Object.assign({ ok: true }, r)); }
+      if (w && (o.status === 'ok' || o.status === 'aplicado')) { delete filaEspera[o.id]; let r = {}; try { r = JSON.parse(o.resultado || '{}'); } catch (e) {} w.res(Object.assign({ ok: true }, r)); }
       else if (w && o.status === 'erro') { delete filaEspera[o.id]; w.rej(new Error(o.erro || 'Erro ao salvar')); }
       else if (o.status === 'erro' && !o.sync && String(o.userId) === String(S.user && S.user.id) && o.uid === uid && !filaAvisados.has(o.id)) {
         filaAvisados.add(o.id);
@@ -482,7 +496,7 @@ async function filaStart_() {
       }
     });
     clearTimeout(filaRedraw);
-    filaRedraw = setTimeout(() => { if (liveOn) applyLive(); }, 60);
+    filaRedraw = setTimeout(() => { if (liveOn) applyLive(); selMobLive_(); }, 60);
   }, err => {
     console.warn('fila', err); filaUnsub = null; filaVivo = false;
     if (++filaTent <= 6) setTimeout(() => { meRefreshSessao_().finally(filaStart_); }, 3000 * filaTent);
@@ -548,8 +562,9 @@ function legacyEnviar_(action, payload) {
 function filaResposta_(action, payload, gated) {
   if (gated) return { ok: true, pendente: true };
   if (action === 'addContratacao') return { ok: true, row: filaProxLinha_(), alocado: !!(payload.vaga && payload.vaga.row) };
-  if (action === 'saveSelecao' || action === 'deleteSelecao') return { ok: true, selecoes: overlaySel_(S.selCache || []) };
-  if (action === 'mobSave' || action === 'mobDelete') return { ok: true, simulacoes: overlayMob_((S.mob && S.mob.sims) || []) };
+  if (action === 'saveSelecao' || action === 'deleteSelecao') return { ok: true, selecoes: overlaySel_(S.selRaw || S.selCache || []) };
+  if (action === 'mobSave' || action === 'mobDelete') return { ok: true, simulacoes: overlayMob_(S.mobRaw || (S.mob && S.mob.sims) || []) };
+  if (action === 'setPadrao') return { ok: true, otimista: true, criadas: payload.novas && +payload.novas.qtd > 0 ? Math.min(30, +payload.novas.qtd) : 0, removidas: (payload.remover || []).length };
   if (action === 'saveFotoColab') return { ok: true, chave: chaveNome(payload.nome), foto: payload.foto || '' };
   return { ok: true, otimista: true };
 }
@@ -627,6 +642,17 @@ function startLive(keys) {
       if (need.some(x => !live[x])) return fim(false); // ainda não publicado → usa o caminho antigo
       liveOn = true; applyLive(); fim(true);
     }, err => { console.warn('firebase', err); fim(false); })));
+    const sk = keys.sel ? Object.keys(keys.sel) : [];
+    sk.forEach(lk => fbUnsubs.push(fbDb.collection('pub').doc(keys.sel[lk]).onSnapshot(sn => {
+      let v = null; if (sn.exists) { try { v = JSON.parse(sn.data().json); } catch (e) {} }
+      liveSel[lk] = (v && v.sel) || [];
+      if (sk.every(x => x in liveSel)) { liveSelOn = true; selMobLive_(); }
+    }, () => {})));
+    if (keys.M) fbUnsubs.push(fbDb.collection('pub').doc(keys.M).onSnapshot(sn => {
+      let v = null; if (sn.exists) { try { v = JSON.parse(sn.data().json); } catch (e) {} }
+      if (!v) return;
+      S.mob = S.mob || {}; S.mob.cfg = v.cfg || S.mob.cfg; S.mobRaw = v.sims || []; S.mobLive = true; selMobLive_();
+    }, () => {}));
     if (keys.L) fbUnsubs.push(fbDb.collection('pub').doc(keys.L).onSnapshot(sn => {
       if (!sn.exists) return; let v = null; try { v = JSON.parse(sn.data().json); } catch (e) { return; }
       if (v && v.logoHash !== cfgv('logoHash', '-')) { S.cfg = Object.assign({}, S.cfg || {}, { logo: v.logo, logoHash: v.logoHash }); saveCfgLocal(); applyFavicon(); if ($('.app')) updateShell(); }
@@ -1681,7 +1707,7 @@ function openRow(l, r) {
       if (act('info')) act('info').onclick = () => { m.close(); openVagaInfo(l, r); };
       if (act('del')) act('del').onclick = async () => {
         if (!await confirmBox(`Remover definitivamente a linha <b>${h(r.funcao)}${r.nome ? ' — ' + h(r.nome) : ''}</b> da aba ${h(l.sheet)}?<br><span class="muted">Isso apaga a linha na planilha e altera o quadro padrão do setor.</span>`, 'Remover', true)) return;
-        await run(null, async () => { await api('removerPosicao', { loja: l.key, row: r.row, expect: expectOf(r) }); m.close(); toast('Posição removida'); await loadAll(); });
+        await run(null, async () => { await api('removerPosicao', { loja: l.key, row: r.row, expect: expectOf(r) }); m.close(); toast('Posição removida'); if (!liveOn) await loadAll(); });
       };
     }
   });
@@ -1871,9 +1897,9 @@ function openAddPos(l, sec) {
         for (let i = 0; i < n; i++) {
           const fresh = S.data.lojas.find(x => x.key === l.key).setores.find(x => x.nome === sec.nome);
           await api('addPosicao', { loja: l.key, setor: sec.nome, firstRow: fresh.linhas[0] ? fresh.linhas[0].row : sec.row + 3, funcao: fn, contrato: pickVal(m.el, 'contrato') || 'INTEGRAL', qt: $('#nQ', m.el).value });
-          if (n > 1) await loadAll();
+          if (n > 1 && !liveOn) await loadAll();
         }
-        m.close(); toast(n + ' posição(ões) adicionada(s)'); await loadAll();
+        m.close(); toast(n + ' posição(ões) adicionada(s)'); if (!liveOn) await loadAll();
       });
     }
   });
@@ -2835,6 +2861,7 @@ async function pgRecrut() {
     filt().map(s => [isoToBR(s.data), s.horario, LOJA_NOMES[s.loja] || s.loja, s.setor, s.funcao, s.vagas, s.local, s.origem, s.chamados, s.confirmados, s.compareceram, selFalt(s) ?? '', s.aprov_lider, s.aprov_rh, s.admitidos, s.banco_talentos, s.status, s.responsavel, s.obs]));
   openSelecao.after = atualizar;
   if (list.length) draw();
+  if (liveSelOn) return; // lista já vem do Firebase em tempo real
   try {
     const j = await api('listSelecoes', {}, { silent: !!list.length });
     if (rt !== S.rt) return;
@@ -3077,7 +3104,7 @@ async function pgMob() {
     : exportCSV('mobilidade_simulacoes', ['Nome', 'Cargo', 'Local de trabalho', 'Tipo', 'Rua', 'Nº', 'Bairro', 'CEP', 'Cidade', 'Dias/semana', 'KM (ida)', 'Sugerido', 'Validado', 'Status', 'Observações', 'Criado por', 'Criado em'],
       fSim().map(s => [s.nome, s.cargo, LOJA_NOMES[s.loja] || s.loja, s.tipo, s.rua, s.numero, s.bairro, s.cep, s.cidade, s.dias, s.km, s.sugerido, s.validado, s.status, s.obs, s.criado_por, s.criado_em]));
   if (sims.length || cen) draw();
-  try {
+  if (!S.mobLive) try {
     const j = await api('mobList', {}, { silent: !!sims.length });
     if (rt !== S.rt) return;
     S.mob.cfg = j.cfg; S.mob.dono = !!j.dono; S.mob.adm = !!j.adm;
@@ -3924,7 +3951,48 @@ function openContrBulkSet(lista, done) {
  * ===================================================================== */
 let bgT = null;
 function bgReload(ms = 1200) { clearTimeout(bgT); bgT = setTimeout(() => { if ($('.overlay')) return bgReload(2500); loadAll(false, true); }, ms); }
-const findRow = (lk, row) => { const l = lojaBy(lk); return l && l.rows.find(r => r.row === +row); };
+const findRow = (lk, row) => { const l = lojaBy(lk); if (!l) return null; for (const s of l.setores) { const r = s.linhas.find(x => x.row === +row); if (r) { r.loja = l.key; r.setor = s.nome; return r; } } return null; };
+// numeração das linhas: espelha na tela o que a planilha faz ao inserir/apagar linhas
+function shiftLoja_(l, from, delta) {
+  l.setores.forEach(s => {
+    ['row', 'padraoRow', 'totalRow'].forEach(k => { if (s[k] && s[k] >= from) s[k] += delta; });
+    s.linhas.forEach(r => { if (r.row >= from) r.row += delta; });
+  });
+}
+function localAddPos(lk, setor, funcao, contrato, qt, motivo, resp) {
+  const l = lojaBy(lk); const s = l && l.setores.find(x => x.nome === setor); if (!s) return 0;
+  const nr = s.linhas.length ? s.linhas[0].row + 1 : (s.padraoRow || s.row) + 2;
+  shiftLoja_(l, nr, 1);
+  const r = { row: nr, qt: +qt || 1, nome: '', funcao: String(funcao || '').toUpperCase(), contrato: contrato || 'INTEGRAL', situacao: 'VAGA', tag: '', tempo: '', meses: null, vid: '', loja: l.key, setor: s.nome,
+    info: { etapa: 'Aberta', responsavel: resp || S.user.nome, abertura: todayISO(), previsao: '', candidatos: '', motivo: motivo || 'Aumento de quadro', obs: '', hist: [{ e: 'Aberta', d: todayISO() }] } };
+  s.linhas.splice(s.linhas.length ? 1 : 0, 0, r);
+  return nr;
+}
+function localRemove(lk, row, expect) {
+  const l = lojaBy(lk); if (!l) return false;
+  for (const s of l.setores) {
+    const i = s.linhas.findIndex(x => x.row === +row);
+    if (i < 0) continue;
+    const r = s.linhas[i];
+    if (expect && (norm(r.nome) !== norm(expect.nome) || norm(r.funcao) !== norm(expect.funcao))) return false;
+    s.linhas.splice(i, 1); shiftLoja_(l, +row + 1, -1); return true;
+  }
+  return false;
+}
+function localMovimentar(p) {
+  const o = p.origem || {}, d = p.destino || {};
+  const ro = findRow(o.loja, o.row);
+  if (!ro || !ro.nome || (o.expect && (norm(ro.nome) !== norm(o.expect.nome) || norm(ro.funcao) !== norm(o.expect.funcao)))) return;
+  const nome = ro.nome, contratoO = ro.contrato, tagO = ro.tag, tempoO = ro.tempo, mesesO = ro.meses;
+  if (d.mesmaPosicao) { ro.funcao = String(d.funcao || ro.funcao).toUpperCase(); if (d.tag !== undefined) ro.tag = d.tag || ''; if (d.contrato) ro.contrato = d.contrato; return; }
+  let dRow = +d.row;
+  if (!dRow) dRow = localAddPos(d.loja, d.setor, d.funcao, d.contrato || contratoO || 'INTEGRAL', d.qt || 1, (p.tipo || 'Movimentação') + ' — ' + nome, p.responsavel);
+  const rd = findRow(d.loja, dRow); if (!rd || rd.nome) return;
+  localFill({ loja: d.loja, row: dRow, nome, contrato: d.contrato || contratoO, tag: d.tag !== undefined ? d.tag : tagO });
+  rd.tempo = tempoO; rd.meses = mesesO;
+  if (p.origemAcao === 'remover') localRemove(o.loja, ro.row, null);
+  else Object.assign(ro, { nome: '', situacao: 'VAGA', tag: '', tempo: '', meses: null, info: { etapa: 'Aberta', responsavel: p.responsavel || S.user.nome, abertura: todayISO(), candidatos: '', motivo: p.tipo, obs: p.obs || '', hist: [{ e: 'Aberta', d: todayISO() }] } });
+}
 const todayISO = () => isoD(new Date());
 function contrByName(nome) { const n = norm(nome); return (S.data.contratacoes.rows || []).filter(r => norm(r[S.ck.colab]) === n); }
 function localDesligar(p) {
@@ -3941,7 +4009,16 @@ function localFill(p) {
   if (p.contrato) r.contrato = p.contrato;
 }
 const LOCAL = {
-  setPadrao: (p, j) => { const l = lojaBy(p.loja); const sc = l && l.setores.find(x => x.nome === p.setor); if (sc) { sc.padrao = +p.padrao; sc.pad = +p.padrao; } (p.remover || []).forEach(x => { const r = findRow(p.loja, x.row); if (r && sc) sc.linhas.splice(sc.linhas.indexOf(r), 1); }); },
+  setPadrao: (p, j) => {
+    const l = lojaBy(p.loja); const sc = l && l.setores.find(x => x.nome === p.setor); if (!sc) return;
+    (p.remover || []).slice().sort((a, b) => b.row - a.row).forEach(x => localRemove(p.loja, x.row, x.expect));
+    sc.padrao = +p.padrao; sc.pad = +p.padrao;
+    const nv = p.novas && +p.novas.qtd > 0 ? Math.min(30, +p.novas.qtd) : 0;
+    for (let i = 0; i < nv; i++) localAddPos(p.loja, p.setor, p.novas.funcao, p.novas.contrato || 'INTEGRAL', p.novas.qt || 1, 'Aumento de quadro' + (p.motivo ? ' — ' + p.motivo : ''), p.novas.responsavel);
+  },
+  addPosicao: p => { localAddPos(p.loja, p.setor, p.funcao, p.contrato || 'INTEGRAL', p.qt || 1, p.motivo || 'Aumento de quadro', p.responsavel); },
+  removerPosicao: p => { localRemove(p.loja, p.row, p.expect); },
+  movimentar: p => localMovimentar(p),
   cruzarContr: (p, j) => { if (p.simular) return; const set = (rows, val) => (rows || []).forEach(x => { const c = (S.data.contratacoes.rows || []).find(y => y.row === x.row); if (c && S.ck.status) c[S.ck.status] = val; }); set(j.alocados, 'Alocado'); set(j.desligados, 'Desligado'); },
   desligar: p => localDesligar(p),
   desligarLote: p => (p.itens || []).forEach(it => localDesligar(Object.assign({}, it, { dataDesligamento: p.dataDesligamento, tipo: p.tipo, responsavel: p.responsavel }))),

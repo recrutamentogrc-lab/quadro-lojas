@@ -8,8 +8,8 @@ const QS = new URLSearchParams(location.search);
 const DEMO = QS.has('demo');
 const API_OK = /^https:\/\/script\.google(usercontent)?\.com\//.test(CFG.API_URL || '');
 
-const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#f5c451', SUPERFRALDAS: '#f472b6', MONITORAMENTO: '#60a5fa' };
-const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)', SUPERFRALDAS: 'Super Fraldas', MONITORAMENTO: 'Monitoramento' };
+const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#f5c451', SUPERFRALDAS: '#f472b6', MONITORAMENTO: '#60a5fa', CASA_CONSTRUCAO: '#fb923c' };
+const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)', SUPERFRALDAS: 'Super Fraldas', MONITORAMENTO: 'Monitoramento', CASA_CONSTRUCAO: 'Casa & Construção' };
 const PERFIS = { ADMIN: 'Administrador', EDITOR: 'Editor (gestão)', RECRUTADOR: 'Recrutador', LEITOR: 'Gestor / Líder', DP: 'Departamento Pessoal' };
 const GATED = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, desligarLote: 1, contrBulkSet: 1, cruzarContr: 1, setPadrao: 1, setVagaInfo: 'etapas', setVagaInfoLote: 'etapas' , movimentar: 1 };
 const GATED_EDITOR = { setPadrao: 1, addPosicao: 1 };
@@ -3404,7 +3404,7 @@ async function pgSolic() {
 const weekStart = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); const k = (x.getDay() + 6) % 7; x.setDate(x.getDate() - k); return x; };
 const fmtD = d => d ? d.toLocaleDateString('pt-BR') : '';
 const isoD = d => d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
-const LOJAS_CONTR = ['Matriz', 'Messejana', 'Torra', 'Eusébio', 'Super Fraldas', 'Monitoramento'];
+const LOJAS_CONTR = ['Matriz', 'Messejana', 'Torra', 'Eusébio', 'Super Fraldas', 'Monitoramento', 'Casa & Construção'];
 function matchVagas(lk, funcao, setor) {
   const l = lojaBy(lk); if (!l) return [];
   const fx = norm(funcao).replace(/OP\.?\s*/, 'OPERADOR ').replace(/AUX\b/, 'AUXILIAR').replace(/[^A-Z ]/g, '').trim();

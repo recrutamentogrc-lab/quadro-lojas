@@ -222,9 +222,16 @@ function publicarBg_() {
   pubT = setTimeout(() => { filaEnvio.then(() => send_('publicar', {}).catch(() => {})); }, 800);
 }
 window.addEventListener('beforeunload', e => { if (pendentesEnvio > 0) { e.preventDefault(); e.returnValue = 'Ainda há alterações sendo salvas.'; return e.returnValue; } });
+// se a sessão do servidor venceu, entra de novo sozinho com o acesso lembrado neste aparelho
 async function send_(action, payload) {
+  let j = await sendRaw_(action, payload);
+  if (j && j.auth === false && action !== 'login' && action !== 'logout' && !DEMO && await reautenticar_()) j = await sendRaw_(action, payload);
+  return j;
+}
+async function sendRaw_(action, payload) {
   if (DEMO) return window.GRC_MOCK.call(action, payload);
   if (!API_OK) throw new Error('Sistema ainda não conectado: configure a URL do Apps Script no arquivo config.js.');
+  if (S.loginP && action !== 'login') { try { await S.loginP; } catch (e) {} }
   let uid = '';
   if (FB_OK && (action === 'login' || action === 'me' || action === 'bootstrap' || action === 'logout')) { try { uid = await Promise.race([fbUid_(), new Promise(r => setTimeout(() => r(''), 5000))]); } catch (e) {} }
   const body = JSON.stringify(Object.assign({ action, token: S.token, uid, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
@@ -284,6 +291,7 @@ async function api(action, payload = {}, opt = {}) {
     j = await send_(action, payload);
     if (j.auth === false) { logout(true); throw new Error(j.error || 'Sessão expirada'); }
     if (!j.ok) throw new Error(j.error || 'Erro desconhecido');
+    if (action === 'changePassword' && payload.nova) { const c = ls.get(CRED_K, null); if (c) credSalvar_(c.login, payload.nova); lembrarLer_().then(r => { if (r) lembrarSalvar_(r.login, payload.nova); }); }
     if (action === 'listSelecoes' && j.selecoes) j.selecoes = overlaySel_(j.selecoes);
     if (action === 'mobList' && j.simulacoes) j.simulacoes = overlayMob_(j.simulacoes);
     if (action === 'listFotosColab') overlayFotos_(j);
@@ -338,7 +346,11 @@ function init() {
         loadAll(false, true);
       } catch (e) { console.warn('cache', e); S.data = null; loadAll(true); }
     } else loadAll(true);
-  } else { renderLogin(); refreshPublicCfg(); }
+  } else {
+    renderLogin(); refreshPublicCfg();
+    // acesso lembrado neste aparelho: entra sozinho, sem digitar
+    lembrarLer_().then(c => { const f = $('#loginForm'); if (!c || !f || S.user) return; f.login.value = c.login; f.senha.value = c.senha; f.requestSubmit ? f.requestSubmit() : f.dispatchEvent(new Event('submit', { cancelable: true })); });
+  }
   window.addEventListener('hashchange', () => { if (S.data) route(); });
 }
 
@@ -383,6 +395,7 @@ function renderLogin(msg) {
       </form>
     </section>
   </div>`;
+  if (FB_OK) fbUid_().catch(() => {}); // já conecta ao Firebase enquanto a pessoa digita
   $('#forgot').onclick = e => { e.preventDefault(); forgotPassword($('#loginForm input[name=login]').value); };
   $('#loginForm').onsubmit = async e => {
     e.preventDefault();
@@ -392,24 +405,121 @@ function renderLogin(msg) {
     err.classList.add('hidden');
     btn.disabled = true;
     try {
+      if (!DEMO && await entrarInstantaneo_(fd.get('login'), fd.get('senha'))) return;
       const j = await api('login', { login: fd.get('login'), senha: fd.get('senha') });
-      S.token = j.token; if (!DEMO) { ls.set('grc_token', j.token); if (j.keys) ls.set('grc_keys', j.keys); } if (j.user) S.user = j.user;
+      S.token = j.token; if (!DEMO) { ls.set('grc_token', j.token); if (j.keys) ls.set('grc_keys', j.keys); credSalvar_(fd.get('login'), fd.get('senha')); lembrarSalvar_(fd.get('login'), fd.get('senha')); ls.del('grc_last_data'); ls.del('grc_last_keys'); } if (j.user) S.user = j.user;
       await loadAll();
     } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
     finally { btn.disabled = false; }
   };
 }
 
-async function logout(expired) {
+/* ---------------- login instantâneo neste aparelho ----------------
+ * Depois do primeiro login, o aparelho guarda só um resumo criptografado (PBKDF2) da senha e os
+ * últimos dados. No próximo login, se a senha confere, o painel abre na hora e o servidor confirma
+ * em segundo plano; se o servidor recusar (senha trocada/usuário bloqueado), a pessoa é desconectada. */
+const CRED_K = 'grc_cred';
+const loginNorm_ = v => String(v || '').trim().toLowerCase();
+async function credHash_(login, senha, salt) {
+  const enc = new TextEncoder();
+  const k = await crypto.subtle.importKey('raw', enc.encode(String(senha)), 'PBKDF2', false, ['deriveBits']);
+  const b = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: enc.encode(salt + '|' + login), iterations: 60000, hash: 'SHA-256' }, k, 256);
+  return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join('');
+}
+async function credSalvar_(login, senha) {
+  try { if (!window.crypto || !crypto.subtle) return; const l = loginNorm_(login), salt = Math.random().toString(36).slice(2) + Date.now().toString(36); ls.set(CRED_K, { login: l, salt, hash: await credHash_(l, senha, salt) }); } catch (e) {}
+}
+async function entrarInstantaneo_(login, senha) {
+  try {
+    const c = ls.get(CRED_K, null);
+    if (!c || !window.crypto || !crypto.subtle || c.login !== loginNorm_(login)) return false;
+    const last = ls.get('grc_last_data', null), keys = ls.get('grc_last_keys', null);
+    if (!last || !last.data || !last.data.user || !keys || !keys.G || (last.data.user.login && loginNorm_(last.data.user.login) !== c.login)) return false;
+    if ((await credHash_(c.login, senha, c.salt)) !== c.hash) return false;
+    S.data = last.data; S.user = last.data.user; S.fromCache = true;
+    if (S.cfg && S.data.cfg && S.data.cfg.logoSame) S.data.cfg.logo = S.cfg.logo;
+    try { localStorage.setItem('grc_data', JSON.stringify(last)); } catch (e) {}
+    ls.set('grc_keys', keys);
+    derive(); renderShell(); route(); syncBadge(true);
+    if (FB_OK) startLive(keys).then(ok => { if (ok && !S.loginP) syncBadge(false); }).catch(() => {});
+    // confirma com o servidor em segundo plano (as gravações esperam esta confirmação)
+    const p = S.loginP = send_('login', { login, senha }).then(j => {
+      if (S.loginP === p) S.loginP = null;
+      if (!j || !j.ok) { ls.del(CRED_K); ls.del(LEMB_K); logout(true, (j && j.error) || 'Não foi possível confirmar seu acesso. Entre novamente.'); return; }
+      S.token = j.token; ls.set('grc_token', j.token); lembrarSalvar_(login, senha); if (j.keys) ls.set('grc_keys', j.keys); if (j.user) { S.user = j.user; if (S.data) S.data.user = j.user; }
+      loadAll(false, true);
+    }).catch(e => { if (S.loginP === p) S.loginP = null; syncBadge(false); toast('Sem conexão com o servidor: ' + (e.message || e), true); });
+    return true;
+  } catch (e) { console.warn('login rápido', e); return false; }
+}
+
+/* ---------------- manter conectado (principalmente no app do celular) ----------------
+ * O login e a senha ficam guardados criptografados (AES-GCM) com uma chave que não sai do aparelho
+ * (IndexedDB, não exportável). Só são apagados quando a pessoa clica em Sair ou a senha deixa de valer. */
+const LEMB_K = 'grc_lembrar';
+let lembKeyP = null, reauthP = null;
+function lembChave_() {
+  if (!lembKeyP) lembKeyP = new Promise((res, rej) => {
+    if (!window.indexedDB || !window.crypto || !crypto.subtle) return rej(new Error('sem suporte'));
+    const rq = indexedDB.open('grc_sec', 1);
+    rq.onupgradeneeded = () => rq.result.createObjectStore('k');
+    rq.onerror = () => rej(rq.error);
+    rq.onsuccess = () => {
+      const db = rq.result, g = db.transaction('k').objectStore('k').get('lembrar');
+      g.onerror = () => rej(g.error);
+      g.onsuccess = async () => {
+        if (g.result) return res(g.result);
+        try {
+          const k = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+          const t = db.transaction('k', 'readwrite'); t.objectStore('k').put(k, 'lembrar');
+          t.oncomplete = () => res(k); t.onerror = () => rej(t.error);
+        } catch (e) { rej(e); }
+      };
+    };
+  }).catch(e => { lembKeyP = null; throw e; });
+  return lembKeyP;
+}
+const b64_ = u8 => btoa(String.fromCharCode(...u8)), unb64_ = t => Uint8Array.from(atob(t), c => c.charCodeAt(0));
+async function lembrarSalvar_(login, senha) {
+  if (DEMO) return;
+  try {
+    const k = await lembChave_(), iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, new TextEncoder().encode(JSON.stringify({ login: String(login).trim(), senha: String(senha) })));
+    ls.set(LEMB_K, { iv: b64_(iv), ct: b64_(new Uint8Array(ct)) });
+  } catch (e) {}
+}
+async function lembrarLer_() {
+  try {
+    const x = ls.get(LEMB_K, null); if (!x || DEMO) return null;
+    const k = await lembChave_();
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64_(x.iv) }, k, unb64_(x.ct));
+    const r = JSON.parse(new TextDecoder().decode(pt)); return r && r.login && r.senha ? r : null;
+  } catch (e) { return null; }
+}
+function reautenticar_() {
+  if (!reauthP) reauthP = (async () => {
+    const c = await lembrarLer_(); if (!c) return false;
+    let j; try { j = await sendRaw_('login', c); } catch (e) { return false; }
+    if (!j || !j.ok || !j.token) { if (j && j.ok === false) { ls.del(LEMB_K); ls.del(CRED_K); } return false; }
+    S.token = j.token; ls.set('grc_token', j.token); if (j.keys) ls.set('grc_keys', j.keys);
+    if (j.user) { S.user = j.user; if (S.data) S.data.user = j.user; }
+    return true;
+  })().finally(() => { setTimeout(() => { reauthP = null; }, 0); });
+  return reauthP;
+}
+
+async function logout(expired, msg) {
   if (!expired && pendentesEnvio > 0) { toast('Aguardando terminar de salvar as alterações…'); await filaEnvio.catch(() => {}); }
   if (S.token && !expired && !DEMO) api('logout').catch(() => {});
   $$('.overlay').forEach(o => o.remove());
   PEND.length = 0; S.sel = null; S.selCache = null; S.mob = null;
   try { if (window.OneSignal && window.OneSignal.logout) window.OneSignal.logout(); } catch (e) {}
   try { fbStop(); } catch (e) {} try { filaStop_(); } catch (e) {} liveBooted = false;
-  S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
+  if (!DEMO && ls.get(CRED_K, null)) { try { const d = localStorage.getItem('grc_data'), k = localStorage.getItem('grc_keys'); if (d && k) { localStorage.setItem('grc_last_data', d); localStorage.setItem('grc_last_keys', k); } } catch (e) {} }
+  if (!expired) ls.del(LEMB_K);
+  S.loginP = null; S.token = null; S.user = null; S.data = null; ls.del('grc_token'); ls.del('grc_data'); ls.del('grc_keys');
   if (DEMO) { location.href = location.pathname; return; }
-  renderLogin(expired ? 'Sua sessão expirou. Entre novamente.' : '');
+  renderLogin(msg || (expired ? 'Sua sessão expirou. Entre novamente.' : ''));
 }
 
 function syncBadge(on) {

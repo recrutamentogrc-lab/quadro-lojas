@@ -8,8 +8,8 @@ const QS = new URLSearchParams(location.search);
 const DEMO = QS.has('demo');
 const API_OK = /^https:\/\/script\.google(usercontent)?\.com\//.test(CFG.API_URL || '');
 
-const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#f5c451' };
-const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)' };
+const LC = { MATRIZ: '#22d3ee', MESSEJANA: '#a78bfa', TORRA: '#f59e0b', EUSEBIO: '#34d399', GRC: '#f5c451', SUPERFRALDAS: '#f472b6', MONITORAMENTO: '#60a5fa' };
+const LOJA_NOMES = { MATRIZ: 'Matriz', MESSEJANA: 'Messejana', TORRA: 'Torra', EUSEBIO: 'Eusébio', GRC: 'GRC (Adm.)', SUPERFRALDAS: 'Super Fraldas', MONITORAMENTO: 'Monitoramento' };
 const PERFIS = { ADMIN: 'Administrador', EDITOR: 'Editor (gestão)', RECRUTADOR: 'Recrutador', LEITOR: 'Gestor / Líder', DP: 'Departamento Pessoal' };
 const GATED = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1, desligarLote: 1, contrBulkSet: 1, cruzarContr: 1, setPadrao: 1, setVagaInfo: 'etapas', setVagaInfoLote: 'etapas' , movimentar: 1 };
 const GATED_EDITOR = { setPadrao: 1, addPosicao: 1 };
@@ -40,7 +40,7 @@ const parseISO = s => { const m = String(s || '').match(/(\d{4})-(\d{2})-(\d{2})
 const daysTo = d => d ? Math.round((d - today0()) / 864e5) : null;
 const isoToBR = s => { const d = parseISO(s); return d ? d.toLocaleDateString('pt-BR') : ''; };
 const brToISO = s => { const d = parseBR(s); return d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : ''; };
-const lojaKey = t => { const u = norm(t); if (!u) return ''; { const ex = Object.keys(LOJA_NOMES).find(k => !['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO', 'GRC'].includes(k) && (u === k || u.includes(norm(LOJA_NOMES[k])) || u.includes(k.replace(/_/g, ' ')))); if (ex) return ex; } if (/MATRIZ|SANTA ROSA/.test(u)) return 'MATRIZ'; if (/MESSEJANA/.test(u)) return 'MESSEJANA'; if (/TORRA/.test(u)) return 'TORRA'; if (/EUSEBIO|FRALDA/.test(u)) return 'EUSEBIO'; if (/GRC|ADM/.test(u)) return 'GRC'; return u; };
+const lojaKey = t => { const u = norm(t); if (!u) return ''; { const ex = Object.keys(LOJA_NOMES).find(k => !['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO', 'GRC'].includes(k) && (u === k || u.includes(norm(LOJA_NOMES[k])) || u.includes(k.replace(/_/g, ' ')))); if (ex) return ex; } if (/MATRIZ|SANTA ROSA/.test(u)) return 'MATRIZ'; if (/MESSEJANA/.test(u)) return 'MESSEJANA'; if (/TORRA/.test(u)) return 'TORRA'; if (/FRALDA/.test(u)) return 'SUPERFRALDAS'; if (/MONITORAMENTO/.test(u)) return 'MONITORAMENTO'; if (/EUSEBIO/.test(u)) return 'EUSEBIO'; if (/GRC|ADM/.test(u)) return 'GRC'; return u; };
 const splitMulti = s => String(s || '').split(',').map(x => x.trim()).filter(Boolean);
 const lojaPill = k => `<span class="loja-pill" style="--lc:${LC[k] || '#94a3b8'}"><i></i>${h(LOJA_NOMES[k] || k)}</span>`;
 
@@ -3404,7 +3404,7 @@ async function pgSolic() {
 const weekStart = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); const k = (x.getDay() + 6) % 7; x.setDate(x.getDate() - k); return x; };
 const fmtD = d => d ? d.toLocaleDateString('pt-BR') : '';
 const isoD = d => d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : '';
-const LOJAS_CONTR = ['Matriz', 'Messejana', 'Torra', 'Eusébio'];
+const LOJAS_CONTR = ['Matriz', 'Messejana', 'Torra', 'Eusébio', 'Super Fraldas', 'Monitoramento'];
 function matchVagas(lk, funcao, setor) {
   const l = lojaBy(lk); if (!l) return [];
   const fx = norm(funcao).replace(/OP\.?\s*/, 'OPERADOR ').replace(/AUX\b/, 'AUXILIAR').replace(/[^A-Z ]/g, '').trim();
@@ -3964,7 +3964,7 @@ function openContr(r) {
   const C = S.data.contratacoes, K = S.ck, op = C.opcoes || {};
   const ed = canContr(r ? r._loja : null), edQ = canEdit(r ? r._loja : null);
   const novo = !r;
-  const lojasOpc = uniq([...(op[K.loja] || []), ...LOJAS_CONTR]).filter(x => !/FRALDA/i.test(x) || (r && r[K.loja] === x));
+  const lojasOpc = (() => { const vistos = new Set(); return uniq([...LOJAS_CONTR, ...(op[K.loja] || [])]).filter(x => { const k = lojaKey(x); if (vistos.has(k)) return false; vistos.add(k); return true; }); })();
   const distinct = k => C.rows.map(x => x[k]).filter(Boolean);
   const listFor = k => uniq([...(op[k] || []), ...distinct(k), ...(k === K.aso ? ['FEITO', 'MARCADO', 'AGUARDANDO'] : k === K.hcm || k === K.dp ? ['SIM', 'NÃO'] : k === K.contrato ? ['INTEGRAL', 'PARCIAL', 'JOVEM APRENDIZ', 'ESTÁGIO'] : k === K.status ? ['Pendente', 'Alocado', 'Desligado'] : [])]);
   const field = k => {

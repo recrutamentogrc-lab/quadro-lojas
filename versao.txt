@@ -1,1 +1,1 @@
-versao: layout celular otimizado + login instantaneo 2026-10-17
+versao: acessos instantaneo + layout celular 2026-10-19

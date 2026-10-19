@@ -844,6 +844,7 @@ async function meRefresh() {
 function afterBoot() {
   if (liveBooted) return; liveBooted = true;
   startPolling(); initOneSignal(); carregarAcessoSel(); carregarAcessoMob(); carregarFotos(); filaStart_();
+  if (isAdmin() && !DEMO) setTimeout(() => usersBuscar_().catch(() => {}), 4000); // deixa a aba Acessos pronta
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
   else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
 }
@@ -3061,7 +3062,7 @@ async function openAcessoSel() {
   const btn = $('#sAcc'); if (btn) { btn.disabled = true; btn.dataset.lbl = btn.innerHTML; btn.innerHTML = '<span class="spin" style="width:16px;height:16px;border-width:2px"></span> Carregando…'; }
   const fim = () => { openAcessoSel.lock = 0; if (btn && btn.isConnected) { btn.disabled = false; btn.innerHTML = btn.dataset.lbl; } };
   let users = [], ids = (S.sel && S.sel.ids) || [];
-  try { busy(true); users = (await api('listUsers', {}, { silent: true })).users || []; const a = await api('selecoesAcesso', {}, { silent: true }); ids = a.ids || ids; }
+  try { busy(true); users = usersCache_() || await usersBuscar_(); if (usersCache_()) usersBuscar_().catch(() => {}); const a = await api('selecoesAcesso', {}, { silent: true }); ids = a.ids || ids; }
   catch (e) { fim(); return toast(e.message, true); } finally { busy(false); }
   fim();
   const ativos = users.filter(u => u.ativo);
@@ -3727,6 +3728,13 @@ function openMarcarDesl(list, done) {
 /* =====================================================================
  * ADMIN — ACESSOS E CONFIGURAÇÕES
  * ===================================================================== */
+// lista de usuários guardada no aparelho: a aba Acessos abre na hora e atualiza em segundo plano
+let usersMem = null;
+const usersK_ = () => 'grc_users_' + (S.user ? S.user.id : '');
+function usersCache_() { if (!usersMem || usersMem.k !== usersK_()) { const c = ls.get(usersK_(), null); usersMem = c ? { k: usersK_(), us: c } : null; } return usersMem ? usersMem.us : null; }
+function usersSet_(us) { if (!Array.isArray(us)) return; usersMem = { k: usersK_(), us }; ls.set(usersK_(), us); }
+async function usersBuscar_() { const us = (await api('listUsers', {}, { silent: true })).users || []; usersSet_(us); return us; }
+
 async function pgAdmin() {
   setTitle('Acessos e configurações', 'Usuários, perfis, identidade visual, SLA e notificações');
   if (window.__grcAdmTab) { setV('admTab', window.__grcAdmTab); window.__grcAdmTab = null; }
@@ -3747,7 +3755,7 @@ async function pgAdmin() {
     <div class="card"><b>${ic('userplus')} Departamento Pessoal</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Visualiza o quadro das lojas liberadas (sem editar) e cadastra/edita contratações para fazer a admissão, com exportação em PDF e Excel.</p></div>
   </div>
   <div id="uBody"><div class="sk" style="height:200px"></div></div>`;
-  let users = [];
+  let users = usersCache_() || [];
   const draw = () => {
     const q = norm($('#uq').value);
     table($('#uBody'), 'users', [
@@ -3758,13 +3766,17 @@ async function pgAdmin() {
       { t: 'Status', k: 'ativo', r: u => u.ativo ? (u.trocarSenha ? '<span class="badge b-warn">Aguardando 1º acesso</span>' : '<span class="badge b-ok">Ativo</span>') : '<span class="badge b-bad">Inativo</span>' },
       { t: 'Último acesso', k: 'ultimoAcesso' },
       { t: '', k: '', nosort: true, r: u => u.email && u.id !== S.user.id ? `<button class="btn sm" data-stop data-mail="${u.id}" title="Gerar nova senha e enviar por e-mail">${ic('mail')} Reenviar acesso</button>` : '' }
-    ], users.filter(u => !q || norm(u.nome + ' ' + u.login + ' ' + u.email).includes(q)), u => openUser(u, us => { users = us; draw(); }));
+    ], users.filter(u => !q || norm(u.nome + ' ' + u.login + ' ' + u.email).includes(q)), u => openUser(u, us => { users = us; usersSet_(us); draw(); }));
     $$('[data-mail]').forEach(b => b.onclick = async () => { const u = users.find(x => x.id === b.dataset.mail); if (!await confirmBox(`Gerar uma nova senha provisória para <b>${h(u.nome)}</b> e enviar para <b>${h(u.email)}</b>?`, 'Enviar')) return; await run(b, () => api('reenviarAcesso', { id: u.id })); toast('Acesso reenviado por e-mail'); });
   };
   $('#uq').oninput = draw;
-  $('#uNew').onclick = () => openUser(null, us => { users = us; draw(); });
+  $('#uNew').onclick = () => openUser(null, us => { users = us; usersSet_(us); draw(); });
   const rt = S.rt;
-  try { users = (await api('listUsers')).users; if (rt !== S.rt || !$('#uBody')) return; draw(); } catch (e) { toast(e.message, true); }
+  if (users.length) draw();
+  try {
+    const us = await usersBuscar_(); if (rt !== S.rt || !$('#uBody')) return;
+    if (JSON.stringify(us) !== JSON.stringify(users)) { users = us; if (!$('.overlay')) draw(); }
+  } catch (e) { if (!users.length) toast(e.message, true); }
 }
 function openUser(u, done) {
   const L = todasLojas();

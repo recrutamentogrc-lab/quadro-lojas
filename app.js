@@ -3601,9 +3601,15 @@ function pgContr() {
     prox: ['Próxima semana', new Date(ws.getTime() + 7 * 864e5), new Date(ws.getTime() + 13 * 864e5)],
     ant: ['Semana passada', new Date(ws.getTime() - 7 * 864e5), new Date(ws.getTime() - 864e5)],
     mes: ['Este mês', new Date(hoje.getFullYear(), hoje.getMonth(), 1), new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0)],
+    mesProx: ['Próximo mês', new Date(hoje.getFullYear(), hoje.getMonth() + 1, 1), new Date(hoje.getFullYear(), hoje.getMonth() + 2, 0)],
+    mesAnt: ['Mês passado', new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1), new Date(hoje.getFullYear(), hoje.getMonth(), 0)],
+    fut: ['Próximas (a partir de hoje)', hoje, null],
     todas: ['Todas', null, null], custom: ['Período', null, null]
   };
-  const range = () => f.per === 'custom' ? [parseISO(f.de), parseISO(f.ate)] : [PER[f.per][1], PER[f.per][2]];
+  if (!PER[f.per] && !/^m:\d{4}-\d{2}$/.test(f.per)) f.per = 'todas';
+  const MES_ABR = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const mesRange = k => { const [y, m] = k.split('-').map(Number); return [new Date(y, m - 1, 1), new Date(y, m, 0)]; };
+  const range = () => f.per === 'custom' ? [parseISO(f.de), parseISO(f.ate)] : /^m:/.test(f.per) ? mesRange(f.per.slice(2)) : [PER[f.per][1], PER[f.per][2]];
   const ativos = rows.filter(r => !r._deslig);
   const v = $('#view');
   const cOk = ativos.filter(r => !r._falta).length;
@@ -3619,6 +3625,7 @@ function pgContr() {
   </div>
   <div class="card mt"><div class="card-h"><h3>Admissões por semana</h3><span class="sub">últimas 12 semanas + próximas 2</span></div><div class="chart-box sm"><canvas id="chWeek"></canvas></div></div>
   <div class="chips mt" id="perChips"></div>
+  <div class="chips mes-chips" id="monChips"></div>
   <div class="chips ck-chips" id="ckChips"></div>
   <div class="toolbar">
     <div class="input-icon search">${ic('search')}<input class="input" id="cq" placeholder="Buscar colaborador ou função" value="${h(f.q || '')}" style="width:100%"></div>
@@ -3639,7 +3646,17 @@ function pgContr() {
   <div id="cBody"></div>`;
   const view = getV('contr', 'sem');
   $$('#cvw button').forEach(b => { b.classList.toggle('on', b.dataset.v === view); b.onclick = () => { setV('contr', b.dataset.v); route(); }; });
-  const drawPer = () => { $('#perChips').innerHTML = Object.entries(PER).filter(([k]) => k !== 'custom' || f.per === 'custom').map(([k, x]) => `<span class="chip ${f.per === k ? 'on' : ''}" data-k="${k}">${ic('calendar')} ${x[0]}${x[1] ? ` <span class="n">${fmtD(x[1]).slice(0, 5)}–${fmtD(x[2]).slice(0, 5)}</span>` : ''}</span>`).join(''); $$('#perChips .chip').forEach(c => c.onclick = () => { f.per = c.dataset.k; if (f.per !== 'custom') { f.de = ''; f.ate = ''; $('#cDe').value = ''; $('#cAte').value = ''; } saveF(); drawPer(); draw(); }); };
+  // meses com admissões: os 6 últimos e todos os futuros, com a quantidade de cada um
+  const mesKey = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  const mesCont = {}; ativos.forEach(r => { if (r._data) { const k = mesKey(r._data); mesCont[k] = (mesCont[k] || 0) + 1; } });
+  const mesAtual = mesKey(hoje);
+  const mesesAll = Object.keys(mesCont).sort();
+  const mesesVis = mesesAll.filter(k => k >= mesAtual).concat(mesesAll.filter(k => k < mesAtual).slice(-6)).sort();
+  const drawPer = () => {
+    $('#perChips').innerHTML = Object.entries(PER).filter(([k]) => k !== 'custom' || f.per === 'custom').map(([k, x]) => `<span class="chip ${f.per === k ? 'on' : ''}" data-k="${k}">${ic('calendar')} ${x[0]}${x[1] && x[2] ? ` <span class="n">${fmtD(x[1]).slice(0, 5)}–${fmtD(x[2]).slice(0, 5)}</span>` : ''}</span>`).join('');
+    $('#monChips').innerHTML = mesesVis.length ? `<span class="ck-chips-t">Por mês</span>` + mesesVis.map(k => { const [y, m] = k.split('-').map(Number); return `<span class="chip ${f.per === 'm:' + k ? 'on' : ''} ${k > mesAtual ? 'fut' : ''}" data-k="m:${k}" title="${k > mesAtual ? 'Admissões previstas' : 'Admissões do mês'}">${MES_ABR[m - 1]}/${String(y).slice(2)}${k === mesAtual ? ' · atual' : ''} <span class="n">${mesCont[k]}</span></span>`; }).join('') : '';
+    $$('#perChips .chip, #monChips .chip').forEach(c => c.onclick = () => { f.per = c.dataset.k; if (f.per !== 'custom') { f.de = ''; f.ate = ''; $('#cDe').value = ''; $('#cAte').value = ''; } saveF(); drawPer(); draw(); });
+  };
   const ckMatch = r => !f.ck || (f.ck === 'ok' ? !r._deslig && !r._falta : !r._deslig && r._chk.some(s => s.k === f.ck && !s.ok));
   const drawCk = () => {
     const base = rows.filter(r => !r._deslig), steps = (base[0] || rows[0] || { _chk: [] })._chk;

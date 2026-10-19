@@ -539,3 +539,8 @@ optgroup{font-weight:700}
   .tbl-cards td[data-l]:not([data-l=""])::before{content:attr(data-l);display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);font-weight:700;margin-bottom:2px}
   .tbl-cards td:empty{display:none}
 }
+
+/* contratações: filtro por mês */
+.mes-chips{margin-top:8px}
+.mes-chips .chip.fut{border-style:dashed}
+.mes-chips .chip.fut.on{border-style:solid}

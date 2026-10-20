@@ -3675,12 +3675,12 @@ function pgContr() {
     const b = $('#cBulk'); b.classList.toggle('hidden', !sel.size);
     if (!sel.size) { b.innerHTML = ''; return; }
     const lista = rows.filter(r => sel.has(r.row));
-    b.innerHTML = `<b>${sel.size} selecionada(s)</b><button class="btn sm ghost" id="bkAll">Selecionar todas as ${filt().filter(r => canEdit(r._loja) && !r._deslig).length} filtradas</button><span class="spacer"></span><button class="btn sm" id="bkClr">Limpar</button><button class="btn sm" id="bkSet">${ic('edit')} Alterar campo</button><button class="btn sm ok" id="bkAloc">${ic('check')} Marcar como alocado</button><button class="btn sm danger" id="bkDesl">${ic('door')} Desligado(s)</button>`;
+    b.innerHTML = `<b>${sel.size} selecionada(s)</b><button class="btn sm ghost" id="bkAll">Selecionar todas as ${filt().filter(r => canEdit(r._loja) && !r._deslig).length} filtradas</button><span class="spacer"></span><button class="btn sm" id="bkClr">Limpar</button><button class="btn sm primary" id="bkSet">${ic('edit')} O que fazer?</button><button class="btn sm ok" id="bkAloc">${ic('check')} Marcar como alocado</button><button class="btn sm danger" id="bkDesl">${ic('door')} Desligado(s)</button>`;
     $('#bkClr').onclick = () => { sel.clear(); draw(); };
     $('#bkAll').onclick = () => { filt().filter(r => canEdit(r._loja) && !r._deslig).forEach(r => sel.add(r.row)); draw(); };
     $('#bkDesl').onclick = () => openMarcarDesl(lista, () => sel.clear());
     $('#bkAloc').onclick = () => contrBulk(lista, K.status, ((C.opcoes || {})[K.status] || []).find(x => /ALOCAD/i.test(x)) || 'Alocado', () => sel.clear());
-    $('#bkSet').onclick = () => openContrBulkSet(lista, () => sel.clear());
+    $('#bkSet').onclick = () => openContrAcoes(lista, () => sel.clear());
   };
   const cols = [
     { t: '', k: '', nosort: true, w: '30px', th: canEdit() ? '<input type="checkbox" class="cSelAll">' : '', r: r => canEdit(r._loja) && !r._deslig ? `<input type="checkbox" data-stop data-sel="${r.row}" ${sel.has(r.row) ? 'checked' : ''}>` : '' },
@@ -4069,6 +4069,46 @@ async function contrBulk(lista, campo, valor, done) {
   await run(null, async () => {
     const j = await api('contrBulkSet', { rows: lista.map(r => ({ row: r.row, nome: r[S.ck.colab] })), campo, valor });
     if (done) done(); if (!j.pendente) toast(`${j.total} contratação(ões) atualizada(s)`); bgReload();
+  });
+}
+// menu de ações em lote: mostra o que dá para fazer com as selecionadas e quantas cada ação muda
+function openContrAcoes(lista, done) {
+  const C = S.data.contratacoes, K = S.ck, op = C.opcoes || {};
+  const at = lista.filter(r => !r._deslig);
+  const asoFeito = (op[K.aso] || []).find(x => /FEITO/i.test(x)) || 'FEITO';
+  const alocado = (op[K.status] || []).find(x => /ALOCAD/i.test(x)) || 'Alocado';
+  const faltaDp = K.dp ? at.filter(r => !SIM(r[K.dp])) : [];
+  const faltaAso = K.aso ? at.filter(r => !/FEITO/.test(norm(r[K.aso]))) : [];
+  const faltaHcm = K.hcm ? at.filter(r => !/SIM/.test(norm(r[K.hcm]))) : [];
+  const faltaAloc = K.status ? at.filter(r => !/ALOCAD/.test(norm(r[K.status]))) : [];
+  const docs = [K.dp && [K.dp, 'SIM', faltaDp], K.aso && [K.aso, asoFeito, faltaAso], K.hcm && [K.hcm, 'SIM', faltaHcm]].filter(x => x && x[2].length);
+  const nDocs = new Set(docs.flatMap(d => d[2].map(r => r.row))).size;
+  const acoes = [
+    { id: 'tudo', ic: 'check', t: 'Concluir checklist (DP, ASO e HCM)', d: 'Para quem já foi admitido e está com pendência antiga no sistema', n: nDocs, cls: 'ok', go: () => contrBulkMulti(docs, 'Concluir o checklist (DP, ASO e HCM)', done) },
+    K.dp && { id: 'dp', ic: 'userplus', t: 'Marcar admissão solicitada ao DP', d: `${h(K.dp)} → SIM`, n: faltaDp.length, go: () => contrBulkMulti([[K.dp, 'SIM', faltaDp]], 'Marcar admissão solicitada ao DP', done) },
+    K.aso && { id: 'aso', ic: 'file', t: 'Marcar ASO como feito', d: `${h(K.aso)} → ${h(asoFeito)}`, n: faltaAso.length, go: () => contrBulkMulti([[K.aso, asoFeito, faltaAso]], 'Marcar ASO como feito', done) },
+    K.hcm && { id: 'hcm', ic: 'refresh', t: 'Marcar como exportado ao HCM', d: `${h(K.hcm)} → SIM`, n: faltaHcm.length, go: () => contrBulkMulti([[K.hcm, 'SIM', faltaHcm]], 'Marcar como exportado ao HCM', done) },
+    K.status && { id: 'aloc', ic: 'swap', t: 'Marcar como alocado', d: 'Só muda o status; não mexe no quadro da loja', n: faltaAloc.length, go: () => contrBulkMulti([[K.status, alocado, faltaAloc]], 'Marcar como alocado', done) },
+    { id: 'desl', ic: 'door', t: 'Marcar como desligado(s)', d: 'Contratados que já saíram da empresa', n: at.length, cls: 'bad', go: () => openMarcarDesl(at, done) },
+    { id: 'outro', ic: 'edit', t: 'Alterar outro campo…', d: 'Escolher o campo e o valor manualmente', n: null, go: () => openContrBulkSet(lista, done) }
+  ].filter(Boolean);
+  modal({
+    title: `O que fazer com ${lista.length} contratação(ões)?`, icon: 'edit',
+    body: `<p class="muted" style="margin-top:0">O número mostra quantas das selecionadas ainda precisam daquela ação. Quem já está certo não é alterado.</p><div class="acoes-lote">${acoes.map(a => `<button class="acao ${a.cls || ''}" data-a="${a.id}" ${a.n === 0 ? 'disabled' : ''}><span class="ai">${ic(a.ic)}</span><span class="tx"><b>${a.t}</b><small>${a.d}</small></span>${a.n != null ? `<span class="badge ${a.n ? '' : 'b-ok'}">${a.n ? a.n : 'nada a fazer'}</span>` : ic('chevron')}</button>`).join('')}</div>`,
+    foot: `<button class="btn" data-close>Fechar</button>`,
+    onMount: m => $$('[data-a]', m.el).forEach(b => b.onclick = () => { const a = acoes.find(x => x.id === b.dataset.a); m.close(); a.go(); })
+  });
+}
+// aplica uma ou mais alterações em lote, só nas linhas que precisam
+async function contrBulkMulti(passos, titulo, done) {
+  passos = passos.filter(p => p && p[2] && p[2].length);
+  if (!passos.length) return toast('Nada a alterar nas selecionadas');
+  const tot = new Set(passos.flatMap(p => p[2].map(r => r.row))).size;
+  if (!await confirmBox(`<b>${h(titulo)}</b> em ${tot} contratação(ões)?<br><span class="muted">${passos.map(p => `${h(p[0])} → <b>${h(p[1])}</b> (${p[2].length})`).join('<br>')}</span>`, 'Aplicar')) return;
+  await run(null, async () => {
+    let pend = false;
+    for (const [campo, valor, l] of passos) { const j = await api('contrBulkSet', { rows: l.map(r => ({ row: r.row, nome: r[S.ck.colab] })), campo, valor }); if (j && j.pendente) pend = true; }
+    if (done) done(); if (!pend) toast(`${tot} contratação(ões) atualizada(s)`); bgReload();
   });
 }
 function openContrBulkSet(lista, done) {

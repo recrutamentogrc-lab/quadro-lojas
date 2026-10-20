@@ -544,3 +544,14 @@ optgroup{font-weight:700}
 .mes-chips{margin-top:8px}
 .mes-chips .chip.fut{border-style:dashed}
 .mes-chips .chip.fut.on{border-style:solid}
+
+/* contratações: menu de ações em lote */
+.acoes-lote{display:flex;flex-direction:column;gap:8px}
+.acoes-lote .acao{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px 14px;color:var(--text);cursor:pointer;font:inherit;transition:.15s}
+.acoes-lote .acao:hover:not([disabled]){border-color:var(--accent);background:var(--acc-bg)}
+.acoes-lote .acao[disabled]{opacity:.5;cursor:default}
+.acoes-lote .acao .ai{background:var(--acc-bg);color:var(--accent)}
+.acoes-lote .acao.ok .ai{background:var(--ok-bg,rgba(34,197,94,.15));color:var(--ok,#22c55e)}
+.acoes-lote .acao.bad .ai{background:var(--bad-bg,rgba(239,68,68,.15));color:var(--bad,#ef4444)}
+.acoes-lote .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.acoes-lote .tx small{color:var(--muted);font-size:12px}

@@ -1,1 +1,1 @@
-versao: convite com varias lojas 2026-10-21
+versao: permissao para gerar links de convite 2026-10-21

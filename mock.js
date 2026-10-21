@@ -148,6 +148,8 @@
         case 'listUsers': return { ok: true, users: clone(users) };
         case 'criarConvite': { window.__cv = window.__cv || []; const d = p.data; window.__cv.unshift({ codigo: 'demo' + Date.now().toString(36), loja: (d.lojas || [d.loja]).join(','), setores: d.setores || [], perfil: 'LEITOR', titulo: d.titulo || '', criadoPor: me.nome, criadoEm: br(today), validade: iso(new Date(Date.now() + (d.dias || 30) * 864e5)), usos: 0, maxUsos: d.maxUsos || 0, ativo: true }); return { ok: true, convites: clone(window.__cv) }; }
         case 'listConvites': return { ok: true, convites: clone(window.__cv || []) };
+        case 'convitesAcesso': return { ok: true, ids: window.__cva || [] };
+        case 'setConvitesAcesso': window.__cva = p.ids || []; return { ok: true, ids: window.__cva };
         case 'desativarConvite': { (window.__cv || []).forEach(c => { if (c.codigo === p.codigo) c.ativo = false; }); return { ok: true, convites: clone(window.__cv || []) }; }
         case 'saveUser': { const d = p.data; if (d.id) Object.assign(users.find(u => u.id === d.id), { login: d.login, nome: d.nome, perfil: d.perfil, lojas: d.lojas, ativo: d.ativo !== false, cargo: d.cargo }); else users.push({ id: 'u' + Date.now(), login: d.login, nome: d.nome, perfil: d.perfil, lojas: d.lojas, ativo: true, cargo: d.cargo, foto: '', ultimoAcesso: '' }); L(d.id ? 'Editou acesso' : 'Criou acesso', '', d.login); return { ok: true, users: clone(users) }; }
         case 'deleteUser': users = users.filter(u => u.id !== p.id); return { ok: true, users: clone(users) };

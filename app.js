@@ -493,7 +493,8 @@ async function openConvites() {
         <button class="btn primary" id="cvNew">${ic('plus')} Gerar link</button>
       </div>
       <div id="cvRes"></div>
-      <h3 style="margin:18px 0 8px;font-size:14px">Links criados</h3><div id="cvList"><div class="sk" style="height:80px"></div></div>`,
+      ${isAdmin() ? `<div class="card mt" style="padding:14px"><b>${ic('shield')} Quem também pode gerar links</b><p class="muted" style="margin:4px 0 10px;font-size:12.5px">Libere para pessoas que não são administradoras. Elas veem a opção <b>Links de convite</b> no menu e só convidam para as lojas e setores do próprio acesso.</p><div id="cvAc"><div class="sk" style="height:40px"></div></div><button class="btn sm primary mt" id="cvAcOk">Salvar quem pode gerar links</button></div>` : ''}
+      <h3 style="margin:18px 0 8px;font-size:14px">${isAdmin() ? 'Links criados' : 'Links criados por você'}</h3><div id="cvList"><div class="sk" style="height:80px"></div></div>`,
     foot: `<button class="btn" data-close>Fechar</button>`,
     onMount: m => {
       const lojasSel = () => splitMulti(pickVal($('#cvL', m.el), 'cvlojas'));
@@ -526,6 +527,18 @@ async function openConvites() {
         $('#cvShare', m.el).onclick = () => compartilharConvite_(c.codigo, nomeL(c.loja), c.setores);
         $('#cvCopy', m.el).onclick = () => copiarTexto_(url);
       });
+      if (isAdmin()) (async () => {
+        const el = $('#cvAc', m.el);
+        try {
+          const us = (usersCache_() || await usersBuscar_()).filter(u => u.perfil !== 'ADMIN' && u.ativo);
+          const ids = (await api('convitesAcesso', {}, { silent: true })).ids || [];
+          if (!$('#cvAc', m.el)) return;
+          el.innerHTML = us.length ? chipPicker('cvac', us.map(u => u.id), ids.join(', ')) : '<span class="muted" style="font-size:12.5px">Nenhum usuário sem perfil de administrador.</span>';
+          bindPickers(el);
+          $$('[data-picker=cvac] .chip', el).forEach(c => { const u = us.find(x => x.id === c.dataset.v); c.textContent = u ? u.nome + (u.cargo ? ' · ' + u.cargo : '') : c.dataset.v; });
+        } catch (e) { el.innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+        $('#cvAcOk', m.el).onclick = ev => run(ev.currentTarget, async () => { await api('setConvitesAcesso', { ids: splitMulti(pickVal(el, 'cvac')) }); toast('Permissões salvas. A pessoa vê a opção ao entrar de novo ou atualizar.'); });
+      })();
       api('listConvites', {}, { silent: true }).then(j => { lista = j.convites || []; drawList(); }).catch(e => { const el = $('#cvList', m.el); if (el) el.innerHTML = `<div class="muted">${h(e.message)}</div>`; });
     }
   });
@@ -1222,10 +1235,12 @@ function updateShell() {
     ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
+    ${!isAdmin() && S.user.podeConvidar ? `<a class="nav" href="#" id="navConv" title="Links de convite">${ic('link')}<span class="lbl">Links de convite</span></a>` : ''}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
   `;
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
   const nlB = $('#navNovaLoja'); if (nlB) nlB.onclick = e => { e.preventDefault(); openNovaLoja(); };
+  const ncB = $('#navConv'); if (ncB) ncB.onclick = e => { e.preventDefault(); openConvites(); };
   const naB = $('#navAdm'); if (naB) naB.onclick = async e => {
     e.preventDefault();
     if (!await confirmBox('Criar o <b>quadro do Administrativo</b>? O sistema monta uma aba nova na planilha (QUADRO ADM) com os colaboradores e setores da aba ADMINISTRATIVO e a senioridade que já está registrada na aba GRC. As abas ADMINISTRATIVO e GRC não são alteradas.', 'Criar quadro')) return;

@@ -1,1 +1,1 @@
-versao: contratacoes menu de acoes em lote 2026-10-20
+versao: excluir contratacao (desistencia) 2026-10-21

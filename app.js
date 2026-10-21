@@ -678,7 +678,7 @@ function filaResposta_(action, payload, gated) {
   if (action === 'saveFotoColab') return { ok: true, chave: chaveNome(payload.nome), foto: payload.foto || '' };
   return { ok: true, otimista: true };
 }
-function filaProxLinha_() { const rs = (S.data && S.data.contratacoes && S.data.contratacoes.rows) || []; const hr = (S.data && S.data.contratacoes && S.data.contratacoes.headerRow) || 1; return rs.length ? Math.max(...rs.map(r => +r.row || 0)) + 1 : hr + 1; }
+function filaProxLinha_() { const rs = ((S.data && S.data.contratacoes && S.data.contratacoes.rows) || []).concat((S.data && S.data.contratacoes && S.data.contratacoes.excluidas) || []); const hr = (S.data && S.data.contratacoes && S.data.contratacoes.headerRow) || 1; return rs.length ? Math.max(...rs.map(r => +r.row || 0)) + 1 : hr + 1; }
 function filaJ_(op) { return op.action === 'addContratacao' ? { row: filaProxLinha_(), alocado: !!(op.payload.vaga && op.payload.vaga.row) } : {}; }
 // listas que não ficam no Firebase (seleções, mobilidade, fotos): aplica as gravações ainda na fila
 function filaListaOps_(acts) { return filaTodas_().filter(o => acts[o.action] && o.status !== 'erro' && !o.gated); }
@@ -975,6 +975,8 @@ function derive() {
   const H = C.header || [];
   const find = re => H.find(x => re.test(norm(x))) || '';
   S.ck = { data: H[0] || 'DATA', loja: find(/^LOJA/), colab: find(/COLABORADOR|NOME/), setor: find(/SETOR/), funcao: find(/FUNC/), aso: find(/ASO/), hcm: find(/HCM|EXPORT/), contrato: find(/CONTRATO/), status: find(/STATUS/), dp: find(/SOLICIT|\bDP\b/) };
+  // contratações excluídas (desistência na contratação) somem do sistema; ficam só registradas na planilha
+  if (S.ck.status && C.rows) { const ex = r => /EXCLU/.test(norm(r[S.ck.status])); if (C.rows.some(ex)) { C.excluidas = (C.excluidas || []).concat(C.rows.filter(ex)); C.rows = C.rows.filter(r => !ex(r)); } }
   (C.rows || []).forEach(r => {
     r._loja = lojaKey(r[S.ck.loja]);
     r._deslig = /DESLIG/.test(norm(r[S.ck.status]));
@@ -3675,12 +3677,13 @@ function pgContr() {
     const b = $('#cBulk'); b.classList.toggle('hidden', !sel.size);
     if (!sel.size) { b.innerHTML = ''; return; }
     const lista = rows.filter(r => sel.has(r.row));
-    b.innerHTML = `<b>${sel.size} selecionada(s)</b><button class="btn sm ghost" id="bkAll">Selecionar todas as ${filt().filter(r => canEdit(r._loja) && !r._deslig).length} filtradas</button><span class="spacer"></span><button class="btn sm" id="bkClr">Limpar</button><button class="btn sm primary" id="bkSet">${ic('edit')} O que fazer?</button><button class="btn sm ok" id="bkAloc">${ic('check')} Marcar como alocado</button><button class="btn sm danger" id="bkDesl">${ic('door')} Desligado(s)</button>`;
+    b.innerHTML = `<b>${sel.size} selecionada(s)</b><button class="btn sm ghost" id="bkAll">Selecionar todas as ${filt().filter(r => canEdit(r._loja) && !r._deslig).length} filtradas</button><span class="spacer"></span><button class="btn sm" id="bkClr">Limpar</button><button class="btn sm primary" id="bkSet">${ic('edit')} O que fazer?</button><button class="btn sm ok" id="bkAloc">${ic('check')} Marcar como alocado</button><button class="btn sm danger" id="bkDesl">${ic('door')} Desligado(s)</button><button class="btn sm danger" id="bkExc">${ic('trash')} Excluir</button>`;
     $('#bkClr').onclick = () => { sel.clear(); draw(); };
     $('#bkAll').onclick = () => { filt().filter(r => canEdit(r._loja) && !r._deslig).forEach(r => sel.add(r.row)); draw(); };
     $('#bkDesl').onclick = () => openMarcarDesl(lista, () => sel.clear());
     $('#bkAloc').onclick = () => contrBulk(lista, K.status, ((C.opcoes || {})[K.status] || []).find(x => /ALOCAD/i.test(x)) || 'Alocado', () => sel.clear());
     $('#bkSet').onclick = () => openContrAcoes(lista, () => sel.clear());
+    $('#bkExc').onclick = () => openExcluirContr(lista, () => sel.clear());
   };
   const cols = [
     { t: '', k: '', nosort: true, w: '30px', th: canEdit() ? '<input type="checkbox" class="cSelAll">' : '', r: r => canEdit(r._loja) && !r._deslig ? `<input type="checkbox" data-stop data-sel="${r.row}" ${sel.has(r.row) ? 'checked' : ''}>` : '' },
@@ -4090,6 +4093,7 @@ function openContrAcoes(lista, done) {
     K.hcm && { id: 'hcm', ic: 'refresh', t: 'Marcar como exportado ao HCM', d: `${h(K.hcm)} → SIM`, n: faltaHcm.length, go: () => contrBulkMulti([[K.hcm, 'SIM', faltaHcm]], 'Marcar como exportado ao HCM', done) },
     K.status && { id: 'aloc', ic: 'swap', t: 'Marcar como alocado', d: 'Só muda o status; não mexe no quadro da loja', n: faltaAloc.length, go: () => contrBulkMulti([[K.status, alocado, faltaAloc]], 'Marcar como alocado', done) },
     { id: 'desl', ic: 'door', t: 'Marcar como desligado(s)', d: 'Contratados que já saíram da empresa', n: at.length, cls: 'bad', go: () => openMarcarDesl(at, done) },
+    K.status && { id: 'exc', ic: 'trash', t: 'Excluir contratação(ões)', d: 'Desistiu na contratação: some do sistema e sai do quadro, sem virar desligamento', n: lista.length, cls: 'bad', go: () => openExcluirContr(lista, done) },
     { id: 'outro', ic: 'edit', t: 'Alterar outro campo…', d: 'Escolher o campo e o valor manualmente', n: null, go: () => openContrBulkSet(lista, done) }
   ].filter(Boolean);
   modal({
@@ -4097,6 +4101,35 @@ function openContrAcoes(lista, done) {
     body: `<p class="muted" style="margin-top:0">O número mostra quantas das selecionadas ainda precisam daquela ação. Quem já está certo não é alterado.</p><div class="acoes-lote">${acoes.map(a => `<button class="acao ${a.cls || ''}" data-a="${a.id}" ${a.n === 0 ? 'disabled' : ''}><span class="ai">${ic(a.ic)}</span><span class="tx"><b>${a.t}</b><small>${a.d}</small></span>${a.n != null ? `<span class="badge ${a.n ? '' : 'b-ok'}">${a.n ? a.n : 'nada a fazer'}</span>` : ic('chevron')}</button>`).join('')}</div>`,
     foot: `<button class="btn" data-close>Fechar</button>`,
     onMount: m => $$('[data-a]', m.el).forEach(b => b.onclick = () => { const a = acoes.find(x => x.id === b.dataset.a); m.close(); a.go(); })
+  });
+}
+// excluir contratação (desistência): marca como "Excluído" na planilha (some do sistema, não vira desligamento)
+// e, se a pessoa já estava no quadro da loja, a posição volta a ficar vaga
+function openExcluirContr(lista, done) {
+  const K = S.ck; lista = lista.filter(Boolean);
+  if (!K.status) return toast('A planilha de contratações não tem a coluna de status', true);
+  const noQuadro = r => { const l = lojaBy(r._loja); if (!l || !r[K.colab]) return []; const n = norm(r[K.colab]); const out = []; l.setores.forEach(s => s.linhas.forEach(x => { if (x.nome && norm(x.nome) === n) out.push(Object.assign({}, x, { loja: l.key, setor: s.nome })); })); return out; };
+  const itens = lista.map(r => ({ r, pos: noQuadro(r) }));
+  const nPos = itens.reduce((a, i) => a + i.pos.length, 0);
+  modal({
+    title: `Excluir ${lista.length} contratação(ões)`, icon: 'trash',
+    body: `<p class="muted" style="margin-top:0">Use quando a pessoa <b>desistiu na contratação</b>. Ela some do sistema e <b>não entra nos desligamentos</b>. Na planilha, a linha fica com o status <b>Excluído</b>, só como registro.</p>
+      <div class="alist" style="max-height:240px;margin-bottom:12px">${itens.map(({ r, pos }) => `<div class="aitem">${avatar(r[K.colab], '', 'sm soft')}<div><b>${h(r[K.colab])}</b><span>${h(r[K.funcao] || '')} · ${h(LOJA_NOMES[r._loja] || r[K.loja] || '')} · ${h(r[K.data] || '')}</span>${pos.length ? `<span style="display:block;color:var(--warn);margin-top:2px">${ic('alert')} Está no quadro: ${pos.map(p => h(p.setor + ' · ' + p.funcao)).join(', ')}</span>` : ''}</div></div>`).join('')}</div>
+      ${nPos ? `<label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="exQ" checked> Tirar do quadro também (${nPos} posição(ões) voltam a ficar vagas)</label>` : ''}`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn danger" id="exOk">${ic('trash')} Excluir</button>`,
+    onMount: m => $('#exOk', m.el).onclick = e => run(e.currentTarget, async () => {
+      const tirar = nPos && $('#exQ', m.el).checked;
+      const j = await api('contrBulkSet', { rows: lista.map(r => ({ row: r.row, nome: r[K.colab] })), campo: K.status, valor: 'Excluído' });
+      let nq = 0;
+      if (tirar) for (const { pos } of itens) for (const p of pos) {
+        try { await api('saveRow', { loja: p.loja, row: p.row, expect: expectOf(p), data: { nome: '', funcao: p.funcao, contrato: p.contrato, situacao: 'VAGA', tag: '', qt: '' } }); nq++; } catch (er) { toast(`Não foi possível tirar ${p.nome} do quadro: ${er.message}`, true); }
+      }
+      // some da tela na hora
+      if (!j.pendente) { lista.forEach(r => { r[K.status] = 'Excluído'; }); derive(); updateShell(); route(true); }
+      m.close(); if (done) done();
+      if (!j.pendente) toast(`${lista.length} contratação(ões) excluída(s)${nq ? ` · ${nq} posição(ões) do quadro liberada(s)` : ''}`);
+      bgReload();
+    })
   });
 }
 // aplica uma ou mais alterações em lote, só nas linhas que precisam
@@ -4244,10 +4277,11 @@ function openContr(r) {
       <datalist id="dlCF">${allFuncoes().map(x => `<option value="${h(x)}">`).join('')}</datalist>
       <datalist id="dlCS">${uniq(S.all.map(x => x.setor)).map(x => `<option value="${h(x)}">`).join('')}</datalist>
       ${novo ? `<div class="card mt" style="background:var(--surface2);padding:14px${edQ ? '' : ';display:none'}"><div class="field" style="margin:0"><label>${ic('swap')} Vaga do quadro que será preenchida</label><select class="input" id="ncV"></select><div class="muted" style="font-size:12px;margin-top:6px" id="ncHint"></div></div></div>` : ''}`,
-    foot: ed ? `${edQ && r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${edQ && r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
+    foot: ed ? `${edQ && r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${edQ && r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}${edQ && r && S.ck.status ? `<button class="btn danger ghost" data-a="exc" title="Desistiu na contratação">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
     onMount: m => {
       const a = $('[data-a=aloc]', m.el); if (a) a.onclick = () => { m.close(); openAlocar(r); }; const am = $('[data-a=alocM]', m.el); if (am) am.onclick = () => { m.close(); openAlocar(r, true); };
       const dsl = $('[data-a=desl]', m.el); if (dsl) dsl.onclick = () => { m.close(); openMarcarDesl([r]); };
+      const exc = $('[data-a=exc]', m.el); if (exc) exc.onclick = () => { m.close(); openExcluirContr([r]); };
       const el = k => $(`[data-k="${CSS.escape(k)}"]`, m.el);
       const val = k => { const e = el(k); return e ? e.value : ''; };
       // checklist no topo: espelha os campos do formulário e muda conforme avança

@@ -485,8 +485,8 @@ async function openConvites() {
     title: 'Links de convite', icon: 'link', wide: true,
     body: `<p class="muted" style="margin-top:0">Gere um link e mande para o líder (WhatsApp, e-mail…). Ao abrir, ele mesmo cria o login e a senha e já entra vendo <b>só o quadro da loja e dos setores escolhidos</b>, com a opção de requisitar vagas.</p>
       <div class="card" style="background:var(--surface2);padding:14px">
-        <div class="row2"><div class="field"><label>Loja</label><select class="input" id="cvL">${L.map(l => `<option value="${l.key}">Loja ${h(l.num)} · ${h(l.nome)}</option>`).join('')}</select></div>
-        <div class="field"><label>Título (opcional)</label><input class="input" id="cvT" placeholder="Ex.: Líder de FLV"></div></div>
+        <div class="field"><label>Lojas <span class="muted">(marque várias para coordenadores que atendem mais de uma loja)</span></label><div id="cvL">${chipPicker('cvlojas', L.map(l => l.key), L[0] ? L[0].key : '')}</div></div>
+        <div class="field"><label>Título (opcional)</label><input class="input" id="cvT" placeholder="Ex.: Coordenadora de Frente de Loja"></div>
         <div class="field"><label>Setores que o líder vai ver <span class="muted">(nenhum marcado = todos)</span></label><div id="cvS"></div></div>
         <div class="row2"><div class="field"><label>Validade do link</label><select class="input" id="cvD"><option value="7">7 dias</option><option value="30" selected>30 dias</option><option value="90">90 dias</option><option value="365">1 ano</option></select></div>
         <div class="field"><label>Quantas pessoas podem usar</label><select class="input" id="cvM"><option value="1">1 pessoa</option><option value="0" selected>Sem limite</option><option value="5">até 5</option><option value="10">até 10</option></select></div></div>
@@ -496,9 +496,18 @@ async function openConvites() {
       <h3 style="margin:18px 0 8px;font-size:14px">Links criados</h3><div id="cvList"><div class="sk" style="height:80px"></div></div>`,
     foot: `<button class="btn" data-close>Fechar</button>`,
     onMount: m => {
-      const drawSet = () => { const l = L.find(x => x.key === $('#cvL', m.el).value); $('#cvS', m.el).innerHTML = chipPicker('cvset', (l ? l.setores : []).map(s => s.nome), ''); bindPickers($('#cvS', m.el)); };
-      $('#cvL', m.el).onchange = drawSet; drawSet();
-      const nomeL = k => (L.find(l => l.key === k) || {}).nome || k;
+      const lojasSel = () => splitMulti(pickVal($('#cvL', m.el), 'cvlojas'));
+      bindPickers($('#cvL', m.el));
+      $$('#cvL .chip', m.el).forEach(c => c.textContent = LOJA_NOMES[c.dataset.v] || (L.find(l => l.key === c.dataset.v) || {}).nome || c.dataset.v);
+      const drawSet = () => {
+        const marcados = splitMulti(pickVal($('#cvS', m.el), 'cvset'));
+        const nomes = uniq(L.filter(l => lojasSel().includes(l.key)).flatMap(l => (l.setores || []).map(s => s.nome)));
+        $('#cvS', m.el).innerHTML = nomes.length ? chipPicker('cvset', nomes, marcados.filter(x => nomes.includes(x)).join(', ')) : '<span class="muted" style="font-size:12.5px">Escolha ao menos uma loja.</span>';
+        bindPickers($('#cvS', m.el));
+      };
+      $('#cvL', m.el).addEventListener('click', e => { if (e.target.closest('.chip')) setTimeout(drawSet, 0); });
+      drawSet();
+      const nomeL = k => String(k || '').split(',').filter(Boolean).map(x => (L.find(l => l.key === x) || {}).nome || LOJA_NOMES[x] || x).join(', ');
       const drawList = () => {
         const el = $('#cvList', m.el); if (!el) return;
         el.innerHTML = lista.length ? `<div class="alist" style="max-height:none">${lista.map(c => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(c.titulo || nomeL(c.loja))}</b><span style="display:block">${h(nomeL(c.loja))} · ${h(c.setores.length ? c.setores.join(', ') : 'todos os setores')}</span><span class="faint" style="display:block;font-size:11.5px">${c.usos} uso(s)${c.maxUsos ? ' de ' + c.maxUsos : ''} · válido até ${h(isoToBR(c.validade))} · por ${h(c.criadoPor)}</span></div>${c.ativo ? `<button class="btn sm" data-cp="${c.codigo}" title="Copiar link">${ic('copy')}</button><button class="btn sm primary" data-sh="${c.codigo}">${ic('share')} Enviar</button><button class="btn sm danger ghost" data-off="${c.codigo}" title="Desativar">${ic('x')}</button>` : '<span class="badge">desativado</span>'}</div>`).join('')}</div>` : '<div class="muted" style="font-size:13px">Nenhum link criado ainda.</div>';
@@ -507,8 +516,9 @@ async function openConvites() {
         $$('[data-off]', el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem já criou o acesso continua entrando normalmente.', 'Desativar', true)) return; try { lista = (await api('desativarConvite', { codigo: b.dataset.off })).convites; drawList(); toast('Link desativado'); } catch (e) { toast(e.message, true); } });
       };
       $('#cvNew', m.el).onclick = e => run(e.currentTarget, async () => {
-        const loja = $('#cvL', m.el).value, setores = splitMulti(pickVal(m.el, 'cvset'));
-        const j = await api('criarConvite', { data: { loja, setores, titulo: $('#cvT', m.el).value.trim(), dias: +$('#cvD', m.el).value, maxUsos: +$('#cvM', m.el).value } });
+        const lojas = lojasSel(), setores = splitMulti(pickVal($('#cvS', m.el), 'cvset'));
+        if (!lojas.length) throw new Error('Escolha ao menos uma loja.');
+        const j = await api('criarConvite', { data: { loja: lojas[0], lojas, setores, titulo: $('#cvT', m.el).value.trim(), dias: +$('#cvD', m.el).value, maxUsos: +$('#cvM', m.el).value } });
         lista = j.convites || []; drawList();
         const c = lista[0]; if (!c) return;
         const url = conviteUrl_(c.codigo);

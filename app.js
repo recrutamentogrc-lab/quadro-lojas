@@ -681,7 +681,7 @@ function selMobLive_(semTela) {
  * para todos que estão com o sistema aberto. O Apps Script aplica cada alteração na planilha
  * em segundo plano, na ordem e com as mesmas regras de antes, e publica o resultado.
  * Ninguém mais espera a planilha para continuar trabalhando. */
-const FILA_ASYNC = { addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
+const FILA_ASYNC = { escalaSet: 1, addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
 const FILA_SYNC = { decidirSolicitacao: 1, iniciarSLA: 1, criarLoja: 1, criarQuadroAdm: 1, cruzarContr: 1 };
 let filaSnap = [], filaLocal = [], filaUnsub = null, filaVivo = false, filaTent = 0, filaKickT = null, filaOff = false, fbUidP = null, filaRedraw = null;
 const filaEspera = {}, filaAvisados = new Set();
@@ -1451,7 +1451,42 @@ function escGerar12x36(p24, p12, h, L, dias, mesIni, mesFim) {
 
 /* ---------------- parâmetros por setor ---------------- */
 const escParKey = (lk, setor) => lk + '|' + norm(setor);
-const escParTodos = () => Object.assign({}, (S.cfg && S.cfg.escalaPar) || {}, ls.get('grc_escPar', {}));
+// parâmetros ficam no servidor (Propriedades do Apps Script, sem planilha); gravações chegam na hora pela fila do Firebase
+const escSemMeta = o => o ? Object.keys(o).filter(k => k[0] !== '_').sort().reduce((r, k) => (r[k] = o[k], r), {}) : null;
+function escParTodos() {
+  if (DEMO) return Object.assign({}, ls.get('grc_escPar', {}));
+  if (!S.escPar) S.escPar = ls.get('grc_escParSrv', {});
+  let mudou = false;
+  filaListaOps_({ escalaSet: 1 }).forEach(o => {
+    const p = o.payload || {}; if (!p.chave) return;
+    if (p.par == null) { if (S.escPar[p.chave]) { delete S.escPar[p.chave]; mudou = true; } }
+    else if (JSON.stringify(escSemMeta(S.escPar[p.chave])) !== JSON.stringify(escSemMeta(p.par))) { S.escPar[p.chave] = Object.assign({ _por: '', _em: 'agora' }, p.par); mudou = true; }
+  });
+  if (mudou) ls.set('grc_escParSrv', S.escPar);
+  return Object.assign({}, S.escPar);
+}
+async function escParCarregar(redesenhar) {
+  if (DEMO || escParCarregar.on) return;
+  escParCarregar.on = true;
+  try {
+    const j = await api('escalaGet', {}, { silent: true });
+    S.escPar = j.par || {}; ls.set('grc_escParSrv', S.escPar);
+    // parâmetros que ficaram só neste aparelho (versão anterior): envia para o servidor
+    const loc = ls.get('grc_escPar', {});
+    if (podeEscala()) Object.keys(loc).forEach(k => { if (!S.escPar[k]) escParEnviar(k, loc[k]); });
+    ls.del('grc_escPar');
+    if (redesenhar && /^#\/escalas/.test(location.hash) && !$('.overlay')) rerender_();
+  } catch (e) { console.warn('escala', e); } finally { escParCarregar.on = false; }
+}
+function escParEnviar(chave, par) {
+  if (DEMO) { const loc = ls.get('grc_escPar', {}); if (par == null) delete loc[chave]; else loc[chave] = par; ls.set('grc_escPar', loc); return Promise.resolve(); }
+  S.escPar = S.escPar || {};
+  if (par == null) delete S.escPar[chave]; else S.escPar[chave] = Object.assign({}, par, { _por: S.user.nome, _em: 'agora' });
+  ls.set('grc_escParSrv', S.escPar);
+  const limpo = escSemMeta(par);
+  return api('escalaSet', { chave, par: limpo }, { silent: true }).then(j => { if (j && j.par && !j.otimista) { S.escPar[chave] = j.par; ls.set('grc_escParSrv', S.escPar); } })
+    .catch(e => { toast('Não foi possível salvar os parâmetros: ' + e.message, true); escParCarregar(true); });
+}
 function escParDef(l, setor) {
   const s = norm(setor + ' ' + l.key);
   const atual = /MONITORAMENTO|VIGIA|PORTARIA/.test(s) ? '12x36' : isAdmLoja(l) ? '5x2' : '6x1';
@@ -1465,14 +1500,6 @@ function escParDef(l, setor) {
 function escPar(l, setor) {
   const d = escParDef(l, setor), s = escParTodos()[escParKey(l.key, setor)] || {};
   return Object.assign(d, s, { h: Object.assign({}, d.h, s.h || {}), p: Object.assign({}, d.p, s.p || {}) });
-}
-function escParLocal(l, setor, par) { const loc = ls.get('grc_escPar', {}); loc[escParKey(l.key, setor)] = par; ls.set('grc_escPar', loc); }
-async function escParCompartilhar(l, setor, par) {
-  escParLocal(l, setor, par);
-  const todos = Object.assign({}, (S.cfg && S.cfg.escalaPar) || {}); todos[escParKey(l.key, setor)] = par;
-  const j = await api('saveConfig', { data: { escalaPar: todos } });
-  if (j && j.cfg && j.cfg.escalaPar) { S.cfg = j.cfg; toast('Parâmetros salvos para todos os usuários'); }
-  else toast('Parâmetros salvos neste aparelho (o servidor não guardou esta configuração)', true);
 }
 /* ---------------- dados do setor ---------------- */
 function escPessoas(l, sec, par) {
@@ -1680,6 +1707,7 @@ function escMesPadrao(etKey) {
 function pgEscala() {
   escCss();
   setTitle('Simulador de escalas', '5x2 e 12x36 · fim da escala 6x1 (EC 141/2026)');
+  if (!DEMO && (!S.escParT || Date.now() - S.escParT > 60000)) { S.escParT = Date.now(); escParCarregar(true); }
   const f = getF('escala');
   const lojas = S.data.lojas;
   if (!f.loja || !lojaBy(f.loja)) f.loja = (lojas.find(l => !isAdmLoja(l)) || lojas[0] || {}).key;
@@ -1741,7 +1769,7 @@ function escSetor(l, sec, f) {
   const par = escPar(l, sec.nome);
   const res = escCalc(l, sec, par, f.et);
   const dad = res.dad;
-  const set = (k, val) => { par[k] = val; escParLocal(l, sec.nome, par); route(true); };
+  const set = (k, val) => { if (!podeEscala()) return; par[k] = val; escParEnviar(escParKey(l.key, sec.nome), par); route(true); };
   const saldo = Math.round((dad.ocupado - res.total) * 100) / 100, saldoPad = Math.round((dad.padrao - res.total) * 100) / 100;
   const futuro = Math.round((dad.ocupado - dad.aviso - res.total) * 100) / 100;
   // comparativo por etapa
@@ -1788,9 +1816,8 @@ function escSetor(l, sec, f) {
     <div style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Funções consideradas</div>
       <div class="chips" id="pFun">${dad.funcoes.map(fn => `<span class="chip ${(par.fora || []).map(norm).includes(norm(fn)) ? '' : 'on'}" data-fn="${h(fn)}">${h(fn)}</span>`).join('')}</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
-      ${isAdmin() ? `<button class="btn primary" id="pShare">${ic('check')} Salvar para todos</button>` : ''}
       <button class="btn" id="pReset">${ic('eraser')} Restaurar padrão</button>
-      <span class="faint" style="font-size:11.5px;align-self:center">As alterações já valem neste aparelho.</span>
+      <span class="faint" style="font-size:11.5px;align-self:center">${ic('check')} Salvo automaticamente para todos${par._por ? ` · última alteração: ${h(par._por)}${par._em && par._em !== 'agora' ? ' em ' + h(par._em) : ''}` : ''}</span>
     </div>
   </details>
 
@@ -1854,8 +1881,7 @@ function escSetor(l, sec, f) {
   if ($('#p12')) $('#p12').onchange = e => set('p12', Math.max(0, Math.round(+e.target.value || 0)));
   if ($('#pH12')) $('#pH12').onchange = e => set('h12', +e.target.value);
   $$('#pFun .chip').forEach(c => c.onclick = () => { const fn = norm(c.dataset.fn), fo = (par.fora || []).map(norm); set('fora', fo.includes(fn) ? (par.fora || []).filter(x => norm(x) !== fn) : (par.fora || []).concat(c.dataset.fn)); });
-  if ($('#pShare')) $('#pShare').onclick = e => run(e.currentTarget, () => escParCompartilhar(l, sec.nome, par)).catch(() => {});
-  $('#pReset').onclick = async () => { if (!await confirmBox('Voltar os parâmetros deste setor para o padrão?', 'Restaurar')) return; const loc = ls.get('grc_escPar', {}); delete loc[escParKey(l.key, sec.nome)]; ls.set('grc_escPar', loc); route(true); };
+  $('#pReset').onclick = async () => { if (!await confirmBox('Voltar os parâmetros deste setor para o padrão?', 'Restaurar')) return; escParEnviar(escParKey(l.key, sec.nome), null); route(true); };
   $('#eMes').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { f.mes = e.target.value; saveF(); route(true); } };
   $$('#eVis button').forEach(b => b.onclick = () => { f.vis = b.dataset.v; saveF(); route(true); });
   if (gr) {

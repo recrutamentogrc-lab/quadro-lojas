@@ -64,6 +64,9 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
   x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   alert: '<path d="M12 3 2 21h20z"/><path d="M12 10v4M12 18h.01"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
@@ -233,7 +236,7 @@ async function sendRaw_(action, payload) {
   if (!API_OK) throw new Error('Sistema ainda não conectado: configure a URL do Apps Script no arquivo config.js.');
   if (S.loginP && action !== 'login') { try { await S.loginP; } catch (e) {} }
   let uid = '';
-  if (FB_OK && (action === 'login' || action === 'me' || action === 'bootstrap' || action === 'logout')) { try { uid = await Promise.race([fbUid_(), new Promise(r => setTimeout(() => r(''), 5000))]); } catch (e) {} }
+  if (FB_OK && (action === 'login' || action === 'cadastroConvite' || action === 'me' || action === 'bootstrap' || action === 'logout')) { try { uid = await Promise.race([fbUid_(), new Promise(r => setTimeout(() => r(''), 5000))]); } catch (e) {} }
   const body = JSON.stringify(Object.assign({ action, token: S.token, uid, rid: Date.now().toString(36) + Math.random().toString(36).slice(2, 10) }, payload));
   for (let tent = 1; ; tent++) {
     let txt = '', j;
@@ -346,6 +349,8 @@ function init() {
         loadAll(false, true);
       } catch (e) { console.warn('cache', e); S.data = null; loadAll(true); }
     } else loadAll(true);
+  } else if (QS.get('convite') && !DEMO) {
+    renderConvite(QS.get('convite')); refreshPublicCfg();
   } else {
     renderLogin(); refreshPublicCfg();
     // acesso lembrado neste aparelho: entra sozinho, sem digitar
@@ -412,6 +417,108 @@ function renderLogin(msg) {
     } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); }
     finally { btn.disabled = false; }
   };
+}
+
+/* ---------------- link de convite: o líder cria o próprio acesso ---------------- */
+function semConviteNaUrl_() { try { const u = new URL(location.href); u.searchParams.delete('convite'); history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '')); } catch (e) {} }
+async function renderConvite(codigo) {
+  $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo convite…</div></div></div>`;
+  let info = null, erro = '';
+  try { const j = await sendRaw_('conviteInfo', { codigo }); if (j && j.ok) info = j.convite; else erro = (j && j.error) || 'Link de convite inválido.'; } catch (e) { erro = e.message; }
+  const setTxt = info && info.setores && info.setores.length ? info.setores.join(' · ') : 'Todos os setores';
+  $('#root').innerHTML = `
+  <div class="login-wrap">
+    <section class="login-hero">
+      <div class="grid-bg"></div><div class="orb"></div>
+      <div class="brand" style="position:relative;color:#fff">${brandHTML(true)}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
+      <div style="position:relative"><h1>Seu acesso ao<br><span>quadro da sua equipe</span></h1><p>Acompanhe o quadro do seu setor, as vagas em aberto e faça requisições de vaga para o RH.</p></div>
+    </section>
+    <section class="login-box">
+      <form class="login-card" id="cvForm" autocomplete="on">
+        <div class="brand mobile-only">${brandHTML()}<div>${h(cfgv('sistema', CFG.SISTEMA || 'Quadro de Lojas'))}<small>${h(cfgv('empresa', CFG.EMPRESA || ''))}</small></div></div>
+        ${info ? `<h2>Criar meu acesso</h2>
+        <div class="card" style="background:var(--surface2);padding:12px 14px;margin:6px 0 18px"><div class="muted" style="font-size:12px">Convite para</div><b>${h(info.lojaNome)}</b><div style="font-size:13px">${h(setTxt)}</div></div>
+        <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" placeholder="Seu nome"></div>
+        <div class="field"><label>Cargo</label><input class="input" name="cargo" placeholder="Ex.: Líder de Frente de Loja"></div>
+        <div class="field"><label>E-mail (opcional, para recuperar a senha)</label><input class="input" name="email" type="email" autocomplete="email" placeholder="nome@email.com"></div>
+        <div class="field"><label>Login</label><input class="input" name="login" required autocomplete="username" placeholder="nome.sobrenome"></div>
+        <div class="row2"><div class="field"><label>Senha</label><input class="input" name="senha" type="password" required autocomplete="new-password" placeholder="mín. 6 caracteres"></div><div class="field"><label>Repetir senha</label><input class="input" name="senha2" type="password" required autocomplete="new-password"></div></div>
+        <div id="cvErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
+        <button class="btn primary block" type="submit">Criar acesso e entrar</button>` : `<h2>Convite indisponível</h2><div class="badge b-bad" style="display:flex;padding:10px 12px;margin:10px 0 16px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p>`}
+        <p class="faint" style="font-size:12px;margin-top:22px;text-align:center">Já tem acesso? <a href="#" id="cvLogin" style="color:var(--accent);font-weight:600">Entrar</a></p>
+      </form>
+    </section>
+  </div>`;
+  $('#cvLogin').onclick = e => { e.preventDefault(); semConviteNaUrl_(); renderLogin(); };
+  const f = $('#cvForm'); if (!info) return;
+  f.nome.addEventListener('input', () => { if (f.login.dataset.touched) return; const p = norm(f.nome.value).toLowerCase().split(/\s+/).filter(Boolean); f.login.value = p.length > 1 ? p[0] + '.' + p[p.length - 1] : (p[0] || ''); });
+  f.login.addEventListener('input', () => { f.login.dataset.touched = 1; });
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const err = $('#cvErr'), btn = $('button[type=submit]', f); err.classList.add('hidden');
+    const d = { nome: f.nome.value.trim(), cargo: f.cargo.value.trim(), email: f.email.value.trim(), login: f.login.value.trim().toLowerCase(), senha: f.senha.value };
+    if (d.senha !== f.senha2.value) { err.textContent = 'As senhas não conferem.'; err.classList.remove('hidden'); return; }
+    btn.disabled = true; btn.textContent = 'Criando acesso…';
+    try {
+      const j = await sendRaw_('cadastroConvite', { codigo, data: d });
+      if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível criar o acesso.');
+      S.token = j.token; ls.set('grc_token', j.token); if (j.keys) ls.set('grc_keys', j.keys); if (j.user) S.user = j.user;
+      credSalvar_(d.login, d.senha); lembrarSalvar_(d.login, d.senha); ls.del('grc_last_data'); ls.del('grc_last_keys');
+      semConviteNaUrl_(); location.hash = '#/inicio';
+      await loadAll(true);
+      toast('Acesso criado! Bem-vindo(a), ' + d.nome.split(' ')[0] + '.');
+    } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); btn.disabled = false; btn.textContent = 'Criar acesso e entrar'; }
+  };
+}
+// administrador: gera e gerencia os links de convite
+function conviteUrl_(c) { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/?convite=' + c; }
+function compartilharConvite_(c, lojaNome, setores) {
+  const url = conviteUrl_(c), txt = `Olá! Segue o link para você criar seu acesso ao Quadro de Lojas (${lojaNome}${setores && setores.length ? ' · ' + setores.join(', ') : ''}): ${url}`;
+  if (navigator.share) { navigator.share({ title: 'Acesso ao Quadro de Lojas', text: txt }).catch(() => {}); return; }
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+function copiarTexto_(t) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast('Link copiado'), () => { prompt('Copie o link:', t); }); }
+async function openConvites() {
+  const L = S.data.lojas;
+  let lista = [];
+  modal({
+    title: 'Links de convite', icon: 'link', wide: true,
+    body: `<p class="muted" style="margin-top:0">Gere um link e mande para o líder (WhatsApp, e-mail…). Ao abrir, ele mesmo cria o login e a senha e já entra vendo <b>só o quadro da loja e dos setores escolhidos</b>, com a opção de requisitar vagas.</p>
+      <div class="card" style="background:var(--surface2);padding:14px">
+        <div class="row2"><div class="field"><label>Loja</label><select class="input" id="cvL">${L.map(l => `<option value="${l.key}">Loja ${h(l.num)} · ${h(l.nome)}</option>`).join('')}</select></div>
+        <div class="field"><label>Título (opcional)</label><input class="input" id="cvT" placeholder="Ex.: Líder de FLV"></div></div>
+        <div class="field"><label>Setores que o líder vai ver <span class="muted">(nenhum marcado = todos)</span></label><div id="cvS"></div></div>
+        <div class="row2"><div class="field"><label>Validade do link</label><select class="input" id="cvD"><option value="7">7 dias</option><option value="30" selected>30 dias</option><option value="90">90 dias</option><option value="365">1 ano</option></select></div>
+        <div class="field"><label>Quantas pessoas podem usar</label><select class="input" id="cvM"><option value="1">1 pessoa</option><option value="0" selected>Sem limite</option><option value="5">até 5</option><option value="10">até 10</option></select></div></div>
+        <button class="btn primary" id="cvNew">${ic('plus')} Gerar link</button>
+      </div>
+      <div id="cvRes"></div>
+      <h3 style="margin:18px 0 8px;font-size:14px">Links criados</h3><div id="cvList"><div class="sk" style="height:80px"></div></div>`,
+    foot: `<button class="btn" data-close>Fechar</button>`,
+    onMount: m => {
+      const drawSet = () => { const l = L.find(x => x.key === $('#cvL', m.el).value); $('#cvS', m.el).innerHTML = chipPicker('cvset', (l ? l.setores : []).map(s => s.nome), ''); bindPickers($('#cvS', m.el)); };
+      $('#cvL', m.el).onchange = drawSet; drawSet();
+      const nomeL = k => (L.find(l => l.key === k) || {}).nome || k;
+      const drawList = () => {
+        const el = $('#cvList', m.el); if (!el) return;
+        el.innerHTML = lista.length ? `<div class="alist" style="max-height:none">${lista.map(c => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(c.titulo || nomeL(c.loja))}</b><span style="display:block">${h(nomeL(c.loja))} · ${h(c.setores.length ? c.setores.join(', ') : 'todos os setores')}</span><span class="faint" style="display:block;font-size:11.5px">${c.usos} uso(s)${c.maxUsos ? ' de ' + c.maxUsos : ''} · válido até ${h(isoToBR(c.validade))} · por ${h(c.criadoPor)}</span></div>${c.ativo ? `<button class="btn sm" data-cp="${c.codigo}" title="Copiar link">${ic('copy')}</button><button class="btn sm primary" data-sh="${c.codigo}">${ic('share')} Enviar</button><button class="btn sm danger ghost" data-off="${c.codigo}" title="Desativar">${ic('x')}</button>` : '<span class="badge">desativado</span>'}</div>`).join('')}</div>` : '<div class="muted" style="font-size:13px">Nenhum link criado ainda.</div>';
+        $$('[data-cp]', el).forEach(b => b.onclick = () => copiarTexto_(conviteUrl_(b.dataset.cp)));
+        $$('[data-sh]', el).forEach(b => b.onclick = () => { const c = lista.find(x => x.codigo === b.dataset.sh); compartilharConvite_(c.codigo, nomeL(c.loja), c.setores); });
+        $$('[data-off]', el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem já criou o acesso continua entrando normalmente.', 'Desativar', true)) return; try { lista = (await api('desativarConvite', { codigo: b.dataset.off })).convites; drawList(); toast('Link desativado'); } catch (e) { toast(e.message, true); } });
+      };
+      $('#cvNew', m.el).onclick = e => run(e.currentTarget, async () => {
+        const loja = $('#cvL', m.el).value, setores = splitMulti(pickVal(m.el, 'cvset'));
+        const j = await api('criarConvite', { data: { loja, setores, titulo: $('#cvT', m.el).value.trim(), dias: +$('#cvD', m.el).value, maxUsos: +$('#cvM', m.el).value } });
+        lista = j.convites || []; drawList();
+        const c = lista[0]; if (!c) return;
+        const url = conviteUrl_(c.codigo);
+        $('#cvRes', m.el).innerHTML = `<div class="card mt" style="border-color:var(--accent)"><b>${ic('check')} Link pronto</b><div class="mono" style="font-size:12.5px;word-break:break-all;margin:8px 0">${h(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="cvShare">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="cvCopy">${ic('copy')} Copiar link</button></div></div>`;
+        $('#cvShare', m.el).onclick = () => compartilharConvite_(c.codigo, nomeL(c.loja), c.setores);
+        $('#cvCopy', m.el).onclick = () => copiarTexto_(url);
+      });
+      api('listConvites', {}, { silent: true }).then(j => { lista = j.convites || []; drawList(); }).catch(e => { const el = $('#cvList', m.el); if (el) el.innerHTML = `<div class="muted">${h(e.message)}</div>`; });
+    }
+  });
 }
 
 /* ---------------- login instantâneo neste aparelho ----------------
@@ -919,6 +1026,9 @@ const todasLojas = () => { const c = ls.get('grc_lojas', null); return c && c.le
 try { registrarLojas_(JSON.parse(localStorage.getItem('grc_lojas') || '[]')); } catch (e) {}
 function derive() {
   const D = S.data; S.all = [];
+  // líder com setores definidos (link de convite): vê só o quadro dos seus setores
+  const meusSet = S.user && S.user.perfil !== 'ADMIN' && Array.isArray(S.user.setores) && S.user.setores.length ? S.user.setores.map(norm) : null;
+  if (meusSet) (D.lojas || []).forEach(l => { const f = (l.setores || []).filter(x => meusSet.indexOf(norm(x.nome)) >= 0); if (f.length) l.setores = f; });
   registrarLojas_(D.lojas);
   D.lojas.forEach(l => {
     l.color = LC[l.key]; l.rows = [];
@@ -3766,7 +3876,7 @@ async function pgAdmin() {
   if (tab === 'marca') return admMarca(body);
   if (tab === 'sla') return admSLA(body);
   if (tab === 'push') return admPush(body);
-  body.innerHTML = `<div class="toolbar" style="margin-top:0"><div class="input-icon search">${ic('search')}<input class="input" id="uq" placeholder="Buscar usuário" style="width:100%"></div><span class="spacer"></span><button class="btn primary" id="uNew">${ic('plus')} Novo acesso</button></div>
+  body.innerHTML = `<div class="toolbar" style="margin-top:0"><div class="input-icon search">${ic('search')}<input class="input" id="uq" placeholder="Buscar usuário" style="width:100%"></div><span class="spacer"></span><button class="btn" id="uConv">${ic('link')} Link de convite</button><button class="btn primary" id="uNew">${ic('plus')} Novo acesso</button></div>
   <div class="grid g4" style="margin-bottom:16px">
     <div class="card"><b>${ic('shield')} Administrador</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Vê e edita tudo, aprova solicitações, cria acessos e configura o sistema.</p></div>
     <div class="card"><b>${ic('edit')} Editor (gestão)</b><p class="muted" style="margin:6px 0 0;font-size:12.5px">Movimenta quadro, vagas e contratações das lojas liberadas sem aprovação. Aumento/redução de quadro e novas posições passam por você. Não acessa Acessos, Configurações, Aprovações nem Histórico.</p></div>
@@ -3782,7 +3892,7 @@ async function pgAdmin() {
       { t: 'Usuário', k: 'nome', r: u => `<div class="cell-person">${avatar(u.nome, u.foto, 'sm')}<div><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(u.cargo || '')}</div></div></div>` },
       { t: 'Login', k: 'login', r: u => `<span class="mono">${h(u.login)}</span>${u.email ? `<div class="muted" style="font-size:11.5px">${h(u.email)}</div>` : ''}` },
       { t: 'Perfil', k: 'perfil', r: u => `<span class="badge ${u.perfil === 'ADMIN' ? 'b-violet' : u.perfil === 'EDITOR' ? 'b-info' : u.perfil === 'RECRUTADOR' ? 'b-acc' : u.perfil === 'DP' ? 'b-ok' : ''}">${h(PERFIS[u.perfil] || u.perfil)}</span>` },
-      { t: 'Lojas', k: 'lojas', r: u => u.lojas.length >= todasLojas().length ? '<span class="badge b-acc">Todas</span>' : u.lojas.map(lojaPill).join(' ') },
+      { t: 'Lojas', k: 'lojas', r: u => (u.lojas.length >= todasLojas().length ? '<span class="badge b-acc">Todas</span>' : u.lojas.map(lojaPill).join(' ')) + (u.setores && u.setores.length ? `<div class="muted" style="font-size:11.5px">Setores: ${h(u.setores.join(', '))}</div>` : '') },
       { t: 'Status', k: 'ativo', r: u => u.ativo ? (u.trocarSenha ? '<span class="badge b-warn">Aguardando 1º acesso</span>' : '<span class="badge b-ok">Ativo</span>') : '<span class="badge b-bad">Inativo</span>' },
       { t: 'Último acesso', k: 'ultimoAcesso' },
       { t: '', k: '', nosort: true, r: u => u.email && u.id !== S.user.id ? `<button class="btn sm" data-stop data-mail="${u.id}" title="Gerar nova senha e enviar por e-mail">${ic('mail')} Reenviar acesso</button>` : '' }
@@ -3791,6 +3901,7 @@ async function pgAdmin() {
   };
   $('#uq').oninput = draw;
   $('#uNew').onclick = () => openUser(null, us => { users = us; usersSet_(us); draw(); });
+  $('#uConv').onclick = () => openConvites();
   const rt = S.rt;
   if (users.length) draw();
   try {
@@ -3813,6 +3924,7 @@ function openUser(u, done) {
       <div class="field"><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-weight:600;padding-top:8px"><input type="checkbox" id="uM" ${u ? '' : 'checked'}> ${ic('mail')} ${u ? 'Enviar a nova senha por e-mail' : 'Enviar login, senha e link do sistema por e-mail'}</label></div></div>
       <div class="field"><label>Perfil</label>${chipPicker('perfil', ['ADMIN', 'EDITOR', 'RECRUTADOR', 'LEITOR', 'DP'], u ? u.perfil : 'LEITOR', false)}</div>
       <div class="field"><label>Lojas liberadas</label>${chipPicker('lojas', L, u ? u.lojas.join(', ') : L.join(', '))}</div>
+      <div class="field"><label>Setores que pode ver <span class="muted">(nenhum marcado = todos os setores)</span></label>${chipPicker('setores', uniq(S.data.lojas.flatMap(l => (l.setores || []).map(s => s.nome))).sort(), u && u.setores ? u.setores.join(', ') : '')}</div>
       <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="uA" ${!u || u.ativo ? 'checked' : ''}> Acesso ativo</label>
       <p class="muted" style="font-size:12px">No primeiro login o usuário define a própria senha.</p>`,
     foot: `${u && u.id !== S.user.id ? `<button class="btn danger" id="uDel" style="margin-right:auto">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="uOk">Salvar</button>`,
@@ -3829,7 +3941,7 @@ function openUser(u, done) {
         const mail = $('#uM', m.el).checked;
         if (mail && !$('#uE', m.el).value.trim()) throw new Error('Informe o e-mail para enviar o acesso');
         if (u && mail && !$('#uS', m.el).value) throw new Error('Digite a nova senha que será enviada (ou use "Reenviar acesso")');
-        const j = await api('saveUser', { data: { id: u ? u.id : '', nome: $('#uN', m.el).value, cargo: $('#uC', m.el).value, email: $('#uE', m.el).value, login: $('#uL', m.el).value, senha: $('#uS', m.el).value, enviarEmail: mail, perfil: pickVal(m.el, 'perfil') || 'LEITOR', lojas, ativo: $('#uA', m.el).checked } });
+        const j = await api('saveUser', { data: { id: u ? u.id : '', nome: $('#uN', m.el).value, cargo: $('#uC', m.el).value, email: $('#uE', m.el).value, login: $('#uL', m.el).value, senha: $('#uS', m.el).value, enviarEmail: mail, perfil: pickVal(m.el, 'perfil') || 'LEITOR', lojas, setores: splitMulti(pickVal(m.el, 'setores')), ativo: $('#uA', m.el).checked } });
         m.close(); done(j.users);
         if (j.emailEnviado) toast('Acesso salvo e e-mail enviado para ' + $('#uE', m.el).value);
         else if (j.senhaGerada) modal({ title: 'Acesso criado', icon: 'key', body: `<p>Envie estes dados para o usuário:</p><div class="card" style="background:var(--surface2)"><div>Endereço: <b>${h(cfgv('siteUrl', location.origin))}</b></div><div>Login: <b class="mono">${h($('#uL', m.el).value.toLowerCase())}</b></div><div>Senha provisória: <b class="mono">${h(j.senhaGerada)}</b></div></div>`, foot: '<button class="btn primary" data-close>Ok</button>' });

@@ -1230,9 +1230,7 @@ function updateShell() {
     ${podeEscala() ? `<div class="sb-label">Planejamento</div>${navItem('/escalas', ic('calendar'), 'Simulador de escalas', '<span class="new">5x2</span>')}` : ''}
     <div class="sb-label">Recrutamento</div>
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
-    ${navItem('/sla', ic('gauge'), 'SLA de vagas', S.slaEst ? `<span class="cnt hot" title="SLA estourado">${S.slaEst}</span>` : '')}
     ${navItem('/contratacoes', ic('userplus'), 'Contratações', nC ? `<span class="cnt">${nC}</span>` : '')}
-    ${temSel() ? navItem('/recrutamento', ic('target'), 'Seleções') : ''}
     ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
@@ -1938,9 +1936,7 @@ function route(keep) {
     else if (page === 'admin' && isAdmin()) pgAdmin();
     else if (page === 'historico' && isAdmin()) pgLog();
     else if (page === 'perfil') pgPerfil();
-    else if (page === 'sla') pgSLA();
     else if (page === 'desligamentos') pgDesl();
-    else if (page === 'recrutamento' && temSel()) pgRecrut();
     else if (page === 'mobilidade' && temMob()) pgMob();
     else if (page === 'escalas' && podeEscala()) pgEscala();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
@@ -2106,7 +2102,6 @@ function pgDash() {
   const velhas = S.all.filter(r => r.vagaAberta && r.dias != null && r.dias > 30);
   if (velhas.length) alerts.push({ c: 'c-red', i: 'briefcase', t: `${velhas.length} vaga(s) abertas há mais de 30 dias`, s: 'Revise o andamento da seleção', href: '#/vagas' });
   if (isAdmin() && S.notif.pendentes) alerts.unshift({ c: 'c-amber', i: 'check', t: `${S.notif.pendentes} solicitação(ões) aguardando sua aprovação`, s: 'Requisições de vaga e alterações de recrutadores', href: '#/aprovacoes' });
-  if (S.slaEst) alerts.push({ c: 'c-red', i: 'gauge', t: `${S.slaEst} vaga(s) com SLA estourado`, s: 'Acima da meta de dias para fechar', href: '#/sla' });
   if (contrPend.length) alerts.push({ c: 'c-blue', i: 'userplus', t: `${contrPend.length} contratação(ões) aguardando alocação`, s: 'Vincule ao quadro da loja', href: '#/contratacoes' });
 
   const nova = L.find(l => l.nova);
@@ -2905,7 +2900,6 @@ function pgVagas() {
       { t: 'Situação', k: 'situacao', r: sitBadge },
       { t: 'Etapa', k: 'etapa', r: r => etapaBadge(r.etapa), sort: r => ETAPAS().indexOf(r.etapa) },
       { t: 'Em aberto', k: 'dias', r: r => diasBadge(r.dias) },
-      { t: 'SLA', k: 'sla', r: r => slaBadge(r), sort: r => r.sla && r.sla.pct != null ? r.sla.pct : -1 },
       { t: 'Responsável', k: 'resp', r: r => h((r.info && r.info.responsavel) || '—'), sort: r => (r.info && r.info.responsavel) || '' },
       { t: 'Cand.', k: 'cand', r: r => h((r.info && r.info.candidatos) || '—'), sort: r => +((r.info && r.info.candidatos) || 0) },
       { t: '', k: '', nosort: true, r: r => canEdit(r.loja) ? `<div style="display:flex;gap:6px" data-stop><button class="btn sm" data-info="${r.loja}|${r.row}" title="Acompanhamento">${ic('edit')}</button><button class="btn sm ok" data-fill="${r.loja}|${r.row}">${ic('check')} Preencher</button></div>` : '' }
@@ -3629,7 +3623,7 @@ function openDesligar(l, r) {
       </div>
       <div class="field"><label>Responsável pela nova seleção</label><input class="input" id="dsR" value="${h(S.user.nome)}"></div>
       <div class="field"><label>Observação</label><textarea class="input" id="dsO" placeholder="Opcional"></textarea></div>
-      <div class="badge b-warn" style="white-space:normal;padding:10px 12px;line-height:1.5;display:block">O nome sai do quadro da loja, a posição vira <b>VAGA</b> (o SLA começa a contar hoje) e o colaborador deixa de aparecer em contratações pendentes e contratos de experiência. O registro fica no histórico de desligamentos.</div>`,
+      <div class="badge b-warn" style="white-space:normal;padding:10px 12px;line-height:1.5;display:block">O nome sai do quadro da loja, a posição vira <b>VAGA</b> e o colaborador deixa de aparecer em contratações pendentes e contratos de experiência. O registro fica no histórico de desligamentos.</div>`,
     foot: `<button class="btn" data-close>Cancelar</button><button class="btn danger" id="dsOk">${ic('door')} Confirmar desligamento</button>`,
     onMount: m => $('#dsOk', m.el).onclick = e => run(e.currentTarget, async () => {
       await api('desligar', { loja: l.key, row: r.row, expect: expectOf(r), setor: r.setor, dataDesligamento: $('#dsD', m.el).value, tipo: $('#dsT', m.el).value, responsavel: $('#dsR', m.el).value, obs: $('#dsO', m.el).value });
@@ -4279,7 +4273,7 @@ function openAprovarReq(s, done) {
         <div class="alist" style="max-height:280px">${cands.length ? cands.map(r => `<label class="aitem" style="cursor:pointer;align-items:center"><input type="checkbox" value="${r.row}" ${sug.includes(r) ? 'checked' : ''}><div style="flex:1"><b>${h(r.funcao)}</b><span>${h(r.setor)}${r.info && r.info.abertura ? ' · aberta em ' + isoToBR(r.info.abertura) : ' · sem data'}</span></div>${sug.includes(r) ? '<span class="badge b-ok">sugerida</span>' : ''}</label>`).join('') : '<div class="empty">Não há vagas abertas nesta loja.</div>'}</div></div>
       <label id="arPadW" class="${sug.length ? 'hidden' : ''}" style="display:flex;gap:8px;align-items:center;font-weight:600;margin-top:12px"><input type="checkbox" id="arPad" ${aumento ? 'checked' : ''}> Aumentar o quadro padrão de ${h(p.setor)} em +${qtd} (de ${fmt((l.setores.find(x => x.nome === p.setor) || {}).pad || 0)} para ${fmt(((l.setores.find(x => x.nome === p.setor) || {}).pad || 0) + qtd)})</label>
       <div class="row2 mt"><div class="field"><label>Responsável pela seleção</label><input class="input" id="arR" value="${h(S.user.nome)}"></div><div class="field"><label>Comentário para o solicitante</label><input class="input" id="arC" placeholder="Opcional"></div></div>
-      <p class="muted" style="font-size:12px">O SLA da vaga passa a contar a partir de hoje.</p>`,
+`,
     foot: `<button class="btn" data-close>Cancelar</button><button class="btn ok" id="arOk">${ic('check')} Aprovar requisição</button>`,
     onMount: m => {
       $$('input[name=md]', m.el).forEach(i => i.onchange = () => { $$('input[name=md]', m.el).forEach(x => x.parentElement.classList.toggle('on', x.checked)); $('#mdEx', m.el).classList.toggle('hidden', i.value !== 'existente' || !i.checked); $('#arPadW', m.el).classList.toggle('hidden', $('input[name=md]:checked', m.el).value !== 'nova'); });
@@ -4288,7 +4282,7 @@ function openAprovarReq(s, done) {
         const rows = $$('#mdEx input[type=checkbox]:checked', m.el).map(c => { const r = l.rows.find(x => x.row === +c.value); return { row: r.row, expect: expectOf(r) }; });
         if (modo === 'existente' && !rows.length) throw new Error('Selecione ao menos uma vaga ou escolha criar nova posição');
         await api('decidirSolicitacao', { id: s.id, aprovar: true, comentario: $('#arC', m.el).value, decisao: { modo, rows, responsavel: $('#arR', m.el).value, aumentarPadrao: modo === 'nova' && $('#arPad', m.el).checked } });
-        m.close(); toast('Requisição aprovada — vaga aberta e SLA iniciado'); bgReload(); if (done) done();
+        m.close(); toast('Requisição aprovada — vaga aberta'); bgReload(); if (done) done();
       });
     }
   });
@@ -4523,11 +4517,11 @@ function usersSet_(us) { if (!Array.isArray(us)) return; usersMem = { k: usersK_
 async function usersBuscar_() { const us = (await api('listUsers', {}, { silent: true })).users || []; usersSet_(us); return us; }
 
 async function pgAdmin() {
-  setTitle('Acessos e configurações', 'Usuários, perfis, identidade visual, SLA e notificações');
+  setTitle('Acessos e configurações', 'Usuários, perfis, identidade visual, aprovações e notificações');
   if (window.__grcAdmTab) { setV('admTab', window.__grcAdmTab); window.__grcAdmTab = null; }
   const tab = getV('admTab', 'users');
   const v = $('#view');
-  v.innerHTML = `<div class="seg" id="admTab" style="margin-bottom:16px;flex-wrap:wrap"><button data-v="users">${ic('users')} Usuários</button><button data-v="marca">${ic('image')} Logo e identidade</button><button data-v="sla">${ic('gauge')} SLA e aprovações</button><button data-v="push">${ic('bell')} Notificações</button></div><div id="admBody"></div>`;
+  v.innerHTML = `<div class="seg" id="admTab" style="margin-bottom:16px;flex-wrap:wrap"><button data-v="users">${ic('users')} Usuários</button><button data-v="marca">${ic('image')} Logo e identidade</button><button data-v="sla">${ic('check')} Aprovações</button><button data-v="push">${ic('bell')} Notificações</button></div><div id="admBody"></div>`;
   $$('#admTab button').forEach(b => { b.classList.toggle('on', b.dataset.v === tab); b.onclick = () => { setV('admTab', b.dataset.v); route(); }; });
   const body = $('#admBody');
   if (tab === 'marca') return admMarca(body);
@@ -4663,7 +4657,7 @@ function admSLA(body) {
   const c = S.cfg || {};
   let exc = (c.slaExcecoes || []).slice();
   body.innerHTML = `<div class="grid g2">
-    <div class="card"><div class="card-h"><h3>${ic('gauge')} Metas de SLA</h3><span class="sub">dias para fechar a vaga</span></div>
+    <div class="card" style="display:none"><div class="card-h"><h3>${ic('gauge')} Metas de SLA</h3><span class="sub">dias para fechar a vaga</span></div>
       <div class="field" style="max-width:220px"><label>Meta padrão (dias)</label><input class="input" type="number" min="1" id="slP" value="${c.slaPadrao || 20}"></div>
       <label class="muted" style="font-size:12px;font-weight:600">Exceções por função</label>
       <div id="slEx" class="mt" style="display:flex;flex-direction:column;gap:8px"></div>
@@ -4681,7 +4675,7 @@ function admSLA(body) {
     $$('#slEx [data-del]').forEach(b => b.onclick = () => { exc.splice(+b.dataset.del, 1); draw(); });
   };
   $('#slAdd').onclick = () => { exc.push({ funcao: '', dias: 30 }); draw(); };
-  $('#slOk').onclick = e => run(e.currentTarget, async () => { const j = await api('saveConfig', { data: { slaPadrao: +$('#slP').value, slaExcecoes: exc.filter(x => x.funcao && x.dias), aprovarEtapas: $('#slEt').checked } }); S.cfg = j.cfg; derive(); updateShell(); toast('Configurações salvas'); });
+  $('#slOk').onclick = e => run(e.currentTarget, async () => { const j = await api('saveConfig', { data: { aprovarEtapas: $('#slEt').checked } }); S.cfg = j.cfg; derive(); updateShell(); toast('Configurações salvas'); });
   draw();
 }
 function admPush(body) {
@@ -5182,7 +5176,7 @@ function openPadrao(l, sec) {
         <div class="row3 mt"><div class="field"><label>Quantidade</label><input class="input" id="pdQ" type="number" min="1" max="30" value="1"></div>
         <div class="field"><label>Função</label><input class="input" id="pdF" list="dlPdF" value="${h((vagasSec[0] || sec.linhas[0] || {}).funcao || '')}"><datalist id="dlPdF">${funcs.map(x => `<option value="${h(x)}">`).join('')}</datalist></div>
         <div class="field"><label>Contrato</label><select class="input" id="pdC">${opc(l, 'contrato').map(x => `<option>${h(x)}</option>`).join('')}</select></div></div>
-        <div class="muted" style="font-size:12px">As vagas entram como <b>VAGA</b> no setor, com o SLA começando hoje.</div>
+        <div class="muted" style="font-size:12px">As vagas entram como <b>VAGA</b> no setor.</div>
       </div>
       <div id="pdDown" class="card hidden" style="background:var(--surface2);padding:14px">
         ${vagasSec.length ? `<b>Remover vagas em aberto do setor (opcional)</b>${isAdmin() ? '' : '<div class="muted" style="font-size:12px">Somente administradores podem remover linhas.</div>'}
@@ -5311,7 +5305,7 @@ function vagasPDF(rows, f) {
   <header>${logo && /^(data:image\/|https:)/.test(logo) ? `<img src="${esc(logo)}">` : '<div class="mark">GRC</div>'}<div><h1>Vagas em aberto</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · gerado em ${new Date().toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div><div class="tot"><b>${rows.filter(r => r.vagaAberta).length}</b><span>VAGAS ABERTAS</span></div></header>
   <div class="filtros">${esc(filtros)}</div>
   ${lojasSel.map(lojaBlock).join('')}
-  <footer><span>${esc(cfgv('sistema', 'Quadro de Lojas'))}</span><span>SLA = dias em aberto / meta de dias para fechar</span></footer>
+  <footer><span>${esc(cfgv('sistema', 'Quadro de Lojas'))}</span></footer>
   </div><script>setTimeout(function(){try{window.print()}catch(e){}},600)</script></body></html>`;
   const w = window.open('', '_blank');
   if (!w) { toast('Permita pop-ups para gerar o PDF', true); return; }

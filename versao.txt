@@ -1,1 +1,1 @@
-versao: simulador de escalas 5x2 e 12x36 2026-10-21 (publicacao)
+versao: remove SLA de vagas e Selecoes do menu 2026-10-21

@@ -1,1 +1,1 @@
-versao: parametros de escala no servidor (Apps Script) 2026-10-21 (publicacao)
+versao: tag em treinamento tambem no Super Fraldas 2026-10-22

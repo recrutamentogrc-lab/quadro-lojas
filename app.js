@@ -1133,12 +1133,13 @@ function derive() {
   });
 }
 const lojaBy = k => S.data.lojas.find(l => l.key === k);
-// Eusébio (loja nova): tag para quem ainda está em treinamento
-const TREINO_LOJA = 'EUSEBIO', TREINO_TAG = 'EM TREINAMENTO';
+// Eusébio e Super Fraldas: tag para quem ainda está em treinamento
+const TREINO_LOJAS = ['EUSEBIO', 'SUPERFRALDAS'], TREINO_TAG = 'EM TREINAMENTO';
+const lojaTreino = k => TREINO_LOJAS.includes(k);
 const opc = (l, k) => {
   const o = (l && l.opcoes && l.opcoes[k]) || [];
   // tags padrão (CIPA, PCD, Aprendiz, Lider Trainee) sempre disponíveis em todas as lojas
-  const base = k === 'tag' ? [...(isAdmLoja(l) ? SEN.map(x => x.k) : []), ...o, ...DEF_OPC.tag, ...(l && l.key === TREINO_LOJA ? [TREINO_TAG] : [])] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
+  const base = k === 'tag' ? [...(isAdmLoja(l) ? SEN.map(x => x.k) : []), ...o, ...DEF_OPC.tag, ...(l && lojaTreino(l.key) ? [TREINO_TAG] : [])] : [...o, ...(o.length ? [] : DEF_OPC[k] || [])];
   const vistos = new Set(); return uniq(base).filter(x => { const n = norm(x); if (vistos.has(n)) return false; vistos.add(n); return true; });
 };
 const allFuncoes = () => uniq(S.all.map(r => r.funcao)).sort();
@@ -2431,7 +2432,7 @@ function pgLoja(l) {
   <div id="lojaBody"></div>`;
   selScope(fk);
   const selOn = !!SEL.on[fk];
-  const SIT = [['', 'Todos', () => true], ['ok', 'Ocupadas', r => r.nome && !r.isVaga], ['vaga', 'Vagas abertas', r => r.vagaAberta], ['fut', 'Vagas futuras', r => r.vagaFutura], ['aviso', 'Em aviso', r => r.aviso], ['aprendiz', 'Aprendizes', r => r.aprendiz], ['pcd', 'PCD', r => r.pcd], ['cipa', 'CIPA', r => r.cipa], ['estagio', 'Estágio', r => r.estagio], ['trainee', 'Trainee', r => r.trainee]].concat(l.key === TREINO_LOJA ? [['treino', 'Em treinamento', r => r.treino]] : []);
+  const SIT = [['', 'Todos', () => true], ['ok', 'Ocupadas', r => r.nome && !r.isVaga], ['vaga', 'Vagas abertas', r => r.vagaAberta], ['fut', 'Vagas futuras', r => r.vagaFutura], ['aviso', 'Em aviso', r => r.aviso], ['aprendiz', 'Aprendizes', r => r.aprendiz], ['pcd', 'PCD', r => r.pcd], ['cipa', 'CIPA', r => r.cipa], ['estagio', 'Estágio', r => r.estagio], ['trainee', 'Trainee', r => r.trainee]].concat(lojaTreino(l.key) ? [['treino', 'Em treinamento', r => r.treino]] : []);
   const filt = () => {
     const q = norm(f.q);
     const sf = (SIT.find(x => x[0] === (f.sit || '')) || SIT[0])[2];
@@ -4770,14 +4771,14 @@ function quadroBulk(el, redraw) {
   el.innerHTML = `<b>${rs.length} selecionada(s)</b><span class="faint" style="font-size:12px">${ocup.length} ocupada(s) · ${vagas.length} vaga(s)</span><span class="spacer"></span>
     <button class="btn sm" id="qbClr">Limpar</button>
     ${vagas.length ? `<button class="btn sm" id="qbEt">${ic('kanban')} Etapa / responsável</button>` : ''}
-    ${ocup.length && ocup.every(r => r.loja === TREINO_LOJA) ? `<button class="btn sm" id="qbTr">${ic('grad')} ${ocup.every(r => r.treino) ? 'Tirar de treinamento' : 'Marcar em treinamento'}</button>` : ''}
+    ${ocup.length && ocup.every(r => lojaTreino(r.loja)) ? `<button class="btn sm" id="qbTr">${ic('grad')} ${ocup.every(r => r.treino) ? 'Tirar de treinamento' : 'Marcar em treinamento'}</button>` : ''}
     ${ocup.length ? `<button class="btn sm danger" id="qbDesl">${ic('door')} Desligar ${ocup.length}</button>` : ''}`;
   $('#qbClr', el).onclick = () => { SEL.set.clear(); redraw(); };
   if ($('#qbDesl', el)) $('#qbDesl', el).onclick = () => openDesligarLote(ocup);
   if ($('#qbTr', el)) $('#qbTr', el).onclick = e => treinoLote(ocup, e.currentTarget, redraw);
   if ($('#qbEt', el)) $('#qbEt', el).onclick = () => openVagaLote(vagas);
 }
-// marca / desmarca a tag EM TREINAMENTO em várias posições (Eusébio)
+// marca / desmarca a tag EM TREINAMENTO em várias posições (Eusébio e Super Fraldas)
 async function treinoLote(rs, btn, redraw) {
   const tirar = rs.every(r => r.treino);
   if (!await confirmBox(`${tirar ? 'Tirar' : 'Marcar'} <b>${rs.length}</b> colaborador(es) ${tirar ? 'de' : 'como'} <b>em treinamento</b>?`, tirar ? 'Tirar' : 'Marcar')) return;

@@ -973,7 +973,7 @@ async function meRefresh() {
 }
 function afterBoot() {
   if (liveBooted) return; liveBooted = true;
-  startPolling(); initOneSignal(); carregarAcessoSel(); carregarAcessoMob(); carregarFotos(); filaStart_();
+  startPolling(); initOneSignal(); carregarAcessoSel(); carregarAcessoMob(); carregarAcessoEsc(); carregarFotos(); filaStart_();
   if (isAdmin() && !DEMO) setTimeout(() => usersBuscar_().catch(() => {}), 4000); // deixa a aba Acessos pronta
   if (S.user && S.user.trocarSenha && !DEMO) forcePassword();
   else if (S.user && !S.user.foto && !DEMO && Date.now() - (ls.get('grc_fotoAdiada_' + S.user.id, 0) || 0) > 3 * 864e5) setTimeout(() => { if (!$('.overlay')) askFoto(); }, 2500);
@@ -1289,7 +1289,54 @@ function setupGlobalSearch() {
   q.onblur = () => setTimeout(() => box.classList.add('hidden'), 150);
 }
 
-const podeEscala = () => !!(S.user && (isAdmin() || isDP() || S.user.perfil === 'EDITOR'));
+// acesso ao simulador (igual à Mobilidade): dono, adm. secundário, acesso (edita) e só visualizar — liberado pelo dono
+const podeEscala = () => !!(S.user && (S.esc ? S.esc.acesso : ls.get('grc_escAcesso_' + S.user.id, false)));
+const escEdita = () => !!(S.esc && S.esc.edita);
+const escAdm = () => !!(S.esc && S.esc.adm);
+async function carregarAcessoEsc() {
+  if (!S.user) return;
+  if (DEMO) { S.esc = { acesso: true, edita: true, adm: false, dono: false }; return; }
+  try {
+    const j = await api('escAcesso', {}, { silent: true });
+    const antes = podeEscala(), antesE = escEdita();
+    S.esc = { acesso: !!j.acesso, edita: !!j.edita, adm: !!j.adm, dono: !!j.dono };
+    ls.set('grc_escAcesso_' + S.user.id, S.esc.acesso);
+    if ((antes !== podeEscala() || antesE !== escEdita()) && $('.app')) { updateShell(); if (/^#\/escalas/.test(location.hash)) { if (!podeEscala()) location.hash = '#/inicio'; else route(true); } }
+  } catch (e) { /* servidor sem a função ainda */ }
+}
+async function openEscAcesso() {
+  if (openEscAcesso.lock) return; openEscAcesso.lock = 1;
+  let j;
+  try { busy(true); j = await api('escUsuarios', {}, { silent: true }); }
+  catch (e) { return toast(e.message, true); } finally { busy(false); openEscAcesso.lock = 0; }
+  const ids = j.ids || [], lei = j.leitura || [], adms = j.adms || [], souDono = !!j.souDono;
+  const dono = (j.users || []).find(u => String(u.id) === String(j.dono));
+  const nivel = u => adms.includes(u.id) ? 'adm' : ids.includes(u.id) ? 'edita' : lei.includes(u.id) ? 'ver' : '';
+  const ordem = { adm: 0, edita: 1, ver: 2, '': 3 };
+  const ativos = (j.users || []).filter(u => u.ativo && String(u.id) !== String(j.dono)).sort((a, b) => (ordem[nivel(a)] - ordem[nivel(b)]) || String(a.nome).localeCompare(b.nome));
+  const NIV = [['', 'Sem acesso'], ['ver', 'Só visualizar'], ['edita', 'Acesso (ajusta)'], ['adm', 'Adm. secundário']];
+  modal({
+    title: 'Quem acessa o Simulador de escalas', icon: 'key',
+    body: `<p class="muted" style="margin-top:0;line-height:1.55"><b>Dono</b>: faz tudo. <b>Adm. secundário</b>: ajusta os parâmetros e libera acessos. <b>Acesso</b>: vê e ajusta horários, postos e regras dos setores. <b>Só visualizar</b>: vê as escalas e números, sem alterar. Administradores do Quadro não entram sem estar marcados aqui.${souDono ? '' : ' Só o dono altera os administradores secundários.'}</p>
+      ${dono ? `<div class="card" style="display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:8px">${avatar(dono.nome, dono.foto, 'sm')}<div style="flex:1"><b>${h(dono.nome)}</b><div class="muted" style="font-size:11.5px">${h(dono.cargo || PERFIS[dono.perfil] || '')}</div></div><span class="badge b-violet">Dono</span></div>` : ''}
+      <div class="input-icon search" style="margin:10px 0">${ic('search')}<input class="input" id="eaq" placeholder="Buscar pessoa" style="width:100%"></div>
+      <div style="display:flex;flex-direction:column;gap:8px" id="eaL">${ativos.map(u => `<div class="card" data-nm="${h(norm(u.nome))}" style="display:flex;align-items:center;gap:12px;padding:10px 12px">
+        ${avatar(u.nome, u.foto, 'sm')}<div style="flex:1;min-width:0"><b>${h(u.nome)}</b><div class="muted" style="font-size:11.5px">${h(PERFIS[u.perfil] || u.perfil)}${u.cargo ? ' · ' + h(u.cargo) : ''}</div></div>
+        <select class="input" data-uid="${h(u.id)}" style="width:auto;padding:7px 9px;font-size:12.5px" ${!souDono && nivel(u) === 'adm' ? 'disabled' : ''}>${NIV.filter(n => souDono || n[0] !== 'adm' || nivel(u) === 'adm').map(n => `<option value="${n[0]}" ${nivel(u) === n[0] ? 'selected' : ''}>${n[1]}</option>`).join('')}</select></div>`).join('') || '<div class="empty">Nenhum outro usuário ativo.</div>'}</div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="eaOk">Salvar acessos</button>`,
+    onMount: m => {
+      $('#eaq', m.el).oninput = e => { const t = norm(e.target.value); $$('#eaL [data-nm]', m.el).forEach(l => l.style.display = !t || l.dataset.nm.includes(t) ? '' : 'none'); };
+      $('#eaOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const sels = $$('[data-uid]', m.el);
+        const pl = { ids: sels.filter(c => c.value === 'edita').map(c => c.dataset.uid), leitura: sels.filter(c => c.value === 'ver').map(c => c.dataset.uid) };
+        if (souDono) pl.adms = sels.filter(c => c.value === 'adm').map(c => c.dataset.uid);
+        const r = await api('escSetAcesso', pl);
+        m.close();
+        toast(`Acessos salvos: ${r.adms.length} adm. secundário(s), ${r.ids.length} com acesso e ${r.leitura.length} só visualizar`);
+      });
+    }
+  });
+}
 /* =====================================================================
  * SIMULADOR DE ESCALAS — motor (5x2 e 12x36) · fim da escala 6x1 (EC 141/2026)
  * ===================================================================== */
@@ -1474,7 +1521,7 @@ async function escParCarregar(redesenhar) {
     S.escPar = j.par || {}; ls.set('grc_escParSrv', S.escPar);
     // parâmetros que ficaram só neste aparelho (versão anterior): envia para o servidor
     const loc = ls.get('grc_escPar', {});
-    if (podeEscala()) Object.keys(loc).forEach(k => { if (!S.escPar[k]) escParEnviar(k, loc[k]); });
+    if (escEdita()) Object.keys(loc).forEach(k => { if (!S.escPar[k]) escParEnviar(k, loc[k]); });
     ls.del('grc_escPar');
     if (redesenhar && /^#\/escalas/.test(location.hash) && !$('.overlay')) rerender_();
   } catch (e) { console.warn('escala', e); } finally { escParCarregar.on = false; }
@@ -1725,9 +1772,11 @@ function pgEscala() {
     <select class="input" id="eSetor" style="min-width:220px"><option value="">Visão da loja (todos os setores)</option>${l.setores.map(s => `<option ${s.nome === f.setor ? 'selected' : ''}>${h(s.nome)}</option>`).join('')}</select>
     <div class="seg" id="eEt">${Object.keys(ESC_ETAPAS).map(k => `<button data-v="${k}" class="${f.et === k ? 'on' : ''}">${h(ESC_ETAPAS[k].curto)}</button>`).join('')}</div>
     <span class="spacer"></span>
+    ${escAdm() ? `<button class="btn" id="eAcc" title="Quem pode ver e ajustar o simulador">${ic('key')} Acessos</button>` : ''}
     ${sec ? '' : `<button class="btn" id="eExpL">${ic('download')} Exportar</button>`}
   </div>
   <div id="eBody"></div>`;
+  if ($('#eAcc')) $('#eAcc').onclick = () => openEscAcesso();
   $('#eLoja').onchange = e => { f.loja = e.target.value; f.setor = ''; saveF(); route(); };
   $('#eSetor').onchange = e => { f.setor = e.target.value; saveF(); route(); };
   $$('#eEt button').forEach(b => b.onclick = () => { f.et = b.dataset.v; f.mes = escMesPadrao(f.et); saveF(); route(true); });
@@ -1770,7 +1819,7 @@ function escSetor(l, sec, f) {
   const par = escPar(l, sec.nome);
   const res = escCalc(l, sec, par, f.et);
   const dad = res.dad;
-  const set = (k, val) => { if (!podeEscala()) return; par[k] = val; escParEnviar(escParKey(l.key, sec.nome), par); route(true); };
+  const set = (k, val) => { if (!escEdita()) return; par[k] = val; escParEnviar(escParKey(l.key, sec.nome), par); route(true); };
   const saldo = Math.round((dad.ocupado - res.total) * 100) / 100, saldoPad = Math.round((dad.padrao - res.total) * 100) / 100;
   const futuro = Math.round((dad.ocupado - dad.aviso - res.total) * 100) / 100;
   // comparativo por etapa
@@ -1794,6 +1843,8 @@ function escSetor(l, sec, f) {
   body.innerHTML = `
   <details class="card esc-par" id="ePar" ${f.parOpen ? 'open' : ''}>
     <summary>${ic('settings')} Parâmetros do setor <span class="badge b-acc" style="margin-left:6px">${h(tipoTxt[par.modo])}</span><span class="badge">${h(par.atual)} → ${h(par.alvo)}</span><span class="chev">${ic('chevron')}</span></summary>
+    <fieldset ${escEdita() ? '' : 'disabled'} style="border:0;padding:0;margin:0;min-width:0">
+    ${escEdita() ? '' : `<div class="badge b-info" style="margin-top:12px">${ic('eye')} Só visualização: os parâmetros são definidos por quem tem acesso para ajustar</div>`}
     <div class="esc-grid">
       <div class="field"><label>Como calcular</label><div class="seg" id="pModo"><button data-v="auto" class="${par.modo === 'auto' ? 'on' : ''}">Automático</button><button data-v="manual" class="${par.modo === 'manual' ? 'on' : ''}">Manual</button></div></div>
       <div class="field"><label>Escala de hoje</label><select class="input" id="pAtual"><option value="6x1" ${par.atual === '6x1' ? 'selected' : ''}>6x1 (44h)</option><option value="5x2" ${par.atual === '5x2' ? 'selected' : ''}>5x2 seg–sex (44h)</option><option value="12x36" ${par.atual === '12x36' ? 'selected' : ''}>12x36</option></select></div>
@@ -1817,9 +1868,10 @@ function escSetor(l, sec, f) {
     <div style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Funções consideradas</div>
       <div class="chips" id="pFun">${dad.funcoes.map(fn => `<span class="chip ${(par.fora || []).map(norm).includes(norm(fn)) ? '' : 'on'}" data-fn="${h(fn)}">${h(fn)}</span>`).join('')}</div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
-      <button class="btn" id="pReset">${ic('eraser')} Restaurar padrão</button>
+      ${escEdita() ? `<button class="btn" id="pReset">${ic('eraser')} Restaurar padrão</button>` : ''}
       <span class="faint" style="font-size:11.5px;align-self:center">${ic('check')} Salvo automaticamente para todos${par._por ? ` · última alteração: ${h(par._por)}${par._em && par._em !== 'agora' ? ' em ' + h(par._em) : ''}` : ''}</span>
     </div>
+    </fieldset>
   </details>
 
   <div class="grid g4" style="margin-top:16px">
@@ -1867,7 +1919,7 @@ function escSetor(l, sec, f) {
     </ul></div>`;
   // eventos
   $('#ePar').ontoggle = e => { f.parOpen = e.target.open; saveF(); };
-  $$('#pModo button').forEach(b => b.onclick = () => set('modo', b.dataset.v));
+  if (escEdita()) $$('#pModo button').forEach(b => b.onclick = () => set('modo', b.dataset.v));
   $('#pAtual').onchange = e => { par.atual = e.target.value; if (e.target.value === '12x36') par.alvo = '12x36'; set('atual', par.atual); };
   $('#pAlvo').onchange = e => set('alvo', e.target.value);
   $('#pDom').onchange = e => set('domN', Math.max(1, Math.min(8, Math.round(+e.target.value || 3))));
@@ -1881,8 +1933,8 @@ function escSetor(l, sec, f) {
   if ($('#p24')) $('#p24').onchange = e => set('p24', Math.max(0, Math.round(+e.target.value || 0)));
   if ($('#p12')) $('#p12').onchange = e => set('p12', Math.max(0, Math.round(+e.target.value || 0)));
   if ($('#pH12')) $('#pH12').onchange = e => set('h12', +e.target.value);
-  $$('#pFun .chip').forEach(c => c.onclick = () => { const fn = norm(c.dataset.fn), fo = (par.fora || []).map(norm); set('fora', fo.includes(fn) ? (par.fora || []).filter(x => norm(x) !== fn) : (par.fora || []).concat(c.dataset.fn)); });
-  $('#pReset').onclick = async () => { if (!await confirmBox('Voltar os parâmetros deste setor para o padrão?', 'Restaurar')) return; escParEnviar(escParKey(l.key, sec.nome), null); route(true); };
+  if (escEdita()) $$('#pFun .chip').forEach(c => c.onclick = () => { const fn = norm(c.dataset.fn), fo = (par.fora || []).map(norm); set('fora', fo.includes(fn) ? (par.fora || []).filter(x => norm(x) !== fn) : (par.fora || []).concat(c.dataset.fn)); });
+  if ($('#pReset')) $('#pReset').onclick = async () => { if (!await confirmBox('Voltar os parâmetros deste setor para o padrão?', 'Restaurar')) return; escParEnviar(escParKey(l.key, sec.nome), null); route(true); };
   $('#eMes').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { f.mes = e.target.value; saveF(); route(true); } };
   $$('#eVis button').forEach(b => b.onclick = () => { f.vis = b.dataset.v; saveF(); route(true); });
   if (gr) {

@@ -1047,6 +1047,9 @@ function registrarLojas_(lojas) {
 }
 const todasLojas = () => { const c = ls.get('grc_lojas', null); return c && c.length ? c.map(x => x.key) : ['MATRIZ', 'MESSEJANA', 'TORRA', 'EUSEBIO']; };
 try { registrarLojas_(JSON.parse(localStorage.getItem('grc_lojas') || '[]')); } catch (e) {}
+const COTA_APRENDIZ = .05;
+// faixa da cota PCD pelo total de empregados da empresa
+const faixaPcd = n => n >= 1001 ? .05 : n >= 501 ? .04 : n >= 201 ? .03 : n >= 100 ? .02 : 0;
 function derive() {
   const D = S.data; S.all = [];
   // líder com setores definidos (link de convite): vê só o quadro dos seus setores
@@ -1084,16 +1087,25 @@ function derive() {
       tempoMedio: (() => { const m = colab.map(r => r.meses).filter(x => x != null); return m.length ? sum(m) / m.length : null; })()
     };
     st.ocup = pct(st.atual, st.ideal);
-    st.cotaAprendiz = Math.ceil(st.colab * ((l.cotas && l.cotas.aprendiz) || .05));
-    st.cotaPcd = Math.ceil(st.colab * ((l.cotas && l.cotas.pcd) || .02));
+    // Aprendiz (CLT art. 429): mínimo de 5% por estabelecimento, sobre as funções que demandam formação
+    // profissional — fora da base: os próprios aprendizes, estagiários, gerentes e diretoria.
+    st.baseAprendiz = colab.filter(r => !r.aprendiz && !r.estagio && !/GERENTE|DIRETOR/.test(norm(r.funcao))).length;
+    st.cotaAprendiz = Math.ceil(st.baseAprendiz * COTA_APRENDIZ);
+    st.empregados = colab.filter(r => !r.estagio).length; // base da cota PCD (estagiário não é empregado)
     st.preench = pct(R.filter(r => r.nome).length, R.length);
     l.st = st;
     S.all.push(...R);
   });
   const L = D.lojas;
+  // PCD (Lei 8.213/91, art. 93): a faixa vale para a empresa toda (matriz + filiais) e é distribuída por loja
+  const totEmp = sum(L, l => l.st.empregados);
+  S.pcdPct = faixaPcd(totEmp);
+  L.forEach(l => { l.st.cotaPcd = Math.ceil(l.st.empregados * S.pcdPct); });
   S.tot = {};
   ['ideal', 'atual', 'vagas', 'vagasQt', 'futuras', 'aviso', 'colab', 'aprendiz', 'pcd', 'estagio', 'cipa', 'trainee', 'cotaAprendiz', 'cotaPcd', 'posicoes'].forEach(k => S.tot[k] = sum(L, l => l.st[k]));
   S.tot.ocup = pct(S.tot.atual, S.tot.ideal);
+  S.tot.empregados = totEmp;
+  S.tot.cotaPcd = Math.ceil(totEmp * S.pcdPct); // obrigação da empresa (não a soma dos arredondamentos por loja)
 
   // pendências e desligados
   S.pendRows = {};
@@ -2175,8 +2187,15 @@ function pgDash() {
   const alerts = [];
   (D.experiencias || []).filter(e => e._exp && e._dias <= 7).sort((a, b) => a._dias - b._dias).forEach(e => alerts.push({ c: e._dias <= 2 ? 'c-red' : 'c-amber', i: 'clock', t: `${e.nome}`, s: `Experiência de ${e._prox} dias vence ${e._dias === 0 ? 'hoje' : 'em ' + e._dias + ' dia(s)'} · ${LOJA_NOMES[e._loja] || e.loja}`, href: '#/experiencias' }));
   L.forEach(l => {
-    if (l.st.aprendiz < l.st.cotaAprendiz) alerts.push({ c: 'c-violet', i: 'grad', t: `${l.nome}: aprendizes abaixo da meta`, s: `${l.st.aprendiz} de ${l.st.cotaAprendiz} (${Math.round(((l.cotas || {}).aprendiz || .05) * 100)}% do quadro)`, href: '#/loja/' + l.key });
-    if (l.st.pcd < l.st.cotaPcd) alerts.push({ c: 'c-pink', i: 'accessibility', t: `${l.nome}: PCD abaixo da meta`, s: `${l.st.pcd} de ${l.st.cotaPcd} (${Math.round(((l.cotas || {}).pcd || .02) * 100)}% do quadro)`, href: '#/loja/' + l.key });
+    if (l.st.aprendiz < l.st.cotaAprendiz) alerts.push({ c: 'c-violet', i: 'grad', t: `${l.nome}: aprendizes abaixo da meta`, s: `${l.st.aprendiz} de ${l.st.cotaAprendiz} (5% de ${l.st.baseAprendiz} colaboradores, sem gerentes, diretoria, aprendizes e estagiários)`, href: '#/loja/' + l.key });
+    if (l.st.pcd < l.st.cotaPcd) alerts.push({ c: 'c-pink', i: 'accessibility', t: `${l.nome}: PCD abaixo da meta`, s: `${l.st.pcd} de ${l.st.cotaPcd} (${Math.round(S.pcdPct * 100)}% de ${l.st.empregados} empregados · faixa da empresa: ${S.tot.empregados} empregados)`, href: '#/loja/' + l.key });
+  });
+  // conferência do quadro: diferenças que fazem Ideal − Atual não bater com as vagas
+  if (isAdmin()) L.forEach(l => {
+    const dif = l.setores.filter(sx => sx.padrao && Math.abs(sx.padrao - sum(sx.linhas, r => r.qt)) > .001);
+    if (dif.length) alerts.push({ c: 'c-amber', i: 'alert', t: `${l.nome}: padrão do setor diferente das posições`, s: dif.map(sx => `${sx.nome} (padrão ${fmt(sx.padrao)} × ${fmt(sum(sx.linhas, r => r.qt))} posições)`).join(' · '), href: '#/loja/' + l.key });
+    const vz = l.rows.filter(r => !r.nome && !r.isVaga);
+    if (vz.length) alerts.push({ c: 'c-amber', i: 'alert', t: `${l.nome}: ${vz.length} posição(ões) vazia(s) sem vaga aberta`, s: vz.map(r => `${r.setor} · ${r.funcao}`).join(' · '), href: '#/loja/' + l.key });
   });
   const velhas = S.all.filter(r => r.vagaAberta && r.dias != null && r.dias > 30);
   if (velhas.length) alerts.push({ c: 'c-red', i: 'briefcase', t: `${velhas.length} vaga(s) abertas há mais de 30 dias`, s: 'Revise o andamento da seleção', href: '#/vagas' });
@@ -2213,7 +2232,7 @@ function pgDash() {
     ${kpi({ lbl: 'Vagas em aberto', val: `${T.vagas} <small>posições</small>`, sub: `${fmt(T.vagasQt)} em quadro (FTE) · ${T.futuras} futuras`, icon: 'briefcase', c: 'c-red', href: '#/vagas' })}
     ${kpi({ lbl: 'Ocupação do quadro', val: `${T.ocup}%`, bar: T.ocup, sub: `${fmt(T.atual)} de ${fmt(T.ideal)} posições`, icon: 'target', c: 'c-cyan' })}
     ${kpi({ lbl: 'Aprendizes', val: `${T.aprendiz} <small>/ meta ${T.cotaAprendiz}</small>`, bar: pct(T.aprendiz, T.cotaAprendiz), sub: T.aprendiz >= T.cotaAprendiz ? `${ic('check')} Meta atingida` : `Faltam ${T.cotaAprendiz - T.aprendiz} para a meta`, icon: 'grad', c: 'c-violet' })}
-    ${kpi({ lbl: 'PCD', val: `${T.pcd} <small>/ meta ${T.cotaPcd}</small>`, bar: pct(T.pcd, T.cotaPcd), sub: T.pcd >= T.cotaPcd ? `${ic('check')} Meta atingida` : `Faltam ${T.cotaPcd - T.pcd} para a meta`, icon: 'accessibility', c: 'c-pink' })}
+    ${kpi({ lbl: 'PCD', val: `${T.pcd} <small>/ meta ${T.cotaPcd}</small>`, bar: pct(T.pcd, T.cotaPcd), sub: (T.pcd >= T.cotaPcd ? `${ic('check')} Meta atingida` : `Faltam ${T.cotaPcd - T.pcd} para a meta`) + ` · faixa ${Math.round(S.pcdPct * 100)}% (${T.empregados} empregados)`, icon: 'accessibility', c: 'c-pink' })}
     ${kpi({ lbl: 'Em aviso prévio', val: T.aviso, sub: 'Vagas que vão abrir', icon: 'door', c: 'c-amber' })}
     ${kpi({ lbl: 'Contratações pendentes', val: contrPend.length, sub: 'Aguardando alocação no quadro', icon: 'userplus', c: 'c-blue', href: '#/contratacoes' })}
     ${kpi({ lbl: 'Experiências a vencer', val: `${expV.length} <small>em 15 dias</small>`, sub: `${(D.experiencias || []).filter(e => e._exp && e._dias <= 7).length} nos próximos 7 dias`, icon: 'clock', c: 'c-amber', href: '#/experiencias' })}

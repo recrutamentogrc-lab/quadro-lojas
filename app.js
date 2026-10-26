@@ -4484,7 +4484,7 @@ function pgContr() {
     ${kpi({ lbl: 'Não exportado ao HCM', val: ativos.filter(r => K.hcm && !/SIM/.test(norm(r[K.hcm]))).length, icon: 'refresh', c: 'c-violet' })}
     ${kpi({ lbl: 'Checklist completo', val: `${cOk}<small> / ${ativos.length}</small>`, bar: ativos.length ? cOk / ativos.length * 100 : 0, sub: 'DP, ASO, HCM e quadro', icon: 'check', c: 'c-green' })}
   </div>
-  <div class="card mt"><div class="card-h"><h3>Admissões por semana</h3><span class="sub">últimas 12 semanas + próximas 2</span></div><div class="chart-box sm"><canvas id="chWeek"></canvas></div></div>
+  <div class="card mt ${getV('contrGraf', 'off') === 'on' ? '' : 'ct-graf-off'}" id="ctGraf"><div class="card-h" id="ctGrafH" style="cursor:pointer"><h3>Admissões por semana</h3><span class="sub">últimas 12 semanas + próximas 2</span><span class="spacer"></span><span class="btn sm ghost">${getV('contrGraf', 'off') === 'on' ? 'Ocultar gráfico' : 'Ver gráfico'}</span></div><div class="chart-box sm"><canvas id="chWeek"></canvas></div></div>
   <div class="chips mt" id="perChips"></div>
   <div class="chips mes-chips" id="monChips"></div>
   <div class="chips ck-chips" id="ckChips"></div>
@@ -4546,13 +4546,11 @@ function pgContr() {
   };
   const cols = [
     { t: '', k: '', nosort: true, w: '30px', th: canEdit() ? '<input type="checkbox" class="cSelAll">' : '', r: r => canEdit(r._loja) && !r._deslig ? `<input type="checkbox" data-stop data-sel="${r.row}" ${sel.has(r.row) ? 'checked' : ''}>` : '' },
-    { t: K.data || 'Data', k: K.data, sort: r => r._data ? +r._data : null },
-    { t: 'Loja', k: '_loja', r: r => lojaPill(r._loja) },
-    { t: 'Colaborador', k: K.colab, r: r => `<div class="cell-person">${avatar(r[K.colab], '', 'sm soft')}<div><b>${h(r[K.colab])}</b>${r._consta ? '<div><span class="badge b-bad">consta como desligado</span></div>' : r._pend && r._noQuadro ? '<div><span class="badge b-ok">já está no quadro</span></div>' : r._pend && r._data && daysTo(r._data) < -30 ? `<div><span class="badge b-warn">pendente há ${-daysTo(r._data)} dias</span></div>` : ''}</div></div>` },
-    { t: 'Setor', k: K.setor }, { t: 'Função', k: K.funcao },
-    { t: 'Contrato', k: K.contrato, r: r => qEdit(r, 'contrato', r[K.contrato] ? h(r[K.contrato]) : '<span class="faint">—</span>') },
+    { t: 'Admissão / Loja', k: K.data, w: '118px', sort: r => r._data ? +r._data : null, r: r => `<div class="ct-dl"><b>${h(r[K.data] || '—')}</b>${lojaPill(r._loja)}</div>` },
+    { t: 'Colaborador', k: K.colab, r: r => `<div class="cell-person">${avatar(r[K.colab], '', 'sm soft')}<div class="ct-pes"><b>${h(r[K.colab])}</b><span class="ct-fs">${h(r[K.funcao] || '')}${r[K.setor] ? ' · ' + h(r[K.setor]) : ''}</span>${r._consta ? '<div><span class="badge b-bad">consta como desligado</span></div>' : r._pend && r._noQuadro ? '<div><span class="badge b-ok">já está no quadro</span></div>' : r._pend && r._data && daysTo(r._data) < -30 ? `<div><span class="badge b-warn">pendente há ${-daysTo(r._data)} dias</span></div>` : ''}</div></div>` },
+    { t: 'Contrato', k: K.contrato, w: '110px', r: r => qEdit(r, 'contrato', r[K.contrato] ? h(r[K.contrato]) : '<span class="faint">—</span>') },
     { t: 'Checklist', k: '_chkOk', sort: r => r._deslig ? -1 : r._chkOk, r: r => chkCell(r) },
-    { t: '', k: '', nosort: true, r: r => r._pend && canEdit(r._loja) && lojaBy(r._loja) ? `<div style="display:flex;gap:6px" data-stop><button class="btn sm primary" data-aloc="${r.row}">${ic('swap')} Alocar</button><button class="btn sm" data-dsl="${r.row}" title="Já saiu da empresa">${ic('door')}</button></div>` : '' }
+    { t: '', k: '', nosort: true, r: r => r._pend && canEdit(r._loja) && lojaBy(r._loja) ? `<div class="ct-acts" data-stop><button class="btn sm primary" data-aloc="${r.row}" title="Alocar no quadro">${ic('swap')}<span class="ct-lbl"> Alocar</span></button><button class="btn sm" data-dsl="${r.row}" title="Já saiu da empresa">${ic('door')}</button></div>` : '' }
   ];
   // edição rápida: clicar no ASO / HCM / Contrato direto na lista, sem abrir a pessoa
   const qEdit = (r, f, inner) => canEdit(r._loja) && !r._deslig && K[f] ? `<span class="qedit" data-stop data-qe="${r.row}" data-qf="${f}" title="Clique para alterar">${inner}${ic('chevron', 'qcar')}</span>` : inner;
@@ -4588,7 +4586,8 @@ function pgContr() {
   drawPer(); drawCk(); draw();
   // gráfico semanal
   const weeks = []; for (let i = 11; i >= -2; i--) weeks.push(new Date(ws.getTime() - i * 7 * 864e5));
-  chart($('#chWeek'), { type: 'bar', data: { labels: weeks.map(w => fmtD(w).slice(0, 5)), datasets: S.data.lojas.map(l => ({ label: l.nome, data: weeks.map(w => ativos.filter(r => r._loja === l.key && r._data && r._data >= w && r._data < new Date(w.getTime() + 7 * 864e5)).length), backgroundColor: l.color, borderRadius: 4, maxBarThickness: 26 })) }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { precision: 0 }, grid: { color: css('--border') } } } } });
+  $('#ctGrafH').onclick = () => { setV('contrGraf', getV('contrGraf', 'off') === 'on' ? 'off' : 'on'); route(true); };
+  if (getV('contrGraf', 'off') === 'on') chart($('#chWeek'), { type: 'bar', data: { labels: weeks.map(w => fmtD(w).slice(0, 5)), datasets: S.data.lojas.map(l => ({ label: l.nome, data: weeks.map(w => ativos.filter(r => r._loja === l.key && r._data && r._data >= w && r._data < new Date(w.getTime() + 7 * 864e5)).length), backgroundColor: l.color, borderRadius: 4, maxBarThickness: 26 })) }, options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, ticks: { precision: 0 }, grid: { color: css('--border') } } } } });
 }
 function openMarcarDesl(list, done) {
   list = list.filter(Boolean);

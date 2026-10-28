@@ -1,1 +1,1 @@
-versao: contratacoes com tabela compacta 2026-10-26
+versao: envio de admissoes ao DP (Central) 2026-10-28

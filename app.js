@@ -1119,7 +1119,7 @@ function derive() {
   const C = D.contratacoes || { header: [], rows: [] };
   const H = C.header || [];
   const find = re => H.find(x => re.test(norm(x))) || '';
-  S.ck = { data: H[0] || 'DATA', loja: find(/^LOJA/), colab: find(/COLABORADOR|NOME/), setor: find(/SETOR/), funcao: find(/FUNC/), aso: find(/ASO/), hcm: find(/HCM|EXPORT/), contrato: find(/CONTRATO/), status: find(/STATUS/), dp: find(/SOLICIT|\bDP\b/) };
+  S.ck = { data: H[0] || 'DATA', loja: find(/^LOJA/), colab: find(/COLABORADOR|NOME/), setor: find(/SETOR/), funcao: find(/FUNC/), aso: find(/ASO/), hcm: find(/HCM|EXPORT/), contrato: find(/CONTRATO/), status: find(/STATUS/), dp: find(/SOLICIT|^DP$/), envio: find(/ENVIO DP/) };
   // contratações excluídas (desistência na contratação) somem do sistema; ficam só registradas na planilha
   if (S.ck.status && C.rows) { const ex = r => /EXCLU/.test(norm(r[S.ck.status])); if (C.rows.some(ex)) { C.excluidas = (C.excluidas || []).concat(C.rows.filter(ex)); C.rows = C.rows.filter(r => !ex(r)); } }
   (C.rows || []).forEach(r => {
@@ -4448,8 +4448,33 @@ function chkClick(anchor, r, f) {
   const K = S.ck; if (!r) return;
   if (f === 'aloc') return openAlocar(r);
   if (f === 'aso') return openQuickEdit(anchor, r, 'aso');
+  if (f === 'dp' && podeEnviarDP(r)) return openEnviarDP(r);
   const v = SIM(r[K[f]]) ? 'NÃO' : 'SIM';
   contrSet(r, K[f], v).then(j => { if (j && !j.pendente) toast(`${String(r[K.colab] || '').split(' ')[0]}: ${f === 'dp' ? 'admissão no DP' : 'exportação ao HCM'} ${v === 'SIM' ? 'marcada' : 'desmarcada'}`); }).catch(() => {});
+}
+/* ---------- envio da admissão ao sistema do DP (Central de Movimentações de Pessoal) ---------- */
+const envioDP = r => S.ck.envio ? norm(r[S.ck.envio]) : '';
+const podeEnviarDP = r => !!(r && S.ck.envio && !r._deslig && canContr(r._loja) && !/ANTERIOR|ENVIADO|EXCLU/.test(envioDP(r)));
+function openEnviarDP(r, done) {
+  const K = S.ck; if (!podeEnviarDP(r)) return;
+  const fard = ['BLUSA', 'CALÇA', 'BOTA'].map(k => (S.data.contratacoes.header || []).find(x => norm(x) === norm(k))).filter(Boolean);
+  const faltaF = fard.filter(k => !r[k]);
+  const rac = (S.data.contratacoes.header || []).find(x => /RACIAL/.test(norm(x)));
+  modal({
+    title: 'Enviar admissão ao DP', icon: 'share',
+    body: `<p class="muted" style="margin-top:0">A admissão de <b style="color:var(--text)">${h(r[K.colab])}</b> será registrada na <b>Central de Movimentações de Pessoal</b> (aba Registrar Admissão), com você como responsável.</p>
+      <div class="alist" style="margin-bottom:12px"><div class="aitem">${avatar(r[K.colab], '', 'sm soft')}<div><b>${h(r[K.colab])}</b><span>${h(r[K.funcao] || '')}${K.setor && r[K.setor] ? ' · ' + h(r[K.setor]) : ''} · ${h(r[K.loja] || '')} · admissão ${h(r[K.data] || '—')}${K.contrato && r[K.contrato] ? ' · ' + h(r[K.contrato]) : ''}</span>${fard.length ? `<span style="display:block;margin-top:2px">Fardamento: ${fard.map(k => h(k.toLowerCase()) + ' ' + h(r[k] || '—')).join(' · ')}${rac ? ' · ID racial: ' + h(r[rac] || '—') : ''}</span>` : ''}</div></div></div>
+      ${!r[K.data] ? `<div class="badge b-bad" style="white-space:normal;padding:10px 12px;display:block">${ic('alert')} Preencha a data de admissão antes de enviar.</div>` : faltaF.length || (rac && !r[rac]) ? `<div class="badge b-warn" style="white-space:normal;padding:10px 12px;line-height:1.5;display:block">${ic('alert')} Falta informar: <b>${[...faltaF, ...(rac && !r[rac] ? [rac] : [])].map(k => h(k.toLowerCase())).join(', ')}</b>. Você pode enviar assim mesmo — se completar depois, a Central é atualizada sozinha.</div>` : ''}
+      <p class="muted" style="font-size:12.5px;margin-bottom:0">Depois de enviada, qualquer correção feita aqui é atualizada na Central, e se a contratação for <b>excluída</b> (desistência) ela também sai da Central.</p>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="edOk" ${r[K.data] ? '' : 'disabled'}>${ic('share')} Enviar ao DP</button>`,
+    onMount: m => $('#edOk', m.el).onclick = e => run(e.currentTarget, async () => {
+      const j = await api('enviarDP', { row: r.row, nome: r[K.colab] });
+      r[K.envio] = 'ENVIADO'; if (K.dp) r[K.dp] = 'SIM';
+      m.close(); derive(); updateShell(); route(true); if (done) done();
+      toast(`${String(r[K.colab] || '').split(' ')[0]}: admissão ${j && j.novo === false ? 'atualizada' : 'enviada'} ao DP${j && j.cargo ? ' · ' + j.cargo : ''}`);
+      bgReload();
+    })
+  });
 }
 function pgContr() {
   setTitle('Contratações', 'Admissões semanais e alocação no quadro');
@@ -4550,7 +4575,7 @@ function pgContr() {
     { t: 'Colaborador', k: K.colab, r: r => `<div class="cell-person">${avatar(r[K.colab], '', 'sm soft')}<div class="ct-pes"><b>${h(r[K.colab])}</b><span class="ct-fs">${h(r[K.funcao] || '')}${r[K.setor] ? ' · ' + h(r[K.setor]) : ''}</span>${r._consta ? '<div><span class="badge b-bad">consta como desligado</span></div>' : r._pend && r._noQuadro ? '<div><span class="badge b-ok">já está no quadro</span></div>' : r._pend && r._data && daysTo(r._data) < -30 ? `<div><span class="badge b-warn">pendente há ${-daysTo(r._data)} dias</span></div>` : ''}</div></div>` },
     { t: 'Contrato', k: K.contrato, w: '110px', r: r => qEdit(r, 'contrato', r[K.contrato] ? h(r[K.contrato]) : '<span class="faint">—</span>') },
     { t: 'Checklist', k: '_chkOk', sort: r => r._deslig ? -1 : r._chkOk, r: r => chkCell(r) },
-    { t: '', k: '', nosort: true, r: r => r._pend && canEdit(r._loja) && lojaBy(r._loja) ? `<div class="ct-acts" data-stop><button class="btn sm primary" data-aloc="${r.row}" title="Alocar no quadro">${ic('swap')}<span class="ct-lbl"> Alocar</span></button><button class="btn sm" data-dsl="${r.row}" title="Já saiu da empresa">${ic('door')}</button></div>` : '' }
+    { t: '', k: '', nosort: true, r: r => { const env = podeEnviarDP(r) ? `<button class="btn sm ok" data-edp="${r.row}" title="Enviar a admissão ao sistema do DP">${ic('share')}<span class="ct-lbl"> Enviar ao DP</span></button>` : ''; const al = r._pend && canEdit(r._loja) && lojaBy(r._loja) ? `<button class="btn sm primary" data-aloc="${r.row}" title="Alocar no quadro">${ic('swap')}<span class="ct-lbl"> Alocar</span></button><button class="btn sm" data-dsl="${r.row}" title="Já saiu da empresa">${ic('door')}</button>` : ''; return env || al ? `<div class="ct-acts" data-stop>${env}${al}</div>` : ''; } }
   ];
   // edição rápida: clicar no ASO / HCM / Contrato direto na lista, sem abrir a pessoa
   const qEdit = (r, f, inner) => canEdit(r._loja) && !r._deslig && K[f] ? `<span class="qedit" data-stop data-qe="${r.row}" data-qf="${f}" title="Clique para alterar">${inner}${ic('chevron', 'qcar')}</span>` : inner;
@@ -4558,6 +4583,7 @@ function pgContr() {
     $$('[data-qe]', el).forEach(b => b.onclick = e => { e.stopPropagation(); openQuickEdit(b, rows.find(x => x.row === +b.dataset.qe), b.dataset.qf); });
     $$('[data-ck]', el).forEach(b => b.onclick = e => { e.stopPropagation(); chkClick(b, rows.find(x => x.row === +b.dataset.ck), b.dataset.cf); });
     $$('[data-aloc]', el).forEach(b => b.onclick = () => openAlocar(rows.find(x => x.row === +b.dataset.aloc)));
+    $$('[data-edp]', el).forEach(b => b.onclick = () => openEnviarDP(rows.find(x => x.row === +b.dataset.edp)));
     $$('[data-dsl]', el).forEach(b => b.onclick = () => openMarcarDesl([rows.find(x => x.row === +b.dataset.dsl)]));
     $$('[data-sel]', el).forEach(c => c.onchange = () => { c.checked ? sel.add(+c.dataset.sel) : sel.delete(+c.dataset.sel); drawBulk(); });
     $$('.cSelAll', el).forEach(c => { const ids = $$('[data-sel]', el).map(x => +x.dataset.sel); c.checked = ids.length && ids.every(i => sel.has(i)); c.onchange = () => { ids.forEach(i => c.checked ? sel.add(i) : sel.delete(i)); draw(); }; });
@@ -4973,7 +4999,7 @@ function openExcluirContr(lista, done) {
   const nPos = itens.reduce((a, i) => a + i.pos.length, 0);
   modal({
     title: `Excluir ${lista.length} contratação(ões)`, icon: 'trash',
-    body: `<p class="muted" style="margin-top:0">Use quando a pessoa <b>desistiu na contratação</b>. Ela some do sistema e <b>não entra nos desligamentos</b>. Na planilha, a linha fica com o status <b>Excluído</b>, só como registro.</p>
+    body: `<p class="muted" style="margin-top:0">Use quando a pessoa <b>desistiu na contratação</b>. Ela some do sistema e <b>não entra nos desligamentos</b>. Na planilha, a linha fica com o status <b>Excluído</b>, só como registro.${K.envio && lista.some(r => /ENVIADO/.test(envioDP(r))) ? ' A admissão já enviada ao DP também é <b>excluída da Central</b>.' : ''}</p>
       <div class="alist" style="max-height:240px;margin-bottom:12px">${itens.map(({ r, pos }) => `<div class="aitem">${avatar(r[K.colab], '', 'sm soft')}<div><b>${h(r[K.colab])}</b><span>${h(r[K.funcao] || '')} · ${h(LOJA_NOMES[r._loja] || r[K.loja] || '')} · ${h(r[K.data] || '')}</span>${pos.length ? `<span style="display:block;color:var(--warn);margin-top:2px">${ic('alert')} Está no quadro: ${pos.map(p => h(p.setor + ' · ' + p.funcao)).join(', ')}</span>` : ''}</div></div>`).join('')}</div>
       ${nPos ? `<label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="exQ" checked> Tirar do quadro também (${nPos} posição(ões) voltam a ficar vagas)</label>` : ''}`,
     foot: `<button class="btn" data-close>Cancelar</button><button class="btn danger" id="exOk">${ic('trash')} Excluir</button>`,
@@ -5130,18 +5156,19 @@ function openContr(r) {
     if (o.length && o.length <= 25) return `<div class="field"><label>${h(k)}</label><select class="input" data-k="${h(k)}" ${dis}>${novo ? '<option value=""></option>' : ''}${uniq([...o, val]).filter(x => x !== '' || !r).map(x => `<option ${x === val ? 'selected' : ''}>${h(x)}</option>`).join('')}</select></div>`;
     return `<div class="field"><label>${h(k)}</label><input class="input" data-k="${h(k)}" value="${h(val || '')}" ${ed ? '' : 'readonly'}></div>`;
   };
-  const hdr = C.header.filter(k => !/^COL\d+$/.test(k) && (r || k !== K.status));
+  const hdr = C.header.filter(k => !/^COL\d+$/.test(k) && (r || k !== K.status) && k !== K.envio);
   modal({
     title: r ? h(r[K.colab]) : 'Nova contratação', icon: 'userplus', wide: true,
     body: `<div class="ckp" id="ckp"></div><div class="row2">${hdr.map(field).join('')}</div>
       <datalist id="dlCF">${allFuncoes().map(x => `<option value="${h(x)}">`).join('')}</datalist>
       <datalist id="dlCS">${uniq(S.all.map(x => x.setor)).map(x => `<option value="${h(x)}">`).join('')}</datalist>
       ${novo ? `<div class="card mt" style="background:var(--surface2);padding:14px${edQ ? '' : ';display:none'}"><div class="field" style="margin:0"><label>${ic('swap')} Vaga do quadro que será preenchida</label><select class="input" id="ncV"></select><div class="muted" style="font-size:12px;margin-top:6px" id="ncHint"></div></div></div>` : ''}`,
-    foot: ed ? `${edQ && r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${edQ && r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}${edQ && r && S.ck.status ? `<button class="btn danger ghost" data-a="exc" title="Desistiu na contratação">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
+    foot: ed ? `${edQ && r && r._pend && lojaBy(r._loja) ? `<button class="btn" data-a="aloc" style="margin-right:auto">${ic('swap')} Alocar no quadro</button><button class="btn ghost" data-a="alocM" title="Escolher a vaga manualmente">Escolher vaga</button>` : ''}${edQ && r && !r._deslig ? `<button class="btn danger" data-a="desl">${ic('door')} Desligado</button>` : ''}${edQ && r && S.ck.status ? `<button class="btn danger ghost" data-a="exc" title="Desistiu na contratação">${ic('trash')} Excluir</button>` : ''}${podeEnviarDP(r) ? `<button class="btn ok" data-a="edp" title="Registrar a admissão no sistema do DP">${ic('share')} Enviar ao DP</button>` : r && K.envio && /ENVIADO/.test(envioDP(r)) ? `<span class="badge b-ok" style="align-self:center">${ic('check')} Enviado ao DP</span>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" data-a="ok">Salvar</button>` : '<button class="btn" data-close>Fechar</button>',
     onMount: m => {
       const a = $('[data-a=aloc]', m.el); if (a) a.onclick = () => { m.close(); openAlocar(r); }; const am = $('[data-a=alocM]', m.el); if (am) am.onclick = () => { m.close(); openAlocar(r, true); };
       const dsl = $('[data-a=desl]', m.el); if (dsl) dsl.onclick = () => { m.close(); openMarcarDesl([r]); };
       const exc = $('[data-a=exc]', m.el); if (exc) exc.onclick = () => { m.close(); openExcluirContr([r]); };
+      const edp = $('[data-a=edp]', m.el); if (edp) edp.onclick = () => { m.close(); openEnviarDP(r); };
       const el = k => $(`[data-k="${CSS.escape(k)}"]`, m.el);
       const val = k => { const e = el(k); return e ? e.value : ''; };
       // checklist no topo: espelha os campos do formulário e muda conforme avança

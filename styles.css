@@ -651,3 +651,5 @@ optgroup{font-weight:700}
 .fi-c .btn{grid-column:2;grid-row:1/3}
 .fi-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 @media (max-width:640px){.fi-grid{grid-template-columns:1fr}.fi-acts .btn{flex:1}}
+.fi-dt{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}.fi-dt .input{min-width:0}
+@media (max-width:860px){.toolbar .fi-dt{flex:1 1 calc(50% - 4px)}.toolbar .fi-dt .input{flex:1;width:auto}}

@@ -483,7 +483,8 @@ function semFichaNaUrl_() { try { const u = new URL(location.href); u.searchPara
 async function renderFicha(codigo) {
   $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo ficha…</div></div></div>`;
   let info = null, erro = '';
-  try { const j = await sendRaw_('fichaInfo', { codigo }); if (j && j.ok) info = j.link; else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; }
+  let recs = [];
+  try { const j = await sendRaw_('fichaInfo', { codigo }); if (j && j.ok) { info = j.link; recs = j.recrutadores || []; } else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; }
   const sel = (name, ops, ph) => `<select class="input" name="${name}" required><option value="">—</option>${ops.map(o => `<option>${o}</option>`).join('')}</select>`;
   $('#root').innerHTML = `
   <div class="login-wrap">
@@ -497,6 +498,7 @@ async function renderFicha(codigo) {
         <div class="brand mobile-only">${brandHTML()}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
         ${info ? `<h2>Ficha do candidato</h2>
         ${info.titulo ? `<div class="card" style="background:var(--surface2);padding:10px 14px;margin:6px 0 16px"><div class="muted" style="font-size:12px">Vaga</div><b>${h(info.titulo)}</b></div>` : '<p class="muted" style="margin-top:0">Preencha com atenção, exatamente como está nos seus documentos.</p>'}
+        ${recs.length ? `<div class="field"><label>Quem do RH falou com você?</label><select class="input" name="rec" required><option value="">Selecione o(a) recrutador(a)</option>${recs.map(x => `<option>${h(x)}</option>`).join('')}</select></div>` : ''}
         <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" placeholder="Como está no documento"></div>
         <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required placeholder="Como está no documento"></div>
         <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
@@ -517,8 +519,9 @@ async function renderFicha(codigo) {
   f.onsubmit = async e => {
     e.preventDefault();
     const err = $('#fiErr'), btn = $('button[type=submit]', f); err.classList.add('hidden');
-    const d = { nome: f.nome.value, mae: f.mae.value, cpf: f.cpf.value, nasc: f.nasc.value, tel: f.tel.value, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: info.titulo || '' };
+    const d = { nome: f.nome.value, mae: f.mae.value, cpf: f.cpf.value, nasc: f.nasc.value, tel: f.tel.value, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: info.titulo || '', recrutador: f.rec ? f.rec.value : '' };
     const falha = m => { err.textContent = m; err.classList.remove('hidden'); err.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
+    if (f.rec && !d.recrutador) return falha('Escolha quem do RH falou com você.');
     if (d.nome.trim().split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
     if (d.mae.trim().split(/\s+/).length < 2) return falha('Informe o nome completo da sua mãe.');
     if (!cpfOk_(d.cpf)) return falha('CPF inválido. Confira os números.');
@@ -534,7 +537,7 @@ async function renderFicha(codigo) {
 const podeFichas = () => !!(S.user && (isAdmin() || S.user.podeFichas));
 const fichaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/?ficha=' + c; };
 const fichasCache_ = () => { if (!S.fichas) S.fichas = ls.get('grc_fichas', null); return S.fichas; };
-const fichasSet_ = j => { S.fichas = { fichas: j.fichas || (S.fichas || {}).fichas || [], links: j.links || (S.fichas || {}).links || [] }; ls.set('grc_fichas', S.fichas); };
+const fichasSet_ = j => { S.fichas = { fichas: j.fichas || (S.fichas || {}).fichas || [], links: j.links || (S.fichas || {}).links || [], recrutadores: j.recrutadores || (S.fichas || {}).recrutadores || [] }; ls.set('grc_fichas', S.fichas); };
 const fichasNovas = () => ((fichasCache_() || {}).fichas || []).filter(x => !x.visto).length;
 const fichaTexto_ = (x, farda) => `*Nome:* ${x.nome}\n*Nome da mãe:* ${x.mae}\n*CPF:* ${cpfFmt(x.cpf)}\n*Data de nascimento:* ${dataBR(x.nasc)}` + (farda ? `\n*Fardamento:* Blusa ${x.blusa} · Calça ${x.calca} · Bota ${x.bota}` : '');
 function copiar_(t, msg) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast(msg || 'Copiado'), () => { prompt('Copie:', t); }); }
@@ -549,19 +552,26 @@ async function pgFichas() {
     const c = fichasCache_();
     if (!c) { v.innerHTML = `<div class="sk" style="height:260px"></div>`; return; }
     const q = norm(f.q || ''), qd = String(f.q || '').replace(/\D/g, '');
-    const lista = (c.fichas || []).filter(x => !q || norm(x.nome + ' ' + x.mae + ' ' + (x.titulo || '')).includes(q) || (qd.length >= 3 && x.cpf.includes(qd)));
+    const dia = x => String(x.em || '').slice(0, 10) && new Date(x.em).toLocaleDateString('sv-SE');
+    const recsAll = uniq([...(c.recrutadores || []), ...(c.fichas || []).map(x => x.recrutador).filter(Boolean)]);
+    const lista = (c.fichas || []).filter(x => (!q || norm(x.nome + ' ' + x.mae + ' ' + (x.titulo || '') + ' ' + (x.recrutador || '')).includes(q) || (qd.length >= 3 && x.cpf.includes(qd)))
+      && (!f.rec || (f.rec === '-' ? !x.recrutador : norm(x.recrutador) === norm(f.rec))) && (!f.de || dia(x) >= f.de) && (!f.ate || dia(x) <= f.ate));
     const ativos = (c.links || []).filter(l => l.ativo);
     v.innerHTML = `
     <div class="toolbar">
       <div class="input-icon search">${ic('search')}<input class="input" id="fiQ" placeholder="Buscar por nome, mãe, CPF ou vaga" value="${h(f.q || '')}" style="width:100%"></div>
+      <select class="input" id="fiRec"><option value="">Recrutador: todos</option>${recsAll.map(x => `<option ${f.rec === x ? 'selected' : ''}>${h(x)}</option>`).join('')}<option value="-" ${f.rec === '-' ? 'selected' : ''}>Sem recrutador</option></select>
+      <label class="fi-dt"><span>Preencheu de</span><input class="input" type="date" id="fiDe" value="${h(f.de || '')}" title="Preencheu a partir de"></label>
+      <label class="fi-dt"><span>até</span><input class="input" type="date" id="fiAte" value="${h(f.ate || '')}" title="Preencheu até"></label>
+      ${f.rec || f.de || f.ate ? `<button class="btn ghost" id="fiLimpa">${ic('eraser')} Limpar</button>` : ''}
       <span class="spacer"></span>
-      ${isAdmin() ? `<button class="btn" id="fiAc" title="Quem pode ver as fichas">${ic('shield')} Acesso</button>` : ''}
+      ${isAdmin() ? `<button class="btn" id="fiAc" title="Quem pode ver as fichas">${ic('shield')} Acesso</button><button class="btn" id="fiRecs" title="Lista de recrutadores do formulário">${ic('users')} Recrutadores</button>` : ''}
       <button class="btn" id="fiLinks">${ic('link')} Links (${ativos.length})</button>
       <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
     </div>
     ${lista.length ? `<div class="fi-grid">${lista.map(x => `
       <div class="card fi-card${x.visto ? '' : ' nova'}">
-        <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${x.visto ? '' : ' · <span class="badge b-acc">nova</span>'}</div></div>
+        <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${x.visto ? '' : ' · <span class="badge b-acc">nova</span>'}</div></div>
           <button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button></div>
         <div class="fi-campos">
           ${[['Nome completo', x.nome], ['Nome da mãe', x.mae], ['CPF', cpfFmt(x.cpf)], ['Data de nascimento', dataBR(x.nasc)]].map(([l, val]) => `<div class="fi-c"><span>${l}</span><b>${h(val)}</b><button class="btn sm ghost icon" data-cp="${h(val)}" title="Copiar ${l.toLowerCase()}">${ic('copy')}</button></div>`).join('')}
@@ -571,8 +581,12 @@ async function pgFichas() {
         <div class="fi-acts"><button class="btn primary sm" data-cpall="${h(x.id)}">${ic('copy')} Copiar dados</button><button class="btn sm" data-cpfar="${h(x.id)}">${ic('copy')} Copiar com fardamento</button></div>
       </div>`).join('')}</div>`
       : `<div class="card empty" style="text-align:center;padding:30px"><b>${(c.fichas || []).length ? 'Nenhuma ficha encontrada' : 'Nenhuma ficha recebida ainda'}</b><p class="muted">Clique em <b>Mandar link ao candidato</b>, envie pelo WhatsApp e a ficha aparece aqui assim que ele preencher.</p></div>`}
-    <div class="faint" style="font-size:12px;margin-top:10px">As fichas ficam guardadas por 180 dias e depois são apagadas automaticamente (LGPD).</div>`;
+    <div class="faint" style="font-size:12px;margin-top:10px"><span id="fiCont"></span> · As fichas ficam guardadas por 180 dias e depois são apagadas automaticamente (LGPD).</div>`;
     const qi = $('#fiQ'); qi.oninput = () => { f.q = qi.value; saveF(); draw(); const e2 = $('#fiQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); };
+    [['fiRec', 'rec'], ['fiDe', 'de'], ['fiAte', 'ate']].forEach(([id, k]) => { $('#' + id).onchange = e => { f[k] = e.target.value; saveF(); draw(); }; });
+    if ($('#fiLimpa')) $('#fiLimpa').onclick = () => { f.rec = ''; f.de = ''; f.ate = ''; saveF(); draw(); };
+    if ($('#fiRecs')) $('#fiRecs').onclick = () => openFichaRecs(draw);
+    const cont = $('#fiCont'); if (cont) cont.textContent = lista.length + ' ficha(s)';
     $('#fiNovo').onclick = () => openFichaLink(draw);
     $('#fiLinks').onclick = () => openFichaLinks(draw);
     if ($('#fiAc')) $('#fiAc').onclick = openFichaAcesso;
@@ -615,6 +629,65 @@ function openFichaAcesso() {
     }
   });
 }
+// QR Code (gerado no próprio aparelho)
+let qrLib_ = null;
+const qrCarregar_ = () => qrLib_ || (qrLib_ = new Promise((ok, erro) => { if (window.qrcode) return ok(); const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js'; s.onload = () => ok(); s.onerror = () => { qrLib_ = null; erro(new Error('Não foi possível gerar o QR Code. Verifique a internet.')); }; document.head.appendChild(s); }));
+function qrCanvas_(texto, px) {
+  const q = window.qrcode(0, 'M'); q.addData(texto); q.make();
+  const n = q.getModuleCount(), m = 4, cel = Math.max(4, Math.floor(px / (n + m * 2))), tam = cel * (n + m * 2);
+  const cv = document.createElement('canvas'); cv.width = cv.height = tam; const g = cv.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, tam, tam); g.fillStyle = '#000';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) g.fillRect((c + m) * cel, (r + m) * cel, cel, cel);
+  return cv;
+}
+// cartaz para imprimir / baixar: título, QR e instruções
+function qrCartaz_(url, titulo) {
+  const W = 1240, H = 1754, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#14204a'; g.fillRect(0, 0, W, 230);
+  g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = 'bold 64px Arial'; g.fillText(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'), W / 2, 115); g.font = '38px Arial'; g.fillText('Recursos Humanos', W / 2, 175);
+  g.fillStyle = '#14204a'; g.font = 'bold 72px Arial'; g.fillText('Ficha do candidato', W / 2, 360);
+  if (titulo) { g.font = '44px Arial'; g.fillStyle = '#333'; g.fillText(titulo.slice(0, 48), W / 2, 435); }
+  const qr = qrCanvas_(url, 860); g.drawImage(qr, (W - qr.width) / 2, 480);
+  g.fillStyle = '#222'; g.font = 'bold 48px Arial'; g.fillText('Aponte a câmera do celular para o código', W / 2, 1450);
+  g.font = '40px Arial'; g.fillStyle = '#444'; g.fillText('e preencha seus dados para o processo seletivo.', W / 2, 1515);
+  g.font = '28px Arial'; g.fillStyle = '#888'; g.fillText(url, W / 2, 1640);
+  return cv;
+}
+async function openFichaQR(codigo, titulo) {
+  const url = fichaUrl_(codigo);
+  modal({
+    title: 'QR Code da ficha', icon: 'grid',
+    body: `<p class="muted" style="margin-top:0">O candidato aponta a câmera do celular, abre a ficha e preenche. Dá para imprimir e deixar na loja ou mostrar na tela.</p><div id="qrBox" style="display:flex;justify-content:center;padding:8px"><div class="spin"></div></div>${titulo ? `<div style="text-align:center;font-weight:700">${h(titulo)}</div>` : ''}`,
+    foot: `<button class="btn" data-close>Fechar</button><button class="btn" id="qrBaixar">${ic('download')} Baixar imagem</button><button class="btn primary" id="qrImp">${ic('file')} Imprimir</button>`,
+    onMount: async m => {
+      try {
+        await qrCarregar_();
+        const cv = qrCanvas_(url, 320); cv.style.cssText = 'width:260px;height:260px;border-radius:12px;image-rendering:pixelated';
+        $('#qrBox', m.el).innerHTML = ''; $('#qrBox', m.el).appendChild(cv);
+        const nome = 'qrcode_ficha' + (titulo ? '_' + norm(titulo).toLowerCase().replace(/[^a-z0-9]+/g, '_') : '') + '.png';
+        $('#qrBaixar', m.el).onclick = () => { const a = document.createElement('a'); a.href = qrCartaz_(url, titulo).toDataURL('image/png'); a.download = nome; a.click(); };
+        $('#qrImp', m.el).onclick = () => { const img = qrCartaz_(url, titulo).toDataURL('image/png'); const w = window.open('', '_blank'); if (!w) return toast('Libere as janelas pop-up para imprimir.', true); w.document.write(`<html><head><title>QR Code · Ficha do candidato</title><style>@page{size:A4;margin:0}body{margin:0}img{width:100%;display:block}</style></head><body><img src="${img}" onload="setTimeout(function(){print()},300)"></body></html>`); w.document.close(); };
+      } catch (e) { $('#qrBox', m.el).innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+    }
+  });
+}
+// lista de recrutadores que aparece no formulário
+function openFichaRecs(done) {
+  const L = ((fichasCache_() || {}).recrutadores || []).slice();
+  modal({
+    title: 'Recrutadores do formulário', icon: 'users',
+    body: `<p class="muted" style="margin-top:0">O candidato escolhe um destes nomes ao preencher a ficha. Um nome por linha.</p><textarea class="input" id="frL" rows="7">${h(L.join('\n'))}</textarea>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="frOk">Salvar</button>`,
+    onMount: m => {
+      $('#frOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const nova = $('#frL', m.el).value.split('\n').map(x => x.trim()).filter(Boolean);
+        if (!nova.length) throw new Error('Informe ao menos um nome.');
+        const j = await api('setFichaRecrut', { lista: nova }); fichasSet_({ recrutadores: j.recrutadores }); m.close(); toast('Lista salva'); if (done) done();
+      });
+    }
+  });
+}
 function openFichaLink(done) {
   modal({
     title: 'Mandar link ao candidato', icon: 'share',
@@ -627,9 +700,10 @@ function openFichaLink(done) {
         const j = await api('fichaLinkCriar', { titulo: $('#flT', m.el).value.trim() });
         fichasSet_({ links: j.links });
         const l = j.link, url = fichaUrl_(l.codigo);
-        $('#flRes', m.el).innerHTML = `<div class="card mt" style="border-color:var(--accent)"><b>${ic('check')} Link pronto</b><div class="mono" style="font-size:12.5px;word-break:break-all;margin:8px 0">${h(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="flWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="flCp">${ic('copy')} Copiar link</button></div><div class="faint" style="font-size:12px;margin-top:8px">O mesmo link pode ser mandado para vários candidatos.</div></div>`;
+        $('#flRes', m.el).innerHTML = `<div class="card mt" style="border-color:var(--accent)"><b>${ic('check')} Link pronto</b><div class="mono" style="font-size:12.5px;word-break:break-all;margin:8px 0">${h(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="flWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="flCp">${ic('copy')} Copiar link</button><button class="btn" id="flQr">${ic('grid')} QR Code</button></div><div class="faint" style="font-size:12px;margin-top:8px">O mesmo link pode ser mandado para vários candidatos, ou impresso como QR Code.</div></div>`;
         $('#flWa', m.el).onclick = () => compartilharFicha_(l.codigo, l.titulo);
         $('#flCp', m.el).onclick = () => copiar_(url, 'Link copiado');
+        $('#flQr', m.el).onclick = () => openFichaQR(l.codigo, l.titulo);
         if (done) done();
       });
     }
@@ -640,11 +714,12 @@ function openFichaLinks(done) {
   modal({
     title: 'Links de ficha', icon: 'link', wide: true,
     body: L.length ? `<div class="alist">${L.map(l => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(l.titulo || 'Link geral')}</b> ${l.ativo ? '' : '<span class="badge">desativado</span>'}<span>${h(l.criadoPor)} · ${new Date(l.em).toLocaleDateString('pt-BR')} · ${F.filter(x => x.link === l.codigo).length} ficha(s)</span></div>
-      ${l.ativo ? `<button class="btn sm" data-wa="${h(l.codigo)}" title="WhatsApp">${ic('share')}</button><button class="btn sm" data-cl="${h(l.codigo)}" title="Copiar link">${ic('copy')}</button><button class="btn sm ghost" data-off="${h(l.codigo)}">Desativar</button>` : ''}</div>`).join('')}</div>` : '<p class="muted">Nenhum link criado ainda.</p>',
+      ${l.ativo ? `<button class="btn sm" data-wa="${h(l.codigo)}" title="WhatsApp">${ic('share')}</button><button class="btn sm" data-cl="${h(l.codigo)}" title="Copiar link">${ic('copy')}</button><button class="btn sm" data-qr="${h(l.codigo)}" title="QR Code">${ic('grid')}</button><button class="btn sm ghost" data-off="${h(l.codigo)}">Desativar</button>` : ''}</div>`).join('')}</div>` : '<p class="muted">Nenhum link criado ainda.</p>',
     foot: `<button class="btn" data-close>Fechar</button>`,
     onMount: m => {
       $$('[data-wa]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.wa); compartilharFicha_(l.codigo, l.titulo); });
       $$('[data-cl]', m.el).forEach(b => b.onclick = () => copiar_(fichaUrl_(b.dataset.cl), 'Link copiado'));
+      $$('[data-qr]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.qr); openFichaQR(l.codigo, l.titulo); });
       $$('[data-off]', m.el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem abrir depois não consegue mais enviar.', 'Desativar', true)) return; const j = await api('fichaLinkDesativar', { codigo: b.dataset.off }); fichasSet_({ links: j.links }); m.close(); openFichaLinks(done); if (done) done(); });
     }
   });

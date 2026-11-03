@@ -1,1 +1,1 @@
-versao: envio de admissoes ao DP (Central) 2026-10-28
+versao: modulo pesquisa salarial 2026-11-03

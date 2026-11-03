@@ -1248,6 +1248,7 @@ function updateShell() {
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
     ${!isAdmin() && S.user.podeConvidar ? `<a class="nav" href="#" id="navConv" title="Links de convite">${ic('link')}<span class="lbl">Links de convite</span></a>` : ''}
+    ${isAdmin() ? `<div class="sb-label">Cargos e salários</div>${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial', '<span class="new">novo</span>')}` : ''}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
   `;
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
@@ -2030,6 +2031,7 @@ function route(keep) {
     else if (page === 'desligamentos') pgDesl();
     else if (page === 'mobilidade' && temMob()) pgMob();
     else if (page === 'escalas' && podeEscala()) pgEscala();
+    else if (page === 'pesquisa' && isAdmin()) pgPesq();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();
@@ -4629,6 +4631,146 @@ function openMarcarDesl(list, done) {
     })
   });
 }
+const PESQ_SEED = [{"id":"c421125","nome":"Operador(a) de caixa","cbo":"421125","slug":"operador-de-caixa-421125","funcoes":["OPERADOR(A) DE CAIXA","FISCAL DE CAIXA","OPERADOR(A) DE CAIXA PADARIA","OPERADOR(A) CAIXA AQUI","ATENDENTE/CAIXA"],"salario":null,"merc":{"BR":[1902,1845,1694,2484,1480642],"CE":[1641,1666,1629,1954,36736],"FOR":[1645,1668,1649,1925,19115],"EUS":[1654,1669,1635,1870,999],"CAU":[1659,1669,1652,1827,1811],"MAR":[1651,1671,1654,1828,1304],"AQU":[1751,1666,1645,2224,560]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c521125","nome":"Repositor(a)","cbo":"521125","slug":"repositor-de-mercadorias-521125","funcoes":["REPOSITOR(A)","REPOSITOR","REPOSITOR(A) DE BAZAR"],"salario":null,"merc":{"BR":[1834,1834,1671,2444,1016198],"CE":[1625,1666,1639,1825,26616],"FOR":[1635,1668,1653,1879,12867],"EUS":[1618,1666,1645,1809,434],"CAU":[1623,1666,1652,1808,1077],"MAR":[1668,1702,1657,1995,1446],"AQU":[1606,1650,1629,1798,357]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c784105","nome":"Embalador(a)","cbo":"784105","slug":"embalador-a-mao-784105","funcoes":["EMBALADOR(A)"],"salario":null,"merc":{"BR":[1814,1777,1645,2559,284828],"CE":[1549,1642,1595,1928,3587],"FOR":[1541,1631,1575,2077,1343],"EUS":[1486,1645,1583,1810,80],"CAU":[1600,1655,1604,2065,102],"MAR":[1701,1763,1663,1928,194],"AQU":[1261,1623,1593,1700,43]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c848510","nome":"Açougueiro(a)","cbo":"848510","slug":"acougueiro-848510","funcoes":["AÇOUGUEIRO"],"salario":null,"merc":{"BR":[2190,2098,1832,3497,332075],"CE":[1775,1682,1654,2593,6213],"FOR":[1795,1707,1667,2627,3186],"EUS":[1841,1770,1649,2997,89],"CAU":[1794,1715,1661,2278,317],"MAR":[1868,1727,1671,2713,220],"AQU":[1797,1671,1634,3297,99]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c848305","nome":"Padeiro(a) / Forneiro(a)","cbo":"848305","slug":"padeiro-848305","funcoes":["FORNEIRO","AUXILIAR DE PADARIA"],"salario":null,"merc":{"BR":[2319,2148,1860,3984,91844],"CE":[3139,1699,1654,2951,1911],"FOR":[1812,1737,1681,2726,989],"EUS":[1896,1786,1736,2741,46],"CAU":[1960,1749,1663,3332,124],"MAR":[1933,1742,1674,2639,50],"AQU":[1782,1674,1615,3165,55]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c848310","nome":"Confeiteiro(a)","cbo":"848310","slug":"confeiteiro-848310","funcoes":[],"salario":null,"merc":{"BR":[2267,2131,1865,4008,56745],"CE":[1814,1699,1651,2904,1466],"FOR":[1843,1736,1667,2853,933],"EUS":[1793,1699,1650,2797,82],"CAU":[1843,1669,1629,3268,51],"MAR":[1796,1674,1654,3207,35],"AQU":[2448,2182,1629,3690,18]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c521110","nome":"Vendedor(a) do varejo","cbo":"521110","slug":"vendedor-de-comercio-varejista-521110","funcoes":["VENDEDOR(A)","CONSULTOR DE VENDAS","AUXILIAR DE VENDAS"],"salario":null,"merc":{"BR":[1940,1839,1671,3164,2188610],"CE":[1683,1666,1620,2420,63763],"FOR":[1719,1709,1652,2493,33936],"EUS":[1750,1666,1629,2997,1894],"CAU":[1703,1660,1620,3093,2061],"MAR":[1731,1657,1629,3020,2142],"AQU":[1672,1662,1620,1955,562]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c521140","nome":"Atendente / Balconista","cbo":"521140","slug":"atendente-de-lojas-e-mercados-521140","funcoes":["BALCONISTA","ATENDENTE","ATENDENTE DE APP"],"salario":null,"merc":{"BR":[1898,1841,1688,2423,1454922],"CE":[1636,1657,1620,1893,26125],"FOR":[1655,1671,1634,1976,13543],"EUS":[1629,1652,1620,1969,840],"CAU":[1614,1657,1617,1880,1124],"MAR":[1637,1664,1631,1808,1137],"AQU":[1637,1635,1616,2270,166]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c520110","nome":"Encarregado(a) / Supervisor(a) de setor","cbo":"520110","slug":"supervisor-de-vendas-comercial-520110","funcoes":["ENCARREGADO(A)","ENCARREGADO","ENCARREGADA DE FDL","ENCARREGADO(A) DE BAZAR","ENCARREGADO(A) DE FRIOS","ENCARREGADO(A) DE AÇOUGUE","SUPERVISOR DE VENDAS","LIDER DE APLICATIVO"],"salario":null,"merc":{"BR":[4073,3035,2236,13777,90612],"CE":[3049,2420,1886,8794,3280],"FOR":[2973,2327,1876,8836,1827],"EUS":[3241,3232,2220,7885,151],"CAU":[3324,2643,1909,10859,85],"MAR":[3847,2974,2039,9327,185],"AQU":[4196,4124,3749,9191,98]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c141415","nome":"Gerente de loja","cbo":"141415","slug":"gerente-de-loja-e-supermercado-141415","funcoes":["GERENTE"],"salario":null,"merc":{"BR":[3714,2610,2151,9187,112234],"CE":[2721,2316,1837,7285,2691],"FOR":[2800,2371,1867,7572,1726],"EUS":[2574,2279,1867,6523,67],"CAU":[2678,2357,2069,5493,106],"MAR":[2781,2345,1998,6327,96],"AQU":[2838,2429,1678,5182,24]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c414105","nome":"Estoquista / Almoxarife","cbo":"414105","slug":"almoxarife-414105","funcoes":["ESTOQUISTA","AUXILIAR DEPOSITO"],"salario":null,"merc":{"BR":[2157,2093,1794,3723,473331],"CE":[1841,1720,1653,3259,12551],"FOR":[1851,1735,1668,3259,6815],"EUS":[1949,1790,1671,3485,457],"CAU":[1907,1738,1666,3250,410],"MAR":[1777,1677,1652,2586,953],"AQU":[2203,1971,1726,3848,151]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c414120","nome":"Conferente de mercadoria","cbo":"414120","slug":"conferente-mercadoria-exceto-carga-e-descarga-414120","funcoes":["CONFERENTE"],"salario":null,"merc":{"BR":[2351,2178,1887,5668,42731],"CE":[1895,1740,1680,5497,884],"FOR":[1789,1740,1697,2547,452],"EUS":[2039,1873,1798,3139,18],"CAU":[1875,1781,1676,2364,21],"MAR":[1890,1813,1736,2416,100],"AQU":[2135,1955,1907,3572,32]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c414140","nome":"Separador(a) / Auxiliar de logística","cbo":"414140","slug":"auxiliar-de-logistica-414140","funcoes":["SEPARADOR"],"salario":null,"merc":{"BR":[2018,2052,1862,2649,1220172],"CE":[1771,1728,1664,2759,11337],"FOR":[1807,1747,1680,3372,4398],"EUS":[1751,1702,1645,2857,514],"CAU":[1853,1908,1677,2590,257],"MAR":[1672,1682,1650,1923,2542]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c414215","nome":"Conferente de carga e descarga","cbo":"414215","slug":"conferente-de-carga-e-descarga-414215","funcoes":["CONFERENTE DE ROTA"],"salario":null,"merc":{"BR":[2558,2217,1979,3309,143329],"FOR":[1890,1860,1725,2530,1458],"EUS":[1837,1885,1787,2402,148]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c782310","nome":"Motorista (furgão)","cbo":"782310","slug":"motorista-de-furgao-ou-veiculo-similar-782310","funcoes":["MOTORISTA"],"salario":null,"merc":{"BR":[2392,2307,2021,3705,197907],"FOR":[2000,1907,1764,3035,2345]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c782510","nome":"Motorista de caminhão","cbo":"782510","slug":"motorista-de-caminhao-rotas-regionais-e-internacionais-782510","funcoes":[],"salario":null,"merc":{"BR":[2849,2794,2435,4027,1137565],"FOR":[2544,2493,2118,3599,8639],"EUS":[2687,2577,2173,3523,1421],"CAU":[2461,2492,2069,3773,975],"MAR":[2323,2223,1891,3741,1709],"AQU":[2344,2374,2008,3581,490]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c782220","nome":"Operador(a) de empilhadeira","cbo":"782220","slug":"operador-de-empilhadeira-782220","funcoes":["EMPILHADOR"],"salario":null,"merc":{"BR":[2562,2518,2229,3798,147991],"CE":[2080,2009,1863,2990,1973],"FOR":[2073,1994,1883,3140,656],"EUS":[2003,1953,1855,2481,116],"CAU":[2148,2072,1879,2928,110],"MAR":[2100,2059,1879,2864,461],"AQU":[2102,2118,2018,2370,72]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c514320","nome":"Serviços gerais / Limpeza","cbo":"514320","slug":"faxineiro-514320","funcoes":["SERVIÇOS GERAIS"],"salario":null,"merc":{"BR":[1783,1776,1662,2386,2564164],"CE":[1600,1639,1598,1912,57889],"FOR":[1589,1639,1594,1928,43440],"EUS":[1653,1637,1614,1850,1378],"CAU":[1652,1652,1603,1821,1555],"MAR":[1670,1654,1616,1880,1801],"AQU":[1652,1649,1617,1784,614]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c517410","nome":"Porteiro(a)","cbo":"517410","slug":"porteiro-de-edificios-517410","funcoes":[],"salario":null,"merc":{"BR":[2017,2026,1837,2565,485423],"CE":[1732,1737,1654,2084,16267],"FOR":[1733,1737,1659,2060,13514],"EUS":[1752,1783,1719,1844,780],"CAU":[1733,1736,1640,2187,225],"MAR":[1751,1712,1651,2149,341],"AQU":[1744,1727,1666,1901,52]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c517330","nome":"Vigilante","cbo":"517330","slug":"vigilante-patrimonial-517330","funcoes":[],"salario":null,"merc":{"BR":[2102,2169,1856,2918,373661],"CE":[1885,1891,1865,2234,8683],"FOR":[1890,1891,1865,2228,7637],"EUS":[1845,1894,1865,2357,411],"CAU":[1907,1905,1891,1975,119],"MAR":[2392,1951,1800,4887,36],"AQU":[1898,1926,1751,2603,29]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c517310","nome":"Fiscal de loja / Prevenção","cbo":"517310","slug":"agente-de-seguranca-517310","funcoes":["FISCAL","MONITORAMENTO"],"salario":null,"merc":{"BR":[2223,2087,1846,4226,14074],"CE":[1940,1835,1802,2977,257],"FOR":[1985,1835,1803,3083,172],"EUS":[2648,2778,2463,4425,31],"CAU":[1936,1811,1655,3525,11],"MAR":[1630,1630,1630,1630,1],"AQU":[1882,1885,1881,2089,22]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c513205","nome":"Cozinheiro(a)","cbo":"513205","slug":"cozinheiro-geral-513205","funcoes":["COZINHEIRO(A)"],"salario":null,"merc":{"BR":[2061,1926,1731,3289,541829],"CE":[1788,1717,1654,2655,14401],"FOR":[1778,1717,1657,2591,10533],"EUS":[1796,1696,1654,2606,344],"CAU":[1893,1749,1654,3164,409],"MAR":[1778,1726,1655,2440,303],"AQU":[2095,1856,1657,3459,177]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c513435","nome":"Atendente de lanchonete","cbo":"513435","slug":"atendente-de-lanchonete-513435","funcoes":[],"salario":null,"merc":{"BR":[1839,1780,1666,2448,830345],"CE":[1417,1631,1595,1793,18128],"FOR":[1382,1634,1587,1796,12944],"EUS":[953,1611,8,1727,977],"CAU":[1636,1640,1614,1760,353],"MAR":[1602,1622,1582,1798,452],"AQU":[1646,1659,1615,1721,465]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c411005","nome":"Auxiliar administrativo","cbo":"411005","slug":"auxiliar-de-escritorio-411005","funcoes":["AUXILIAR ADMINISTRATIVO","AUXILIAR COMERCIAL","AUXILIAR DE PROCESSOS"],"salario":null,"merc":{"BR":[1797,1788,1268,3501,1575672],"CE":[1678,1671,1575,3353,37530],"FOR":[1755,1737,1613,3370,24453],"EUS":[1346,1620,765,2857,1142],"CAU":[1493,1640,1092,2959,896],"MAR":[1424,1637,1115,2599,1273],"AQU":[1478,1622,1128,2327,368]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c411010","nome":"Assistente administrativo / comercial","cbo":"411010","slug":"assistente-administrativo-411010","funcoes":["ASSISTENTE COMERCIAL"],"salario":null,"merc":{"BR":[2251,2073,1654,5222,1484767],"CE":[2083,1753,1603,7126,48970],"FOR":[2282,1856,1629,7838,31216],"EUS":[2125,1828,1616,8144,2481],"CAU":[1875,1727,1570,7112,1499],"MAR":[1781,1744,1573,4013,1720],"AQU":[1690,1620,1166,3309,496]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c411030","nome":"Auxiliar de DP","cbo":"411030","slug":"auxiliar-de-pessoal-411030","funcoes":["AUXILIAR DE DP"],"salario":null,"merc":{"BR":[2380,2198,1877,4082,69356],"CE":[2189,1896,1708,3501,2268],"FOR":[2285,1933,1763,3548,1557],"EUS":[2139,2050,1747,3590,110],"CAU":[1998,1810,1703,3234,54],"MAR":[1914,1876,1705,3141,95],"AQU":[1980,1876,1688,2932,32]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c252405","nome":"Analista de RH","cbo":"252405","slug":"analista-de-recursos-humanos-252405","funcoes":["ANALISTA DE RH"],"salario":null,"merc":{"BR":[4501,3817,3035,12288,116691],"CE":[3487,3109,2386,8879,2767],"FOR":[3566,3190,2462,9012,1805],"EUS":[4246,3648,2862,18505,135],"CAU":[3497,3482,2578,7430,72],"MAR":[3624,3129,2426,9229,199],"AQU":[3454,3149,2501,6994,48]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c354205","nome":"Comprador(a)","cbo":"354205","slug":"comprador-354205","funcoes":["COMPRADOR"],"salario":null,"merc":{"BR":[4634,3919,2900,12645,59124],"CE":[3497,3112,2282,8374,1448],"FOR":[3525,3174,2337,8374,948],"EUS":[3651,3523,2578,6982,115],"CAU":[3477,3127,2268,11989,45],"MAR":[4068,3619,2552,10201,58],"AQU":[3159,3057,2417,5602,27]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c521120","nome":"Promotor(a) / Demonstrador(a)","cbo":"521120","slug":"demonstrador-de-mercadorias-521120","funcoes":[],"salario":null,"merc":{"BR":[1977,1856,1758,3041,41452],"CE":[1681,1666,1621,3002,376],"FOR":[1726,1703,1599,3019,219],"EUS":[1633,1665,1654,1766,113],"CAU":[1557,1700,1148,1720,16],"MAR":[1994,1671,1608,4013,51],"AQU":[1360,1280,1255,1633,15]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"},{"id":"c848520","nome":"Magarefe","cbo":"848520","slug":"magarefe-848520","funcoes":[],"salario":null,"merc":{"BR":[2119,2100,1880,3051,91565],"CE":[1862,1720,1640,2558,214],"FOR":[1940,1753,1674,2631,91],"EUS":[2217,2227,2169,2504,21],"CAU":[2061,2163,1895,2558,29],"MAR":[1722,1664,1652,2298,30],"AQU":[1804,1798,1798,1809,2]},"data":"2026-10","fonte":"Salários Brasil (CAGED/MTE)"}];
+/* =====================================================================
+ * PESQUISA SALARIAL — nossos cargos × mercado (CAGED/MTE via Salários Brasil)
+ * Os dados ficam no Apps Script (propriedades do script), sem planilha.
+ * ===================================================================== */
+const PESQ_LOCS = [['FOR', 'Fortaleza'], ['CE', 'Ceará'], ['EUS', 'Eusébio'], ['CAU', 'Caucaia'], ['MAR', 'Maracanaú'], ['AQU', 'Aquiraz'], ['BR', 'Brasil']];
+const PESQ_LOC_Q = { FOR: '?estado=ce&cidade=fortaleza', CE: '?estado=ce', EUS: '?estado=ce&cidade=eusebio', CAU: '?estado=ce&cidade=caucaia', MAR: '?estado=ce&cidade=maracanau', AQU: '?estado=ce&cidade=aquiraz', BR: '' };
+const pesqUrl = (c, loc) => c && c.slug ? 'https://salariosbrasil.com.br/quanto-ganha/' + c.slug + (PESQ_LOC_Q[loc] || '') : '';
+const pesqCache_ = () => { if (!S.pesq) S.pesq = ls.get('grc_pesq', null); return S.pesq; };
+const pesqSet_ = l => { S.pesq = l; ls.set('grc_pesq', l); };
+async function pesqBuscar_() { const j = await api('pesqGet', {}, { silent: true }); pesqSet_(j.cargos || []); return S.pesq; }
+// mercado de um cargo numa localidade: { media, mediana, q1, teto, n } (sem dado → cai para Ceará e depois Brasil)
+function pesqMerc(c, loc) {
+  const ord = [loc, 'FOR', 'CE', 'BR'];
+  for (const k of ord) { const v = c.merc && c.merc[k]; if (v && v[1]) return { loc: k, media: v[0], mediana: v[1], q1: v[2] && v[2] > v[1] * 0.6 ? v[2] : Math.round(v[1] * 0.95), teto: v[3] || Math.round(v[1] * 1.2), n: v[4] || 0 }; }
+  return null;
+}
+function pesqStatus(c, m) {
+  if (!c.salario || !m) return { k: 'sem', t: 'Sem salário', cls: '' };
+  const s = +c.salario;
+  if (s < m.q1) return { k: 'abaixo', t: 'Abaixo do mercado', cls: 'b-bad' };
+  if (s < m.mediana) return { k: 'faixa-', t: 'Na faixa (abaixo da mediana)', cls: 'b-warn' };
+  if (s <= m.teto) return { k: 'faixa+', t: 'Na faixa (acima da mediana)', cls: 'b-ok' };
+  return { k: 'acima', t: 'Acima do teto', cls: 'b-info' };
+}
+function pesqBar(c, m) {
+  if (!m) return '<span class="faint">sem dado de mercado</span>';
+  const s = +c.salario || null;
+  const lo = Math.min(m.q1, s || m.q1) * 0.92, hi = Math.max(m.teto, s || m.teto) * 1.04, P = v => ((v - lo) / (hi - lo) * 100).toFixed(1);
+  return `<div class="pq-bar" title="Faixa ${brl0(m.q1)} a ${brl0(m.teto)} · mediana ${brl0(m.mediana)}${s ? ' · nosso ' + brl0(s) : ''}"><i class="pq-band" style="left:${P(m.q1)}%;width:${(P(m.teto) - P(m.q1)).toFixed(1)}%"></i><i class="pq-med" style="left:${P(m.mediana)}%"></i>${s ? `<i class="pq-nos" style="left:${P(s)}%"></i>` : ''}</div>`;
+}
+function pesqPessoas(c) { const fs = (c.funcoes || []).map(norm); return fs.length ? S.all.filter(r => r.nome && fs.includes(norm(r.funcao))).length : 0; }
+
+async function pgPesq() {
+  setTitle('Pesquisa salarial', 'Nossos cargos × o que o mercado paga (CAGED/MTE)');
+  const v = $('#view'), loc = getV('pesqLoc', 'FOR'), f = getF('pesq');
+  let lista = pesqCache_();
+  const draw = () => {
+    const L = lista || [];
+    const linhas = L.map(c => { const m = pesqMerc(c, loc); return { c, m, st: pesqStatus(c, m), pes: pesqPessoas(c), pos: c.salario && m ? (+c.salario / m.mediana - 1) * 100 : null }; });
+    const q = norm(f.q || '');
+    const vis = linhas.filter(x => (!q || norm(x.c.nome + ' ' + x.c.cbo + ' ' + (x.c.funcoes || []).join(' ')).includes(q)) && (!f.st || x.st.k.startsWith(f.st)));
+    const com = linhas.filter(x => x.c.salario && x.m);
+    const media = com.length ? com.reduce((a, x) => a + x.pos, 0) / com.length : null;
+    const mapeadas = new Set(L.flatMap(c => (c.funcoes || []).map(norm)));
+    const semPesq = Object.entries(S.all.filter(r => r.funcao).reduce((a, r) => { const k = String(r.funcao).trim().toUpperCase(); a[k] = (a[k] || 0) + 1; return a; }, {})).filter(([k]) => !mapeadas.has(norm(k))).sort((a, b) => b[1] - a[1]);
+    v.innerHTML = `
+    <div class="grid g4">
+      ${kpi({ lbl: 'Cargos pesquisados', val: L.length, sub: `${com.length} com nosso salário informado`, icon: 'target', c: 'c-cyan' })}
+      ${kpi({ lbl: 'Abaixo do mercado', val: linhas.filter(x => x.st.k === 'abaixo').length, sub: 'Nosso salário abaixo da faixa típica', icon: 'alert', c: 'c-red' })}
+      ${kpi({ lbl: 'Na faixa de mercado', val: linhas.filter(x => x.st.k.startsWith('faixa')).length, sub: `${linhas.filter(x => x.st.k === 'faixa+').length} acima da mediana`, icon: 'check', c: 'c-green' })}
+      ${kpi({ lbl: 'Posição média × mediana', val: media == null ? '—' : (media >= 0 ? '+' : '') + fmt(media, 1) + '%', sub: 'Média de quanto pagamos acima/abaixo da mediana', icon: 'trend', c: 'c-violet' })}
+    </div>
+    ${!L.length ? `<div class="card mt" style="text-align:center;padding:28px"><b>Nenhum cargo na pesquisa ainda</b><p class="muted">Carregue a pesquisa inicial com 30 cargos do varejo supermercadista (Fortaleza, Ceará, região metropolitana e Brasil), já ligada às funções do quadro.</p><button class="btn primary" id="pqSeed">${ic('download')} Carregar pesquisa inicial (out/2026)</button></div>` : ''}
+    <div class="toolbar">
+      <div class="input-icon search">${ic('search')}<input class="input" id="pqQ" placeholder="Buscar cargo, CBO ou função" value="${h(f.q || '')}" style="width:100%"></div>
+      <select class="input" id="pqLoc">${PESQ_LOCS.map(([k, n]) => `<option value="${k}" ${k === loc ? 'selected' : ''}>Comparar com: ${n}</option>`).join('')}</select>
+      <select class="input" id="pqSt"><option value="">Situação: Todas</option><option value="abaixo" ${f.st === 'abaixo' ? 'selected' : ''}>Abaixo do mercado</option><option value="faixa" ${f.st === 'faixa' ? 'selected' : ''}>Na faixa</option><option value="acima" ${f.st === 'acima' ? 'selected' : ''}>Acima do teto</option><option value="sem" ${f.st === 'sem' ? 'selected' : ''}>Sem salário informado</option></select>
+      <span class="spacer"></span>
+      <button class="btn" id="pqExp" title="Exportar Excel / PDF">${ic('download')}</button>
+      <button class="btn primary" id="pqNew">${ic('plus')} Novo cargo</button>
+    </div>
+    <div class="pq-leg"><span><i class="pq-band"></i> Faixa típica do mercado</span><span><i class="pq-med"></i> Mediana</span><span><i class="pq-nos"></i> Nosso salário</span><span class="faint">Digite o nosso salário direto na tabela. Fonte: Salários Brasil (CAGED/MTE, 12 meses, corrigido pelo IPCA).</span></div>
+    <div id="pqBody"></div>
+    ${semPesq.length && L.length ? `<div class="card mt"><div class="card-h"><h3>Funções do quadro ainda sem pesquisa</h3><span class="sub">clique para criar o cargo já ligado à função</span></div><div class="chips">${semPesq.map(([k, n]) => `<span class="chip" data-nf="${h(k)}">${h(k)} <span class="n">${n}</span></span>`).join('')}</div></div>` : ''}`;
+    table($('#pqBody'), 'pesq', [
+      { t: 'Cargo', k: 'nome', sort: x => x.c.nome, r: x => `<b>${h(x.c.nome)}</b><div class="faint" style="font-size:11.5px">CBO ${h(x.c.cbo || '—')}${(x.c.funcoes || []).length ? ` · <span title="${h(x.c.funcoes.join(', '))}">${x.c.funcoes.length} função(ões) do quadro</span>` : ' · <span style="color:var(--warn)">sem função ligada</span>'}</div>` },
+      { t: 'Pessoas', k: 'pes', w: '70px', sort: x => x.pes, r: x => x.pes || '<span class="faint">—</span>' },
+      { t: 'Nosso salário', k: 'sal', w: '130px', sort: x => +x.c.salario || 0, r: x => `<input class="input pq-in" data-stop data-sal="${h(x.c.id)}" inputmode="decimal" placeholder="R$ 0,00" value="${x.c.salario ? fmt(x.c.salario) : ''}">` },
+      { t: 'Mercado (faixa · mediana · teto)', k: 'merc', sort: x => x.m ? x.m.mediana : 0, r: x => x.m ? `<div style="font-size:12.5px;white-space:nowrap">${brl0(x.m.q1)} · <b>${brl0(x.m.mediana)}</b> · ${brl0(x.m.teto)}</div><div class="faint" style="font-size:11px">${x.m.loc !== loc ? 'sem dado local, usando ' + (PESQ_LOCS.find(p => p[0] === x.m.loc) || [0, x.m.loc])[1] + ' · ' : ''}${x.m.n ? x.m.n.toLocaleString('pt-BR') + ' registros' : ''}${x.m.n && x.m.n < 100 ? ' (amostra pequena)' : ''}</div>` : '<span class="faint">—</span>' },
+      { t: 'Comparação', k: 'pos', w: '200px', sort: x => x.pos == null ? -999 : x.pos, r: x => `${pesqBar(x.c, x.m)}<div style="font-size:11.5px;margin-top:3px">${x.pos == null ? '<span class="faint">informe o salário</span>' : `<b style="color:${x.pos < 0 ? 'var(--bad)' : 'var(--ok)'}">${x.pos >= 0 ? '+' : ''}${fmt(x.pos, 1)}%</b> <span class="faint">vs. mediana</span>`}</div>` },
+      { t: 'Situação', k: 'st', sort: x => x.st.k, r: x => `<span class="badge ${x.st.cls}">${h(x.st.t)}</span>` }
+    ], vis, x => openPesqCargo(x.c, () => { lista = S.pesq; draw(); }));
+    const bind = (id, k) => { const el = $('#' + id); if (el) el.oninput = el.onchange = () => { f[k] = el.value; saveF(); draw(); setTimeout(() => { const e2 = $('#' + id); if (e2 && id === 'pqQ') { e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); } }, 0); }; };
+    bind('pqQ', 'q'); bind('pqSt', 'st');
+    $('#pqLoc').onchange = e => { setV('pesqLoc', e.target.value); route(true); };
+    $('#pqNew').onclick = () => openPesqCargo(null, () => { lista = S.pesq; draw(); });
+    $$('[data-nf]').forEach(ch => ch.onclick = () => openPesqCargo({ nome: ch.dataset.nf.charAt(0) + ch.dataset.nf.slice(1).toLowerCase(), funcoes: [ch.dataset.nf] }, () => { lista = S.pesq; draw(); }, true));
+    $$('[data-sal]').forEach(inp => inp.onchange = () => {
+      const c = lista.find(x => x.id === inp.dataset.sal); if (!c) return;
+      const n = +String(inp.value).replace(/[R$\s.]/g, '').replace(',', '.') || null;
+      if (n === (c.salario || null)) return;
+      const novo = Object.assign({}, c, { salario: n });
+      pesqSalvar_(novo).then(() => { lista = S.pesq; draw(); });
+    });
+    if ($('#pqSeed')) $('#pqSeed').onclick = e => run(e.currentTarget, async () => { const j = await api('pesqSeed', { cargos: PESQ_SEED }); pesqSet_(j.cargos || []); lista = S.pesq; draw(); toast(`${lista.length} cargos carregados`); });
+    $('#pqExp').onclick = () => exportCSV('pesquisa_salarial', ['Cargo', 'CBO', 'Funções do quadro', 'Pessoas', 'Nosso salário', 'Localidade', 'Faixa (P25)', 'Mediana', 'Média', 'Teto', 'Registros', '% vs mediana', 'Situação'], vis.map(x => [x.c.nome, x.c.cbo, (x.c.funcoes || []).join(', '), x.pes, x.c.salario || '', x.m ? (PESQ_LOCS.find(p => p[0] === x.m.loc) || [0, ''])[1] : '', x.m ? x.m.q1 : '', x.m ? x.m.mediana : '', x.m ? x.m.media : '', x.m ? x.m.teto : '', x.m ? x.m.n : '', x.pos == null ? '' : fmt(x.pos, 1) + '%', x.st.t]));
+  };
+  if (lista) draw(); else v.innerHTML = `<div class="sk" style="height:300px"></div>`;
+  const rt = S.rt;
+  try { const nl = await pesqBuscar_(); if (rt !== S.rt || $('.overlay')) return; if (JSON.stringify(nl) !== JSON.stringify(lista)) { lista = nl; draw(); } else if (!lista) { lista = nl; draw(); } }
+  catch (e) { if (!lista) { lista = []; draw(); } toast(e.message, true); }
+}
+// grava um cargo (aparece na hora; o servidor confirma em segundo plano)
+async function pesqSalvar_(c) {
+  const L = (S.pesq || []).slice(); const i = L.findIndex(x => x.id === c.id);
+  if (i >= 0) L[i] = c; else L.push(c);
+  pesqSet_(L);
+  try { const j = await api('pesqSave', { cargo: c }, { silent: true }); if (j.cargos) pesqSet_(j.cargos); }
+  catch (e) { toast('Não foi possível salvar: ' + e.message, true); }
+}
+function openPesqCargo(c0, done, novo) {
+  const c = Object.assign({ id: '', nome: '', cbo: '', slug: '', funcoes: [], salario: null, merc: {}, data: new Date().toISOString().slice(0, 7), fonte: 'Salários Brasil (CAGED/MTE)', obs: '' }, c0 || {});
+  const ehNovo = novo || !c.id;
+  const val = (loc, i) => c.merc && c.merc[loc] && c.merc[loc][i] != null ? c.merc[loc][i] : '';
+  modal({
+    title: ehNovo ? 'Novo cargo na pesquisa' : 'Cargo · ' + c.nome, icon: 'target', wide: true,
+    body: `<div class="row2"><div class="field"><label>Nome do cargo</label><input class="input" id="pcN" value="${h(c.nome)}" placeholder="Ex.: Operador(a) de caixa"></div>
+      <div class="field"><label>Nosso salário (R$)</label><input class="input" id="pcS" inputmode="decimal" value="${c.salario ? fmt(c.salario) : ''}" placeholder="Ex.: 1.700,00"></div></div>
+      <div class="field"><label>Link do cargo no Salários Brasil (ou código CBO)</label><input class="input" id="pcL" value="${h(c.slug ? 'https://salariosbrasil.com.br/quanto-ganha/' + c.slug : c.cbo)}" placeholder="Cole aqui o link da página do cargo"><div class="muted" style="font-size:12px;margin-top:6px">Procure o cargo em <a href="https://salariosbrasil.com.br/lista-de-profissoes" target="_blank" rel="noopener" style="color:var(--accent)">salariosbrasil.com.br</a>, filtre a cidade e copie os valores para a tabela abaixo. <span id="pcLk"></span></div></div>
+      <div class="field"><label>Funções do quadro ligadas a este cargo</label>${chipPicker('pcf', allFuncoes(), (c.funcoes || []).join(', '))}</div>
+      <label style="font-weight:700;font-size:13px">Valores de mercado (R$ por mês)</label>
+      <div class="tbl-wrap mt"><table class="tbl pq-mt"><thead><tr><th>Localidade</th><th>Faixa (P25)</th><th>Mediana</th><th>Média</th><th>Teto</th><th>Registros</th><th></th></tr></thead><tbody>
+      ${PESQ_LOCS.map(([k, n]) => `<tr><td><b>${n}</b></td>${[2, 1, 0, 3, 4].map(i => `<td><input class="input" data-m="${k}" data-i="${i}" inputmode="numeric" value="${val(k, i)}"></td>`).join('')}<td>${c.slug ? `<a class="btn sm ghost" target="_blank" rel="noopener" href="${h(pesqUrl(c, k))}" title="Abrir no Salários Brasil">${ic('link')}</a>` : ''}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="row2 mt"><div class="field"><label>Mês da pesquisa</label><input class="input" type="month" id="pcD" value="${h(c.data || '')}"></div><div class="field"><label>Observação</label><input class="input" id="pcO" value="${h(c.obs || '')}" placeholder="Opcional"></div></div>`,
+    foot: `${!ehNovo ? `<button class="btn danger ghost" id="pcDel" style="margin-right:auto">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="pcOk">Salvar</button>`,
+    onMount: m => {
+      bindPickers(m.el);
+      const lerLink = () => { const t = $('#pcL', m.el).value.trim(); const s = (t.match(/quanto-ganha\/([a-z0-9\-]+-\d{6})/) || [])[1] || ''; const cbo = s ? s.slice(-6) : (t.match(/\b(\d{4})-?(\d{2})\b/) ? t.replace(/\D/g, '').slice(0, 6) : ''); return { slug: s, cbo }; };
+      const upd = () => { const { slug } = lerLink(); $('#pcLk', m.el).innerHTML = slug ? `<a target="_blank" rel="noopener" style="color:var(--accent)" href="https://salariosbrasil.com.br/quanto-ganha/${h(slug)}?estado=ce&cidade=fortaleza">Abrir este cargo em Fortaleza ↗</a>` : ''; };
+      $('#pcL', m.el).oninput = upd; upd();
+      const num = s => { s = String(s || '').replace(/[R$\s]/g, ''); if (!s) return null; if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); const n = +s; return isNaN(n) ? null : n; };
+      $('#pcOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const nome = $('#pcN', m.el).value.trim(); if (!nome) throw new Error('Informe o nome do cargo.');
+        const { slug, cbo } = lerLink();
+        const merc = {};
+        PESQ_LOCS.forEach(([k]) => { const arr = [0, 1, 2, 3, 4].map(i => { const el = $(`[data-m="${k}"][data-i="${i}"]`, m.el); return el ? num(el.value) : null; }); if (arr[1]) merc[k] = arr.map(x => x == null ? null : Math.round(x)); });
+        const novoC = Object.assign({}, c, { id: c.id || 'c' + Date.now().toString(36), nome, slug: slug || c.slug || '', cbo: cbo || c.cbo || '', funcoes: splitMulti(pickVal(m.el, 'pcf')), salario: num($('#pcS', m.el).value), merc, data: $('#pcD', m.el).value, obs: $('#pcO', m.el).value.trim() });
+        m.close(); await pesqSalvar_(novoC); toast('Cargo salvo'); if (done) done();
+      });
+      const del = $('#pcDel', m.el); if (del) del.onclick = async () => {
+        if (!await confirmBox(`Excluir <b>${h(c.nome)}</b> da pesquisa salarial?`, 'Excluir', true)) return;
+        m.close(); pesqSet_((S.pesq || []).filter(x => x.id !== c.id)); if (done) done();
+        try { const j = await api('pesqDelete', { id: c.id }, { silent: true }); if (j.cargos) pesqSet_(j.cargos); } catch (e) { toast(e.message, true); }
+      };
+    }
+  });
+}
+
 /* =====================================================================
  * ADMIN — ACESSOS E CONFIGURAÇÕES
  * ===================================================================== */

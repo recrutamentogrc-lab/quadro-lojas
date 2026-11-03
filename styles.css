@@ -570,3 +570,17 @@ optgroup{font-weight:700}
 #cBody .ck-meta{flex-wrap:wrap;row-gap:2px}
 @media (max-width:1400px){ #cBody .tbl td,#cBody .tbl th{padding:8px 9px} #cBody .ck-i{font-size:10.5px;padding:2px 6px 2px 3px} }
 @media (max-width:1280px){ .ct-lbl{display:none} }
+
+/* pesquisa salarial */
+.pq-bar{position:relative;height:10px;border-radius:6px;background:var(--surface3);min-width:150px}
+.pq-bar i{position:absolute;top:0;bottom:0}
+.pq-band{background:color-mix(in srgb,var(--accent) 35%,transparent);border-radius:6px}
+.pq-med{width:2px;background:var(--accent);margin-left:-1px;top:-3px!important;bottom:-3px!important}
+.pq-nos{width:12px;height:12px;border-radius:50%;background:var(--warn);border:2px solid var(--surface);margin-left:-6px;top:-1px!important}
+.pq-leg{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12px;color:var(--muted);margin:0 0 10px}
+.pq-leg span{display:inline-flex;align-items:center;gap:6px}
+.pq-leg i{display:inline-block;position:static;width:18px;height:8px;border-radius:4px}
+.pq-leg i.pq-med{width:2px;height:12px;margin:0}
+.pq-leg i.pq-nos{width:10px;height:10px;margin:0}
+.pq-in{width:110px;padding:6px 8px;font-size:13px}
+.pq-mt td{padding:6px}.pq-mt .input{padding:6px 8px;font-size:13px;min-width:70px}

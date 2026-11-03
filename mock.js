@@ -148,6 +148,8 @@
         case 'listUsers': return { ok: true, users: clone(users) };
         case 'pesqAcesso': return { ok: true, ids: window.__pqac || [] };
         case 'setPesqAcesso': window.__pqac = p.ids || []; return { ok: true, ids: window.__pqac };
+        case 'fichaAcesso': return { ok: true, ids: window.__fac || [] };
+        case 'setFichaAcesso': window.__fac = p.ids || []; return { ok: true, ids: window.__fac };
         case 'fichaInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio' } };
         case 'fichaEnviar': { window.__fi = window.__fi || []; const d = p.data; window.__fi.unshift({ id: 'f' + Date.now(), nome: d.nome.toUpperCase(), mae: d.mae.toUpperCase(), cpf: d.cpf.replace(/\D/g, ''), nasc: d.nasc, tel: d.tel.replace(/\D/g, ''), blusa: d.blusa, calca: d.calca, bota: d.bota, titulo: d.vaga, link: 'demo', em: new Date().toISOString(), visto: false }); return { ok: true }; }
         case 'fichasList': if (!window.__fi) window.__fi = [{ id: 'f1', nome: 'MARIA DE FÁTIMA SOUSA LIMA', mae: 'FRANCISCA SOUSA LIMA', cpf: '52998224725', nasc: '1998-04-12', tel: '85991234567', blusa: 'M', calca: '40', bota: '37', titulo: 'Operador de caixa · Eusébio', link: 'demo', em: new Date().toISOString(), por: me.nome, visto: false }]; return { ok: true, fichas: clone(window.__fi), links: clone(window.__fl || []) };

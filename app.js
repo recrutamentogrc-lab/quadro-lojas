@@ -531,7 +531,7 @@ async function renderFicha(codigo) {
   };
 }
 /* ---------------- RH: fichas recebidas ---------------- */
-const podeFichas = () => !!(S.user && (isAdmin() || isRecrut()));
+const podeFichas = () => !!(S.user && (isAdmin() || S.user.podeFichas));
 const fichaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/?ficha=' + c; };
 const fichasCache_ = () => { if (!S.fichas) S.fichas = ls.get('grc_fichas', null); return S.fichas; };
 const fichasSet_ = j => { S.fichas = { fichas: j.fichas || (S.fichas || {}).fichas || [], links: j.links || (S.fichas || {}).links || [] }; ls.set('grc_fichas', S.fichas); };
@@ -555,6 +555,7 @@ async function pgFichas() {
     <div class="toolbar">
       <div class="input-icon search">${ic('search')}<input class="input" id="fiQ" placeholder="Buscar por nome, mãe, CPF ou vaga" value="${h(f.q || '')}" style="width:100%"></div>
       <span class="spacer"></span>
+      ${isAdmin() ? `<button class="btn" id="fiAc" title="Quem pode ver as fichas">${ic('shield')} Acesso</button>` : ''}
       <button class="btn" id="fiLinks">${ic('link')} Links (${ativos.length})</button>
       <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
     </div>
@@ -574,6 +575,7 @@ async function pgFichas() {
     const qi = $('#fiQ'); qi.oninput = () => { f.q = qi.value; saveF(); draw(); const e2 = $('#fiQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); };
     $('#fiNovo').onclick = () => openFichaLink(draw);
     $('#fiLinks').onclick = () => openFichaLinks(draw);
+    if ($('#fiAc')) $('#fiAc').onclick = openFichaAcesso;
     $$('[data-cp]').forEach(b => b.onclick = () => copiar_(b.dataset.cp));
     const por = id => (fichasCache_().fichas || []).find(x => x.id === id);
     $$('[data-cpall]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpall)), 'Dados copiados. É só colar no WhatsApp.'));
@@ -592,6 +594,26 @@ async function pgFichas() {
     const novas = (j.fichas || []).filter(x => !x.visto).map(x => x.id);
     if (novas.length) api('fichaMarcar', { ids: novas }, { silent: true }).then(k => { fichasSet_(k); updateShell(); }).catch(() => {});
   } catch (e) { if (!fichasCache_()) v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; else toast(e.message, true); }
+}
+// quem (além dos administradores) pode ver as fichas — independe do perfil
+function openFichaAcesso() {
+  modal({
+    title: 'Acesso às Fichas de candidatos', icon: 'shield',
+    body: `<p class="muted" style="margin-top:0">Administradores sempre têm acesso. Marque quem mais pode ver as fichas, mandar o link e copiar os dados, seja qual for o tipo de acesso da pessoa.</p><div id="faL"><div class="sk" style="height:80px"></div></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="faOk">Salvar</button>`,
+    onMount: async m => {
+      const el = $('#faL', m.el);
+      try {
+        const us = (usersCache_() || await usersBuscar_()).filter(u => u.perfil !== 'ADMIN' && u.ativo);
+        const ids = (await api('fichaAcesso', {}, { silent: true })).ids || [];
+        if (!$('#faL', m.el)) return;
+        el.innerHTML = us.length ? chipPicker('fac', us.map(u => u.id), ids.join(', ')) : '<span class="muted">Nenhum usuário sem perfil de administrador.</span>';
+        bindPickers(el);
+        $$('[data-picker=fac] .chip', el).forEach(c => { const u = us.find(x => x.id === c.dataset.v); c.textContent = u ? u.nome + (u.cargo ? ' · ' + u.cargo : '') : c.dataset.v; });
+      } catch (e) { el.innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+      $('#faOk', m.el).onclick = ev => run(ev.currentTarget, async () => { await api('setFichaAcesso', { ids: splitMulti(pickVal(el, 'fac')) }); m.close(); toast('Acesso salvo. A pessoa vê as Fichas ao entrar de novo ou atualizar a página.'); });
+    }
+  });
 }
 function openFichaLink(done) {
   modal({

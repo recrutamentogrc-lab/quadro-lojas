@@ -636,3 +636,18 @@ optgroup{font-weight:700}
 .ts-niv{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 @media (max-width:860px){.ts-med{grid-template-columns:1fr}.ts-prev{grid-template-columns:repeat(3,1fr)}.ts-niv{grid-template-columns:repeat(2,1fr)}.ts-wrap{max-height:none}}
 @media (max-width:640px){.ts-pg thead{display:none}.ts-pg tr{display:block;padding:8px 2px;border-bottom:1px solid var(--border)}.ts-pg td{display:block;border:none!important;padding:2px 4px}.ts-pg td:first-child{font-size:14px}}
+
+/* fichas de candidatos */
+.fi-sec{font-weight:800;font-size:13px;margin:6px 0 8px;color:var(--accent)}
+.fi-farda{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.fi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
+.fi-card.nova{border-color:var(--accent)}
+.fi-top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;margin-bottom:10px}
+.fi-nome{font-size:15px}
+.fi-campos{display:grid;gap:6px}
+.fi-c{display:grid;grid-template-columns:1fr auto;align-items:center;background:var(--surface2);border-radius:10px;padding:6px 6px 6px 10px;min-height:40px}
+.fi-c span{grid-column:1;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);font-weight:700}
+.fi-c b{grid-column:1;font-size:13.5px;overflow-wrap:anywhere}
+.fi-c .btn{grid-column:2;grid-row:1/3}
+.fi-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+@media (max-width:640px){.fi-grid{grid-template-columns:1fr}.fi-acts .btn{flex:1}}

@@ -338,7 +338,8 @@ function init() {
   S.view = ls.get('grc_views', {});
   S.cfg = ls.get('grc_cfg', null);
   applyFavicon();
-  if (S.token) {
+  if (QS.get('ficha')) { renderFicha(QS.get('ficha')); refreshPublicCfg(); }
+  else if (S.token) {
     const cache = DEMO ? null : ls.get('grc_data', null);
     if (cache && cache.data && cache.data.user) {
       // abre na hora com os últimos dados salvos no aparelho e atualiza em segundo plano
@@ -469,6 +470,162 @@ async function renderConvite(codigo) {
       toast('Acesso criado! Bem-vindo(a), ' + d.nome.split(' ')[0] + '.');
     } catch (ex) { err.textContent = ex.message; err.classList.remove('hidden'); btn.disabled = false; btn.textContent = 'Criar acesso e entrar'; }
   };
+}
+/* ---------------- ficha do candidato (link público, sem login) ---------------- */
+const FICHA_BLUSA = ['PP', 'P', 'M', 'G', 'GG', 'XG', 'XGG', 'EXGG'];
+const FICHA_CALCA = ['34', '36', '38', '40', '42', '44', '46', '48', '50', '52', '54', '56', 'PP', 'P', 'M', 'G', 'GG', 'XG', 'XGG'];
+const FICHA_BOTA = ['33', '34', '35', '36', '37', '38', '39', '40', '41', '42', '43', '44', '45', '46'];
+const cpfFmt = c => { c = String(c || '').replace(/\D/g, ''); return c.length === 11 ? c.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : c; };
+const dataBR = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? s.split('-').reverse().join('/') : (s || '');
+const telFmt = t => { t = String(t || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, ''); return t.length === 11 ? t.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3') : t.length === 10 ? t.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3') : t; };
+function cpfOk_(c) { c = String(c || '').replace(/\D/g, ''); if (c.length !== 11 || /^(\d)\1{10}$/.test(c)) return false; for (let t = 9; t < 11; t++) { let s = 0; for (let i = 0; i < t; i++) s += +c[i] * (t + 1 - i); if (((s * 10) % 11) % 10 !== +c[t]) return false; } return true; }
+function semFichaNaUrl_() { try { const u = new URL(location.href); u.searchParams.delete('ficha'); history.replaceState(null, '', u.pathname + (u.search || '') + (u.hash || '')); } catch (e) {} }
+async function renderFicha(codigo) {
+  $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo ficha…</div></div></div>`;
+  let info = null, erro = '';
+  try { const j = await sendRaw_('fichaInfo', { codigo }); if (j && j.ok) info = j.link; else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; }
+  const sel = (name, ops, ph) => `<select class="input" name="${name}" required><option value="">—</option>${ops.map(o => `<option>${o}</option>`).join('')}</select>`;
+  $('#root').innerHTML = `
+  <div class="login-wrap">
+    <section class="login-hero">
+      <div class="grid-bg"></div><div class="orb"></div>
+      <div class="brand" style="position:relative;color:#fff">${brandHTML(true)}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
+      <div style="position:relative"><h1>Ficha do<br><span>candidato</span></h1><p>Preencha seus dados para darmos andamento ao seu processo seletivo.</p></div>
+    </section>
+    <section class="login-box">
+      <form class="login-card" id="fiForm" autocomplete="on" style="max-width:460px">
+        <div class="brand mobile-only">${brandHTML()}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
+        ${info ? `<h2>Ficha do candidato</h2>
+        ${info.titulo ? `<div class="card" style="background:var(--surface2);padding:10px 14px;margin:6px 0 16px"><div class="muted" style="font-size:12px">Vaga</div><b>${h(info.titulo)}</b></div>` : '<p class="muted" style="margin-top:0">Preencha com atenção, exatamente como está nos seus documentos.</p>'}
+        <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" placeholder="Como está no documento"></div>
+        <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required placeholder="Como está no documento"></div>
+        <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
+        <div class="field"><label>Data de nascimento</label><input class="input" name="nasc" type="date" required></div></div>
+        <div class="field"><label>WhatsApp (opcional)</label><input class="input" name="tel" inputmode="tel" autocomplete="tel" placeholder="(85) 90000-0000"></div>
+        <div class="fi-sec">Fardamento</div>
+        <div class="fi-farda"><div class="field"><label>Blusa</label>${sel('blusa', FICHA_BLUSA, 'Tamanho')}</div><div class="field"><label>Calça</label>${sel('calca', FICHA_CALCA, 'Tamanho')}</div><div class="field"><label>Bota / calçado</label>${sel('bota', FICHA_BOTA, 'Número')}</div></div>
+        <div id="fiErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
+        <button class="btn primary block" type="submit">Enviar meus dados</button>
+        <p class="faint" style="font-size:11.5px;margin-top:14px;line-height:1.5">Seus dados serão usados somente pelo RH do ${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))} para o processo seletivo e a admissão, conforme a Lei Geral de Proteção de Dados (LGPD).</p>`
+        : `<h2>Link indisponível</h2><div class="badge b-bad" style="display:flex;padding:10px 12px;margin:10px 0 16px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p>`}
+      </form>
+    </section>
+  </div>`;
+  const f = $('#fiForm'); if (!info) return;
+  f.cpf.addEventListener('input', () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); });
+  f.tel.addEventListener('input', () => { const d = f.tel.value.replace(/\D/g, '').slice(0, 11); f.tel.value = d.length > 6 ? d.replace(/(\d{2})(\d{4,5})(\d{0,4})/, '($1) $2-$3') : d.length > 2 ? d.replace(/(\d{2})(\d+)/, '($1) $2') : d; });
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const err = $('#fiErr'), btn = $('button[type=submit]', f); err.classList.add('hidden');
+    const d = { nome: f.nome.value, mae: f.mae.value, cpf: f.cpf.value, nasc: f.nasc.value, tel: f.tel.value, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: info.titulo || '' };
+    const falha = m => { err.textContent = m; err.classList.remove('hidden'); err.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
+    if (d.nome.trim().split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
+    if (d.mae.trim().split(/\s+/).length < 2) return falha('Informe o nome completo da sua mãe.');
+    if (!cpfOk_(d.cpf)) return falha('CPF inválido. Confira os números.');
+    btn.disabled = true; btn.textContent = 'Enviando…';
+    try {
+      const j = await sendRaw_('fichaEnviar', { codigo, data: d });
+      if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível enviar.');
+      f.innerHTML = `<div style="text-align:center;padding:20px 0"><div style="font-size:46px">✅</div><h2>Dados enviados!</h2><p class="muted">Obrigado, ${h(d.nome.trim().split(/\s+/)[0])}. O RH já recebeu sua ficha e vai entrar em contato.</p></div>`;
+    } catch (ex) { falha(ex.message); btn.disabled = false; btn.textContent = 'Enviar meus dados'; }
+  };
+}
+/* ---------------- RH: fichas recebidas ---------------- */
+const podeFichas = () => !!(S.user && (isAdmin() || isRecrut()));
+const fichaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/?ficha=' + c; };
+const fichasCache_ = () => { if (!S.fichas) S.fichas = ls.get('grc_fichas', null); return S.fichas; };
+const fichasSet_ = j => { S.fichas = { fichas: j.fichas || (S.fichas || {}).fichas || [], links: j.links || (S.fichas || {}).links || [] }; ls.set('grc_fichas', S.fichas); };
+const fichasNovas = () => ((fichasCache_() || {}).fichas || []).filter(x => !x.visto).length;
+const fichaTexto_ = (x, farda) => `*Nome:* ${x.nome}\n*Nome da mãe:* ${x.mae}\n*CPF:* ${cpfFmt(x.cpf)}\n*Data de nascimento:* ${dataBR(x.nasc)}` + (farda ? `\n*Fardamento:* Blusa ${x.blusa} · Calça ${x.calca} · Bota ${x.bota}` : '');
+function copiar_(t, msg) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast(msg || 'Copiado'), () => { prompt('Copie:', t); }); }
+function compartilharFicha_(c, titulo) {
+  const url = fichaUrl_(c), txt = `Olá! Para darmos andamento ao seu processo seletivo${titulo ? ' (' + titulo + ')' : ''} no ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}, preencha seus dados neste link: ${url}`;
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+async function pgFichas() {
+  setTitle('Fichas de candidatos', 'Dados enviados pelos candidatos pelo link');
+  const v = $('#view'), f = getF('fichas');
+  const draw = () => {
+    const c = fichasCache_();
+    if (!c) { v.innerHTML = `<div class="sk" style="height:260px"></div>`; return; }
+    const q = norm(f.q || ''), qd = String(f.q || '').replace(/\D/g, '');
+    const lista = (c.fichas || []).filter(x => !q || norm(x.nome + ' ' + x.mae + ' ' + (x.titulo || '')).includes(q) || (qd.length >= 3 && x.cpf.includes(qd)));
+    const ativos = (c.links || []).filter(l => l.ativo);
+    v.innerHTML = `
+    <div class="toolbar">
+      <div class="input-icon search">${ic('search')}<input class="input" id="fiQ" placeholder="Buscar por nome, mãe, CPF ou vaga" value="${h(f.q || '')}" style="width:100%"></div>
+      <span class="spacer"></span>
+      <button class="btn" id="fiLinks">${ic('link')} Links (${ativos.length})</button>
+      <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
+    </div>
+    ${lista.length ? `<div class="fi-grid">${lista.map(x => `
+      <div class="card fi-card${x.visto ? '' : ' nova'}">
+        <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${x.visto ? '' : ' · <span class="badge b-acc">nova</span>'}</div></div>
+          <button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button></div>
+        <div class="fi-campos">
+          ${[['Nome completo', x.nome], ['Nome da mãe', x.mae], ['CPF', cpfFmt(x.cpf)], ['Data de nascimento', dataBR(x.nasc)]].map(([l, val]) => `<div class="fi-c"><span>${l}</span><b>${h(val)}</b><button class="btn sm ghost icon" data-cp="${h(val)}" title="Copiar ${l.toLowerCase()}">${ic('copy')}</button></div>`).join('')}
+          <div class="fi-c"><span>Fardamento</span><b>Blusa ${h(x.blusa)} · Calça ${h(x.calca)} · Bota ${h(x.bota)}</b></div>
+          ${x.tel ? `<div class="fi-c"><span>WhatsApp</span><b><a href="https://wa.me/55${h(String(x.tel).replace(/^55(?=\d{10,11}$)/, ''))}" target="_blank" rel="noopener" style="color:var(--accent)">${h(telFmt(x.tel))}</a></b></div>` : ''}
+        </div>
+        <div class="fi-acts"><button class="btn primary sm" data-cpall="${h(x.id)}">${ic('copy')} Copiar dados</button><button class="btn sm" data-cpfar="${h(x.id)}">${ic('copy')} Copiar com fardamento</button></div>
+      </div>`).join('')}</div>`
+      : `<div class="card empty" style="text-align:center;padding:30px"><b>${(c.fichas || []).length ? 'Nenhuma ficha encontrada' : 'Nenhuma ficha recebida ainda'}</b><p class="muted">Clique em <b>Mandar link ao candidato</b>, envie pelo WhatsApp e a ficha aparece aqui assim que ele preencher.</p></div>`}
+    <div class="faint" style="font-size:12px;margin-top:10px">As fichas ficam guardadas por 180 dias e depois são apagadas automaticamente (LGPD).</div>`;
+    const qi = $('#fiQ'); qi.oninput = () => { f.q = qi.value; saveF(); draw(); const e2 = $('#fiQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); };
+    $('#fiNovo').onclick = () => openFichaLink(draw);
+    $('#fiLinks').onclick = () => openFichaLinks(draw);
+    $$('[data-cp]').forEach(b => b.onclick = () => copiar_(b.dataset.cp));
+    const por = id => (fichasCache_().fichas || []).find(x => x.id === id);
+    $$('[data-cpall]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpall)), 'Dados copiados. É só colar no WhatsApp.'));
+    $$('[data-cpfar]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpfar), true), 'Dados copiados. É só colar no WhatsApp.'));
+    $$('[data-del]').forEach(b => b.onclick = async () => {
+      const x = por(b.dataset.del); if (!x || !await confirmBox(`Apagar a ficha de <b>${h(x.nome)}</b>?`, 'Apagar', true)) return;
+      fichasSet_({ fichas: fichasCache_().fichas.filter(y => y.id !== x.id) }); draw(); updateShell();
+      try { fichasSet_(await api('fichaApagar', { id: x.id }, { silent: true })); } catch (e) { toast(e.message, true); }
+    });
+  };
+  draw();
+  const rt = S.rt;
+  try {
+    const j = await api('fichasList', {}, { silent: true }); if (rt !== S.rt) return;
+    fichasSet_(j); if (!$('.overlay')) draw();
+    const novas = (j.fichas || []).filter(x => !x.visto).map(x => x.id);
+    if (novas.length) api('fichaMarcar', { ids: novas }, { silent: true }).then(k => { fichasSet_(k); updateShell(); }).catch(() => {});
+  } catch (e) { if (!fichasCache_()) v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; else toast(e.message, true); }
+}
+function openFichaLink(done) {
+  modal({
+    title: 'Mandar link ao candidato', icon: 'share',
+    body: `<p class="muted" style="margin-top:0">O candidato abre o link, preenche nome completo, nome da mãe, CPF, data de nascimento e fardamento, e a ficha aparece aqui na hora.</p>
+      <div class="field"><label>Vaga / observação (opcional)</label><input class="input" id="flT" placeholder="Ex.: Operador de caixa · Eusébio"></div>
+      <div id="flRes"></div>`,
+    foot: `<button class="btn" data-close>Fechar</button><button class="btn primary" id="flOk">${ic('link')} Gerar link</button>`,
+    onMount: m => {
+      $('#flOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const j = await api('fichaLinkCriar', { titulo: $('#flT', m.el).value.trim() });
+        fichasSet_({ links: j.links });
+        const l = j.link, url = fichaUrl_(l.codigo);
+        $('#flRes', m.el).innerHTML = `<div class="card mt" style="border-color:var(--accent)"><b>${ic('check')} Link pronto</b><div class="mono" style="font-size:12.5px;word-break:break-all;margin:8px 0">${h(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="flWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="flCp">${ic('copy')} Copiar link</button></div><div class="faint" style="font-size:12px;margin-top:8px">O mesmo link pode ser mandado para vários candidatos.</div></div>`;
+        $('#flWa', m.el).onclick = () => compartilharFicha_(l.codigo, l.titulo);
+        $('#flCp', m.el).onclick = () => copiar_(url, 'Link copiado');
+        if (done) done();
+      });
+    }
+  });
+}
+function openFichaLinks(done) {
+  const L = (fichasCache_() || {}).links || [], F = (fichasCache_() || {}).fichas || [];
+  modal({
+    title: 'Links de ficha', icon: 'link', wide: true,
+    body: L.length ? `<div class="alist">${L.map(l => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(l.titulo || 'Link geral')}</b> ${l.ativo ? '' : '<span class="badge">desativado</span>'}<span>${h(l.criadoPor)} · ${new Date(l.em).toLocaleDateString('pt-BR')} · ${F.filter(x => x.link === l.codigo).length} ficha(s)</span></div>
+      ${l.ativo ? `<button class="btn sm" data-wa="${h(l.codigo)}" title="WhatsApp">${ic('share')}</button><button class="btn sm" data-cl="${h(l.codigo)}" title="Copiar link">${ic('copy')}</button><button class="btn sm ghost" data-off="${h(l.codigo)}">Desativar</button>` : ''}</div>`).join('')}</div>` : '<p class="muted">Nenhum link criado ainda.</p>',
+    foot: `<button class="btn" data-close>Fechar</button>`,
+    onMount: m => {
+      $$('[data-wa]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.wa); compartilharFicha_(l.codigo, l.titulo); });
+      $$('[data-cl]', m.el).forEach(b => b.onclick = () => copiar_(fichaUrl_(b.dataset.cl), 'Link copiado'));
+      $$('[data-off]', m.el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem abrir depois não consegue mais enviar.', 'Desativar', true)) return; const j = await api('fichaLinkDesativar', { codigo: b.dataset.off }); fichasSet_({ links: j.links }); m.close(); openFichaLinks(done); if (done) done(); });
+    }
+  });
 }
 // administrador: gera e gerencia os links de convite
 function conviteUrl_(c) { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/?convite=' + c; }
@@ -1244,6 +1401,7 @@ function updateShell() {
     <div class="sb-label">Recrutamento</div>
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
     ${navItem('/contratacoes', ic('userplus'), 'Contratações', nC ? `<span class="cnt">${nC}</span>` : '')}
+    ${podeFichas() ? navItem('/fichas', ic('file'), 'Fichas', fichasNovas() ? `<span class="cnt hot">${fichasNovas()}</span>` : '<span class="new">novo</span>') : ''}
     ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
@@ -2034,6 +2192,7 @@ function route(keep) {
     else if (page === 'escalas' && podeEscala()) pgEscala();
     else if (page === 'pesquisa' && podePesq()) pgPesq();
     else if (page === 'tabela' && podePesq()) pgTabela();
+    else if (page === 'fichas' && podeFichas()) pgFichas();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();

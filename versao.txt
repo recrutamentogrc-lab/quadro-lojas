@@ -1,1 +1,1 @@
-versao: modulo tabela salarial (PCCS) 2026-11-03
+versao: fichas de candidatos 2026-11-03

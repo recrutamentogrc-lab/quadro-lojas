@@ -1248,7 +1248,7 @@ function updateShell() {
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
     ${!isAdmin() && S.user.podeConvidar ? `<a class="nav" href="#" id="navConv" title="Links de convite">${ic('link')}<span class="lbl">Links de convite</span></a>` : ''}
-    ${isAdmin() ? `<div class="sb-label">Cargos e salários</div>${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial', '<span class="new">novo</span>')}` : ''}
+    ${podePesq() ? `<div class="sb-label">Cargos e salários</div>${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial', '<span class="new">novo</span>')}` : ''}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
   `;
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
@@ -1303,6 +1303,7 @@ function setupGlobalSearch() {
 }
 
 // acesso ao simulador (igual à Mobilidade): dono, adm. secundário, acesso (edita) e só visualizar — liberado pelo dono
+const podePesq = () => !!(S.user && (isAdmin() || S.user.podePesquisa));
 const podeEscala = () => !!(S.user && (S.esc ? S.esc.acesso : ls.get('grc_escAcesso_' + S.user.id, false)));
 const escEdita = () => !!(S.esc && S.esc.edita);
 const escAdm = () => !!(S.esc && S.esc.adm);
@@ -2031,7 +2032,7 @@ function route(keep) {
     else if (page === 'desligamentos') pgDesl();
     else if (page === 'mobilidade' && temMob()) pgMob();
     else if (page === 'escalas' && podeEscala()) pgEscala();
-    else if (page === 'pesquisa' && isAdmin()) pgPesq();
+    else if (page === 'pesquisa' && podePesq()) pgPesq();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();
@@ -4690,6 +4691,7 @@ async function pgPesq() {
       <select class="input" id="pqLoc">${PESQ_LOCS.map(([k, n]) => `<option value="${k}" ${k === loc ? 'selected' : ''}>Comparar com: ${n}</option>`).join('')}</select>
       <select class="input" id="pqSt"><option value="">Situação: Todas</option><option value="abaixo" ${f.st === 'abaixo' ? 'selected' : ''}>Abaixo do mercado</option><option value="faixa" ${f.st === 'faixa' ? 'selected' : ''}>Na faixa</option><option value="acima" ${f.st === 'acima' ? 'selected' : ''}>Acima do teto</option><option value="sem" ${f.st === 'sem' ? 'selected' : ''}>Sem salário informado</option></select>
       <span class="spacer"></span>
+      ${isAdmin() ? `<button class="btn" id="pqAc" title="Quem pode usar este módulo">${ic('shield')} Acesso</button>` : ''}
       <button class="btn" id="pqExp" title="Exportar Excel / PDF">${ic('download')}</button>
       <button class="btn primary" id="pqNew">${ic('plus')} Novo cargo</button>
     </div>
@@ -4707,6 +4709,7 @@ async function pgPesq() {
     const bind = (id, k) => { const el = $('#' + id); if (el) el.oninput = el.onchange = () => { f[k] = el.value; saveF(); draw(); setTimeout(() => { const e2 = $('#' + id); if (e2 && id === 'pqQ') { e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); } }, 0); }; };
     bind('pqQ', 'q'); bind('pqSt', 'st');
     $('#pqLoc').onchange = e => { setV('pesqLoc', e.target.value); route(true); };
+    if ($('#pqAc')) $('#pqAc').onclick = openPesqAcesso;
     $('#pqNew').onclick = () => openPesqCargo(null, () => { lista = S.pesq; draw(); });
     $$('[data-nf]').forEach(ch => ch.onclick = () => openPesqCargo({ nome: ch.dataset.nf.charAt(0) + ch.dataset.nf.slice(1).toLowerCase(), funcoes: [ch.dataset.nf] }, () => { lista = S.pesq; draw(); }, true));
     $$('[data-sal]').forEach(inp => inp.onchange = () => {
@@ -4723,6 +4726,26 @@ async function pgPesq() {
   const rt = S.rt;
   try { const nl = await pesqBuscar_(); if (rt !== S.rt || $('.overlay')) return; if (JSON.stringify(nl) !== JSON.stringify(lista)) { lista = nl; draw(); } else if (!lista) { lista = nl; draw(); } }
   catch (e) { if (!lista) { lista = []; draw(); } toast(e.message, true); }
+}
+// quem (além dos administradores) pode usar a pesquisa salarial
+function openPesqAcesso() {
+  modal({
+    title: 'Acesso à Pesquisa salarial', icon: 'shield',
+    body: `<p class="muted" style="margin-top:0">Administradores sempre têm acesso. Marque abaixo quem mais pode ver e editar a pesquisa salarial (sem virar administrador).</p><div id="pqAcL"><div class="sk" style="height:80px"></div></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="pqAcOk">Salvar</button>`,
+    onMount: async m => {
+      const el = $('#pqAcL', m.el);
+      try {
+        const us = (usersCache_() || await usersBuscar_()).filter(u => u.perfil !== 'ADMIN' && u.ativo);
+        const ids = (await api('pesqAcesso', {}, { silent: true })).ids || [];
+        if (!$('#pqAcL', m.el)) return;
+        el.innerHTML = us.length ? chipPicker('pqac', us.map(u => u.id), ids.join(', ')) : '<span class="muted">Nenhum usuário sem perfil de administrador.</span>';
+        bindPickers(el);
+        $$('[data-picker=pqac] .chip', el).forEach(c => { const u = us.find(x => x.id === c.dataset.v); c.textContent = u ? u.nome + (u.cargo ? ' · ' + u.cargo : '') : c.dataset.v; });
+      } catch (e) { el.innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+      $('#pqAcOk', m.el).onclick = ev => run(ev.currentTarget, async () => { await api('setPesqAcesso', { ids: splitMulti(pickVal(el, 'pqac')) }); m.close(); toast('Acesso salvo. A pessoa vê o módulo ao entrar de novo ou atualizar a página.'); });
+    }
+  });
 }
 // grava um cargo (aparece na hora; o servidor confirma em segundo plano)
 async function pesqSalvar_(c) {

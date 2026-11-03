@@ -146,6 +146,8 @@
         case 'addContratacao': { const d = Object.assign({ row: contr.length + 2 }, p.data); if (/^\d{4}-/.test(d.DATA)) d.DATA = d.DATA.split('-').reverse().join('/'); let alocado = false; if (p.vaga) { this.exec('preencherVaga', { loja: p.vaga.loja, row: p.vaga.row, nome: d.COLABORADOR }); d['Status Alocação'] = 'Alocado'; alocado = true; } else d['Status Alocação'] = 'Pendente'; contr.push(d); L('Nova contratação', '', d.COLABORADOR); return { ok: true, alocado }; }
         case 'saveContratacao': { const c = contr.find(x => x.row === p.row); Object.assign(c, p.data); if (/^\d{4}-/.test(c.DATA)) c.DATA = c.DATA.split('-').reverse().join('/'); return { ok: true }; }
         case 'listUsers': return { ok: true, users: clone(users) };
+        case 'pesqAcesso': return { ok: true, ids: window.__pqac || [] };
+        case 'setPesqAcesso': window.__pqac = p.ids || []; return { ok: true, ids: window.__pqac };
         case 'pesqGet': return { ok: true, cargos: clone(window.__pq || []) };
         case 'pesqSeed': if (!(window.__pq || []).length) window.__pq = clone(p.cargos || []); return { ok: true, cargos: clone(window.__pq) };
         case 'pesqSave': { window.__pq = window.__pq || []; const i = window.__pq.findIndex(x => x.id === p.cargo.id); if (i >= 0) window.__pq[i] = p.cargo; else window.__pq.push(p.cargo); return { ok: true, cargos: clone(window.__pq) }; }

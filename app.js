@@ -503,6 +503,7 @@ async function renderFicha(codigo) {
         <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required placeholder="Como está no documento"></div>
         <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
         <div class="field"><label>Data de nascimento</label><input class="input" name="nasc" type="date" required></div></div>
+        ${info.titulo ? '' : `<div class="field"><label>Vaga de interesse (opcional)</label><input class="input" name="vagaI" maxlength="80" placeholder="Ex.: Operador de caixa, Repositor…"></div>`}
         <div class="field"><label>WhatsApp (opcional)</label><input class="input" name="tel" inputmode="tel" autocomplete="tel" placeholder="(85) 90000-0000"></div>
         <div class="fi-sec">Fardamento</div>
         <div class="fi-farda"><div class="field"><label>Blusa</label>${sel('blusa', FICHA_BLUSA, 'Tamanho')}</div><div class="field"><label>Calça</label>${sel('calca', FICHA_CALCA, 'Tamanho')}</div><div class="field"><label>Bota / calçado</label>${sel('bota', FICHA_BOTA, 'Número')}</div></div>
@@ -519,7 +520,7 @@ async function renderFicha(codigo) {
   f.onsubmit = async e => {
     e.preventDefault();
     const err = $('#fiErr'), btn = $('button[type=submit]', f); err.classList.add('hidden');
-    const d = { nome: f.nome.value, mae: f.mae.value, cpf: f.cpf.value, nasc: f.nasc.value, tel: f.tel.value, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: info.titulo || '', recrutador: f.rec ? f.rec.value : '' };
+    const d = { nome: f.nome.value, mae: f.mae.value, cpf: f.cpf.value, nasc: f.nasc.value, tel: f.tel.value, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: info.titulo || (f.vagaI ? f.vagaI.value.trim() : ''), recrutador: f.rec ? f.rec.value : '' };
     const falha = m => { err.textContent = m; err.classList.remove('hidden'); err.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
     if (f.rec && !d.recrutador) return falha('Escolha quem do RH falou com você.');
     if (d.nome.trim().split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
@@ -567,6 +568,7 @@ async function pgFichas() {
       <span class="spacer"></span>
       ${isAdmin() ? `<button class="btn" id="fiAc" title="Quem pode ver as fichas">${ic('shield')} Acesso</button><button class="btn" id="fiRecs" title="Lista de recrutadores do formulário">${ic('users')} Recrutadores</button>` : ''}
       <button class="btn" id="fiLinks">${ic('link')} Links (${ativos.length})</button>
+      <button class="btn" id="fiQrG" title="QR Code aberto para qualquer vaga e qualquer pessoa">${ic('grid')} QR Code geral</button>
       <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
     </div>
     ${lista.length ? `<div class="fi-grid">${lista.map(x => `
@@ -588,6 +590,11 @@ async function pgFichas() {
     if ($('#fiRecs')) $('#fiRecs').onclick = () => openFichaRecs(draw);
     const cont = $('#fiCont'); if (cont) cont.textContent = lista.length + ' ficha(s)';
     $('#fiNovo').onclick = () => openFichaLink(draw);
+    $('#fiQrG').onclick = e => run(e.currentTarget, async () => {
+      let g = ((fichasCache_() || {}).links || []).find(l => l.ativo && l.geral);
+      if (!g) { const j = await api('fichaLinkCriar', { titulo: '', geral: true }); fichasSet_({ links: j.links }); g = j.link; draw(); }
+      openFichaQR(g.codigo, '', true);
+    });
     $('#fiLinks').onclick = () => openFichaLinks(draw);
     if ($('#fiAc')) $('#fiAc').onclick = openFichaAcesso;
     $$('[data-cp]').forEach(b => b.onclick = () => copiar_(b.dataset.cp));
@@ -654,11 +661,11 @@ function qrCartaz_(url, titulo) {
   g.font = '28px Arial'; g.fillStyle = '#888'; g.fillText(url, W / 2, 1640);
   return cv;
 }
-async function openFichaQR(codigo, titulo) {
+async function openFichaQR(codigo, titulo, geral) {
   const url = fichaUrl_(codigo);
   modal({
     title: 'QR Code da ficha', icon: 'grid',
-    body: `<p class="muted" style="margin-top:0">O candidato aponta a câmera do celular, abre a ficha e preenche. Dá para imprimir e deixar na loja ou mostrar na tela.</p><div id="qrBox" style="display:flex;justify-content:center;padding:8px"><div class="spin"></div></div>${titulo ? `<div style="text-align:center;font-weight:700">${h(titulo)}</div>` : ''}`,
+    body: `<p class="muted" style="margin-top:0">${geral ? '<b style="color:var(--text)">QR Code geral:</b> fica sempre aberto, serve para qualquer vaga e para quantas pessoas quiserem se cadastrar. O candidato escolhe o recrutador e pode informar a vaga de interesse.' : 'O candidato aponta a câmera do celular, abre a ficha e preenche.'} Dá para imprimir e deixar na loja ou mostrar na tela.</p><div id="qrBox" style="display:flex;justify-content:center;padding:8px"><div class="spin"></div></div>${titulo ? `<div style="text-align:center;font-weight:700">${h(titulo)}</div>` : ''}`,
     foot: `<button class="btn" data-close>Fechar</button><button class="btn" id="qrBaixar">${ic('download')} Baixar imagem</button><button class="btn primary" id="qrImp">${ic('file')} Imprimir</button>`,
     onMount: async m => {
       try {
@@ -713,13 +720,13 @@ function openFichaLinks(done) {
   const L = (fichasCache_() || {}).links || [], F = (fichasCache_() || {}).fichas || [];
   modal({
     title: 'Links de ficha', icon: 'link', wide: true,
-    body: L.length ? `<div class="alist">${L.map(l => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(l.titulo || 'Link geral')}</b> ${l.ativo ? '' : '<span class="badge">desativado</span>'}<span>${h(l.criadoPor)} · ${new Date(l.em).toLocaleDateString('pt-BR')} · ${F.filter(x => x.link === l.codigo).length} ficha(s)</span></div>
+    body: L.length ? `<div class="alist">${L.map(l => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(l.geral ? 'QR Code geral (qualquer vaga)' : (l.titulo || 'Link sem vaga'))}</b> ${l.ativo ? '' : '<span class="badge">desativado</span>'}<span>${h(l.criadoPor)} · ${new Date(l.em).toLocaleDateString('pt-BR')} · ${F.filter(x => x.link === l.codigo).length} ficha(s)</span></div>
       ${l.ativo ? `<button class="btn sm" data-wa="${h(l.codigo)}" title="WhatsApp">${ic('share')}</button><button class="btn sm" data-cl="${h(l.codigo)}" title="Copiar link">${ic('copy')}</button><button class="btn sm" data-qr="${h(l.codigo)}" title="QR Code">${ic('grid')}</button><button class="btn sm ghost" data-off="${h(l.codigo)}">Desativar</button>` : ''}</div>`).join('')}</div>` : '<p class="muted">Nenhum link criado ainda.</p>',
     foot: `<button class="btn" data-close>Fechar</button>`,
     onMount: m => {
       $$('[data-wa]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.wa); compartilharFicha_(l.codigo, l.titulo); });
       $$('[data-cl]', m.el).forEach(b => b.onclick = () => copiar_(fichaUrl_(b.dataset.cl), 'Link copiado'));
-      $$('[data-qr]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.qr); openFichaQR(l.codigo, l.titulo); });
+      $$('[data-qr]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.qr); openFichaQR(l.codigo, l.titulo, l.geral); });
       $$('[data-off]', m.el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem abrir depois não consegue mais enviar.', 'Desativar', true)) return; const j = await api('fichaLinkDesativar', { codigo: b.dataset.off }); fichasSet_({ links: j.links }); m.close(); openFichaLinks(done); if (done) done(); });
     }
   });

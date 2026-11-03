@@ -1248,7 +1248,7 @@ function updateShell() {
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
     ${!isAdmin() && S.user.podeConvidar ? `<a class="nav" href="#" id="navConv" title="Links de convite">${ic('link')}<span class="lbl">Links de convite</span></a>` : ''}
-    ${podePesq() ? `<div class="sb-label">Cargos e salários</div>${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial', '<span class="new">novo</span>')}` : ''}
+    ${podePesq() ? `<div class="sb-label">Cargos e salários</div>${navItem('/tabela', ic('table'), 'Tabela salarial', '<span class="new">novo</span>')}${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial')}` : ''}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
   `;
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
@@ -2033,6 +2033,7 @@ function route(keep) {
     else if (page === 'mobilidade' && temMob()) pgMob();
     else if (page === 'escalas' && podeEscala()) pgEscala();
     else if (page === 'pesquisa' && podePesq()) pgPesq();
+    else if (page === 'tabela' && podePesq()) pgTabela();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();
@@ -4803,11 +4804,295 @@ async function pgPesq() {
   try { const j = await api('pqLista', {}, { silent: true }); if (rt !== S.rt) return; if (JSON.stringify(j.lista || []) !== JSON.stringify(pqHist_() || [])) { pqSetHist_(j.lista || []); drawHist(); } }
   catch (e) { toast(e.message, true); }
 }
+/* =====================================================================
+ * TABELA SALARIAL (PCCS) — igual à planilha "Tabela_Salarial":
+ * Tabela Salarial (faixas I–V automáticas), Média Salarial e Progressão por Mérito.
+ * ===================================================================== */
+const TS_FX = [0, 0.25, 0.5, 0.75, 1];
+const tsDoc_ = () => { if (S.tsal === undefined) S.tsal = ls.get('grc_tsal', undefined); return S.tsal; };
+const tsSetDoc_ = d => { S.tsal = d; ls.set('grc_tsal', d); };
+const tsNum = s => { s = String(s == null ? '' : s).replace(/[R$\s%]/g, ''); if (!s) return null; if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.'); else if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); const n = +s; return isNaN(n) ? null : n; };
+const tsR2 = n => Math.round(n * 100) / 100;
+function tsMedias_(d) {
+  const m = {};
+  (d.colabs || []).forEach(c => { const k = norm(c.cargo); if (!k || !(+c.salario > 0)) return; (m[k] = m[k] || { n: 0, s: 0 }); m[k].n++; m[k].s += +c.salario; });
+  Object.values(m).forEach(x => x.media = tsR2(x.s / x.n));
+  return m;
+}
+// calcula um cargo exatamente como na planilha
+function tsCalc_(d, it, medias) {
+  const md = (medias || tsMedias_(d))[norm(it.nome)];
+  const base = it.ref != null && it.ref !== '' ? +it.ref : (md ? md.media : null);
+  const reaj = +it.reaj || 0;
+  const ref = base == null ? null : tsR2(base * (1 + reaj));
+  const nv = d.niveis || {};
+  const k = nv[String(it.nivel || '').toUpperCase()] != null ? +nv[String(it.nivel || '').toUpperCase()] : +(nv.outros || 1.2);
+  const fx = ref == null ? [] : TS_FX.map(p => tsR2(ref * (1 + (k - 1) * p)));
+  const subida = TS_FX.slice(1).map(p => '+' + fmt((k - 1) * p * 100, 1) + '%').join('  |  ');
+  return { ref, fx, k, subida, md, auto: it.ref == null || it.ref === '' };
+}
+async function tsSalvar_(motivo, mut) {
+  const d = JSON.parse(JSON.stringify(tsDoc_()));
+  mut(d);
+  const versao = tsDoc_().versao;
+  tsSetDoc_(d);
+  try { const j = await api('tsSave', { doc: d, versao, motivo }, { silent: true }); if (j.doc) tsSetDoc_(j.doc); return true; }
+  catch (e) { toast('Não foi possível salvar: ' + e.message, true); try { const j = await api('tsGet', {}, { silent: true }); tsSetDoc_(j.doc); } catch (e2) {} return false; }
+}
+
+async function pgTabela() {
+  setTitle('Tabela salarial', 'Plano de Cargos, Carreiras e Salários (PCCS)');
+  const v = $('#view');
+  let aba = getV('tsAba', 'tab');
+  const f = getF('tsal');
+  const draw = () => {
+    const d = tsDoc_();
+    if (d === undefined) { v.innerHTML = `<div class="sk" style="height:320px"></div>`; return; }
+    if (!d) {
+      v.innerHTML = `<div class="card" style="text-align:center;padding:30px"><b>A tabela salarial ainda não está no sistema</b><p class="muted">Importe a planilha <b>Tabela_Salarial</b> uma vez (Tabela Salarial, Média Salarial e Progressão por Mérito). Depois disso tudo passa a ser feito aqui.</p>${isAdmin() ? `<button class="btn primary" id="tsImp">${ic('download')} Importar da planilha</button>` : '<p class="muted">Peça ao administrador para importar.</p>'}</div>`;
+      if ($('#tsImp')) $('#tsImp').onclick = e => run(e.currentTarget, async () => { const j = await api('tsImportar', {}); tsSetDoc_(j.doc); toast('Tabela importada'); draw(); });
+      return;
+    }
+    const medias = tsMedias_(d), cargos = d.itens.filter(i => i.t === 'cargo');
+    v.innerHTML = `
+    <div class="ts-head card"><div><div class="faint" style="font-size:12px">GRC GRUPO R CENTER</div><h2>${h(String(d.titulo || '').replace(/^GRC GRUPO R CENTER\s*—\s*/i, ''))}</h2><div class="faint" style="font-size:12px">${cargos.length} cargos · ${(d.colabs || []).length} colaboradores na média${d.atualizadoEm ? ' · atualizado em ' + new Date(d.atualizadoEm).toLocaleDateString('pt-BR') + (d.atualizadoPor ? ' por ' + h(d.atualizadoPor) : '') : ''}</div></div>
+      <div class="seg" id="tsAbas"><button data-v="tab" class="${aba === 'tab' ? 'on' : ''}">📋 Tabela Salarial</button><button data-v="med" class="${aba === 'med' ? 'on' : ''}">📊 Média Salarial</button><button data-v="prog" class="${aba === 'prog' ? 'on' : ''}">📈 Progressão por Mérito</button></div></div>
+    <div id="tsBody"></div>`;
+    $$('#tsAbas button').forEach(b => b.onclick = () => { aba = b.dataset.v; setV('tsAba', aba); draw(); });
+    if (aba === 'med') drawMedia(d, medias); else if (aba === 'prog') drawProg(d); else drawTab(d, medias);
+  };
+  // ---------- 📋 TABELA SALARIAL ----------
+  const drawTab = (d, medias) => {
+    const q = norm(f.q || ''), blocos = d.itens.filter(i => i.t === 'bloco');
+    let bloco = null, grupo = null; const linhas = [];
+    d.itens.forEach(it => {
+      if (it.t === 'bloco') { bloco = it; grupo = null; }
+      if (it.t === 'grupo') grupo = it;
+      if (f.bl && (!bloco || bloco.id !== f.bl)) return;
+      if (it.t === 'cargo' && q && !norm(it.nome + ' ' + it.cbo + ' ' + it.nivel).includes(q)) return;
+      linhas.push(it);
+    });
+    // tira cabeçalhos que ficaram sem cargo na busca
+    const rk = { bloco: 0, grupo: 1, sub: 2 };
+    const vis = !q ? linhas : linhas.filter((it, i) => { if (it.t === 'cargo') return true; for (let j = i + 1; j < linhas.length; j++) { const x = linhas[j]; if (x.t === 'cargo') return true; if (rk[x.t] <= rk[it.t]) return false; } return false; });
+    let n = 0;
+    const nMap = {}; d.itens.forEach(it => { if (it.t === 'cargo') nMap[it.id] = ++n; });
+    const row = it => {
+      if (it.t !== 'cargo') return `<tr class="ts-${it.t}"><td colspan="13">${h(it.nome)}</td></tr>`;
+      const c = tsCalc_(d, it, medias);
+      return `<tr class="ts-c" data-id="${h(it.id)}"><td class="ts-n">${nMap[it.id]}</td><td class="ts-cg"><b>${h(it.nome)}</b>${c.auto && c.md ? `<div class="faint">média de ${c.md.n} colab.</div>` : (!c.auto ? '<div class="faint">valor fixo</div>' : '')}</td><td>${h(it.nivel || '')}</td><td class="mono">${h(it.cbo || '')}</td>
+        <td class="ts-ref">${c.ref == null ? '<span class="faint">—</span>' : brl(c.ref)}</td>${[0, 1, 2, 3, 4].map(i => `<td class="ts-fx">${c.fx[i] == null ? '' : brl(c.fx[i])}</td>`).join('')}
+        <td>${c.ref == null ? '' : fmt(c.k * 100, 0) + '%'}</td><td class="ts-sub">${c.subida}</td><td>${it.reaj ? fmt(it.reaj * 100, 2) + '%' : '0%'}</td></tr>`;
+    };
+    $('#tsBody').innerHTML = `
+    <div class="toolbar">
+      <div class="input-icon search">${ic('search')}<input class="input" id="tsQ" placeholder="Buscar cargo, CBO ou nível" value="${h(f.q || '')}" style="width:100%"></div>
+      <select class="input" id="tsBl"><option value="">Todos os blocos</option>${blocos.map(b => `<option value="${h(b.id)}" ${f.bl === b.id ? 'selected' : ''}>${h(b.nome.split('(')[0].trim())}</option>`).join('')}</select>
+      <span class="spacer"></span>
+      <button class="btn" id="tsNiv" title="% máximo por nível">${ic('settings')} Níveis</button>
+      <button class="btn" id="tsExp" title="Exportar">${ic('download')}</button>
+      <button class="btn" id="tsNovo">${ic('plus')} Novo cargo</button>
+      <button class="btn primary" id="tsReaj">🔄 Aplicar reajuste de dissídio</button>
+    </div>
+    <div class="ts-wrap"><table class="ts-t"><thead><tr><th>N</th><th>CARGO</th><th>NÍV.</th><th>CBO</th><th>SALÁRIO REFERÊNCIA</th><th>FAIXA I</th><th>FAIXA II</th><th>FAIXA III</th><th>FAIXA IV</th><th>FAIXA V</th><th>% MÁX. (FAIXA V)</th><th>SUBIDA SOBRE A FAIXA I<br>II | III | IV | V</th><th>% REAJUSTE</th></tr></thead>
+    <tbody>${vis.map(row).join('')}</tbody></table></div>
+    <div class="faint" style="font-size:12px;margin-top:8px">Salário referência = média salarial dos colaboradores do cargo (aba Média Salarial) ou valor fixo, mais o % de reajuste. Faixas: I = referência; V = referência × % máximo do nível; II, III e IV em degraus iguais. Clique num cargo para editar.</div>`;
+    const bind = (id, k) => { const el = $('#' + id); el.oninput = el.onchange = () => { f[k] = el.value; saveF(); drawTab(tsDoc_(), tsMedias_(tsDoc_())); if (id === 'tsQ') { const e2 = $('#tsQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); } }; };
+    bind('tsQ', 'q'); bind('tsBl', 'bl');
+    $$('.ts-c').forEach(tr => tr.onclick = () => openTsCargo(tr.dataset.id, draw));
+    $('#tsNovo').onclick = () => openTsCargo(null, draw);
+    $('#tsReaj').onclick = () => openTsReajuste(draw);
+    $('#tsNiv').onclick = () => openTsNiveis(draw);
+    $('#tsExp').onclick = () => { const md = tsMedias_(d); let bl = '', gr = ''; const rows = []; d.itens.forEach(it => { if (it.t === 'bloco') bl = it.nome; else if (it.t !== 'cargo') gr = it.nome; else { const c = tsCalc_(d, it, md); rows.push([nMap[it.id], it.nome, it.nivel, it.cbo, bl.split('(')[0].trim(), gr, c.ref == null ? '' : c.ref, ...[0, 1, 2, 3, 4].map(i => c.fx[i] == null ? '' : c.fx[i]), c.ref == null ? '' : fmt(c.k * 100, 0) + '%', c.subida, fmt((+it.reaj || 0) * 100, 2) + '%', c.auto ? (c.md ? 'Média de ' + c.md.n : '') : 'Valor fixo']); } }); exportCSV('tabela_salarial', ['N', 'Cargo', 'Nível', 'CBO', 'Bloco', 'Grupo', 'Salário referência', 'Faixa I', 'Faixa II', 'Faixa III', 'Faixa IV', 'Faixa V', '% máximo', 'Subida sobre a Faixa I', '% reajuste', 'Base'], rows); };
+  };
+  // ---------- 📊 MÉDIA SALARIAL ----------
+  const drawMedia = (d, medias) => {
+    const cargos = d.itens.filter(i => i.t === 'cargo'), q = norm(f.mq || '');
+    const lista = (d.colabs || []).map((c, i) => Object.assign({ i }, c)).filter(c => (!q || norm(c.cargo + ' ' + c.nome).includes(q)) && (!f.mc || norm(c.cargo) === norm(f.mc)));
+    const resumo = cargos.map(it => ({ it, md: medias[norm(it.nome)] })).filter(x => !q || norm(x.it.nome).includes(q));
+    const semCargo = (d.colabs || []).filter(c => !cargos.some(it => norm(it.nome) === norm(c.cargo)));
+    $('#tsBody').innerHTML = `
+    <div class="toolbar">
+      <div class="input-icon search">${ic('search')}<input class="input" id="tsMq" placeholder="Buscar cargo ou colaborador" value="${h(f.mq || '')}" style="width:100%"></div>
+      <select class="input" id="tsMc"><option value="">Todos os cargos</option>${cargos.map(it => `<option ${norm(f.mc) === norm(it.nome) && f.mc ? 'selected' : ''}>${h(it.nome)}</option>`).join('')}</select>
+      <span class="spacer"></span>
+      <button class="btn primary" id="tsAddC">${ic('plus')} Colaborador</button>
+    </div>
+    ${semCargo.length ? `<div class="card" style="border-color:var(--warn);margin-bottom:10px;font-size:13px">${ic('alert')} ${semCargo.length} colaborador(es) com cargo que não existe na tabela (não entram na média): ${h([...new Set(semCargo.map(c => c.cargo))].join(', '))}</div>` : ''}
+    <div class="ts-med">
+      <div class="card"><div class="card-h"><h3>Colaboradores</h3><span class="sub">${lista.length} de ${(d.colabs || []).length}</span></div><div id="tsCol"></div></div>
+      <div class="card"><div class="card-h"><h3>Média por cargo</h3><span class="sub">alimenta o salário referência</span></div><div id="tsRes"></div></div>
+    </div>`;
+    table($('#tsCol'), 'tscol', [
+      { t: 'Cargo', k: 'cargo', r: x => h(x.cargo) },
+      { t: 'Colaborador', k: 'nome', r: x => `<b>${h(x.nome)}</b>` },
+      { t: 'Salário', k: 'salario', sort: x => +x.salario || 0, r: x => x.salario ? brl(x.salario) : '—' }
+    ], lista, x => openTsColab(x.i, draw));
+    table($('#tsRes'), 'tsres', [
+      { t: 'Cargo', k: 'nome', r: x => `<b>${h(x.it.nome)}</b>` },
+      { t: 'Nív.', k: 'nivel', w: '50px', r: x => h(x.it.nivel || '') },
+      { t: 'Nº colab.', k: 'n', w: '80px', sort: x => x.md ? x.md.n : 0, r: x => x.md ? x.md.n : 0 },
+      { t: 'Média salarial', k: 'm', sort: x => x.md ? x.md.media : 0, r: x => x.md ? brl(x.md.media) : '<span class="faint">—</span>' }
+    ], resumo, x => { f.mc = x.it.nome; saveF(); drawMedia(tsDoc_(), tsMedias_(tsDoc_())); });
+    const bind = (id, k) => { const el = $('#' + id); el.oninput = el.onchange = () => { f[k] = el.value; saveF(); drawMedia(tsDoc_(), tsMedias_(tsDoc_())); if (id === 'tsMq') { const e2 = $('#tsMq'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); } }; };
+    bind('tsMq', 'mq'); bind('tsMc', 'mc');
+    $('#tsAddC').onclick = () => openTsColab(null, draw, f.mc);
+  };
+  // ---------- 📈 PROGRESSÃO POR MÉRITO ----------
+  const drawProg = d => {
+    const P = d.prog || [];
+    let html = '', tab = null;
+    const fecha = () => { if (tab) { html += tab + '</tbody></table></div>'; tab = null; } };
+    P.forEach((r, i) => {
+      const [a, b, c, e] = r;
+      if (a && !b && !c && !e) { fecha(); html += `<h3 class="ts-pt" data-pi="${i}">${h(a)}</h3>`; return; }
+      if (b && !c && !e) { fecha(); html += `<div class="ts-pn" data-pi="${i}">${h(b)}</div>`; return; }
+      const cab = [b, c, e].every(x => x && x === x.toUpperCase() && x.length < 40);
+      if (cab) { fecha(); tab = `<div class="tbl-wrap"><table class="tbl ts-pg"><thead><tr><th>${h(b)}</th><th>${h(c)}</th><th>${h(e)}</th></tr></thead><tbody>`; return; }
+      const linha = `<tr data-pi="${i}"><td><b>${h(b)}</b></td><td>${h(c)}</td><td>${h(e)}</td></tr>`;
+      if (tab) tab += linha; else html += `<div class="tbl-wrap"><table class="tbl ts-pg"><tbody>${linha}</tbody></table></div>`;
+    });
+    fecha();
+    $('#tsBody').innerHTML = `<div class="toolbar"><span class="spacer"></span><button class="btn" id="tsPEd">${ic('edit')} Editar textos</button></div><div class="card ts-prog">${html || '<p class="muted">Sem conteúdo.</p>'}</div>`;
+    $$('[data-pi]').forEach(el => { el.style.cursor = 'pointer'; el.onclick = () => openTsProg(+el.dataset.pi, draw); });
+    $('#tsPEd').onclick = () => toast('Clique em qualquer linha, título ou nota para editar.');
+  };
+  draw();
+  const rt = S.rt;
+  try { const j = await api('tsGet', {}, { silent: true }); if (rt !== S.rt || $('.overlay')) return; if (JSON.stringify(j.doc) !== JSON.stringify(tsDoc_())) { tsSetDoc_(j.doc || null); draw(); } }
+  catch (e) { if (tsDoc_() === undefined) { v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; } else toast(e.message, true); }
+}
+
+function openTsCargo(id, done) {
+  const d = tsDoc_(), it0 = id ? d.itens.find(x => x.id === id) : null;
+  const it = Object.assign({ nome: '', nivel: 'N7', cbo: '', ref: null, reaj: 0 }, it0 || {});
+  const grupos = d.itens.filter(x => x.t !== 'cargo');
+  const md = tsMedias_(d)[norm(it.nome)];
+  const colabs = (d.colabs || []).filter(c => norm(c.cargo) === norm(it.nome));
+  const niveis = Object.keys(d.niveis || {}).filter(k => k !== 'outros').concat(['N8', 'N9']).filter((x, i, a) => a.indexOf(x) === i);
+  modal({
+    title: it0 ? 'Cargo · ' + it.nome : 'Novo cargo', icon: 'table', wide: true,
+    body: `<div class="row2"><div class="field"><label>Cargo</label><input class="input" id="tcN" value="${h(it.nome)}"></div><div class="field"><label>CBO</label><input class="input" id="tcC" value="${h(it.cbo)}" placeholder="Ex.: 4211-25"></div></div>
+      <div class="row2"><div class="field"><label>Nível</label><select class="input" id="tcV">${niveis.map(n => `<option ${n === it.nivel ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+      ${it0 ? '' : `<div class="field"><label>Grupo</label><select class="input" id="tcG">${grupos.map(g => `<option value="${h(g.id)}">${g.t === 'bloco' ? '■ ' : g.t === 'sub' ? '   · ' : ''}${h(g.nome.split('(')[0].trim())}</option>`).join('')}</select></div>`}</div>
+      <div class="field"><label>Salário referência</label><div class="seg" id="tcM"><button data-v="auto" class="${it.ref == null ? 'on' : ''}">Automático (média)</button><button data-v="fixo" class="${it.ref != null ? 'on' : ''}">Valor fixo</button></div>
+        <div id="tcAuto" class="muted" style="font-size:13px;margin-top:6px">${md ? `Média de ${md.n} colaborador(es): <b>${brl(md.media)}</b>` : 'Nenhum colaborador deste cargo na aba Média Salarial.'}</div>
+        <input class="input mt" id="tcR" inputmode="decimal" placeholder="Ex.: 2.500,00" value="${it.ref != null ? fmt(it.ref) : ''}" style="${it.ref == null ? 'display:none' : ''}"></div>
+      <div class="field"><label>% reajuste (dissídio/opcional)</label><input class="input" id="tcP" inputmode="decimal" value="${it.reaj ? fmt(it.reaj * 100, 2) : '0'}" style="max-width:140px"></div>
+      <div id="tcPrev"></div>
+      ${colabs.length ? `<details class="mt"><summary class="muted" style="cursor:pointer">Colaboradores na média (${colabs.length})</summary><div style="font-size:13px;margin-top:6px">${colabs.map(c => `${h(c.nome)} · ${brl(c.salario)}`).join('<br>')}</div></details>` : ''}`,
+    foot: `${it0 ? `<button class="btn danger ghost" id="tcDel" style="margin-right:auto">${ic('trash')} Excluir</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="tcOk">Salvar</button>`,
+    onMount: m => {
+      let modo = it.ref == null ? 'auto' : 'fixo';
+      const ler = () => ({ nome: $('#tcN', m.el).value.trim(), cbo: $('#tcC', m.el).value.trim(), nivel: $('#tcV', m.el).value, ref: modo === 'fixo' ? tsNum($('#tcR', m.el).value) : null, reaj: (tsNum($('#tcP', m.el).value) || 0) / 100 });
+      const prev = () => { const x = Object.assign({}, it, ler()); const c = tsCalc_(d, x); $('#tcPrev', m.el).innerHTML = c.ref == null ? '' : `<div class="ts-prev">${['Ref.', 'I', 'II', 'III', 'IV', 'V'].map((t, i) => `<div><span>${t === 'Ref.' ? 'Referência' : 'Faixa ' + t}</span><b>${brl(i ? c.fx[i - 1] : c.ref)}</b></div>`).join('')}</div>`; };
+      $$('#tcM button', m.el).forEach(b => b.onclick = () => { modo = b.dataset.v; $$('#tcM button', m.el).forEach(x => x.classList.toggle('on', x === b)); $('#tcR', m.el).style.display = modo === 'fixo' ? '' : 'none'; prev(); });
+      ['tcN', 'tcR', 'tcP', 'tcV'].forEach(i => $('#' + i, m.el).addEventListener('input', prev)); $('#tcV', m.el).onchange = prev;
+      prev();
+      $('#tcOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const x = ler(); if (!x.nome) throw new Error('Informe o cargo.');
+        if (modo === 'fixo' && x.ref == null) throw new Error('Informe o valor fixo.');
+        const g = it0 ? null : $('#tcG', m.el).value;
+        m.close();
+        await tsSalvar_((it0 ? 'Cargo alterado: ' : 'Cargo criado: ') + x.nome, dd => {
+          if (it0) { const t = dd.itens.find(y => y.id === id); if (norm(t.nome) !== norm(x.nome)) dd.colabs.forEach(c => { if (norm(c.cargo) === norm(t.nome)) c.cargo = x.nome; }); Object.assign(t, x); }
+          else { let i = dd.itens.findIndex(y => y.id === g); i++; while (i < dd.itens.length && dd.itens[i].t === 'cargo') i++; dd.itens.splice(i, 0, Object.assign({ id: 'c' + Date.now().toString(36), t: 'cargo' }, x)); }
+        });
+        toast('Cargo salvo'); done();
+      });
+      const del = $('#tcDel', m.el); if (del) del.onclick = async () => {
+        if (!await confirmBox(`Excluir o cargo <b>${h(it.nome)}</b> da tabela salarial?`, 'Excluir', true)) return;
+        m.close(); await tsSalvar_('Cargo excluído: ' + it.nome, dd => { dd.itens = dd.itens.filter(y => y.id !== id); }); done();
+      };
+    }
+  });
+}
+function openTsReajuste(done) {
+  const d = tsDoc_(), blocos = d.itens.filter(i => i.t === 'bloco');
+  modal({
+    title: '🔄 Aplicar reajuste de dissídio', icon: 'trend',
+    body: `<p class="muted" style="margin-top:0">Coloca o % na coluna <b>% REAJUSTE</b> dos cargos escolhidos. O salário referência e as faixas I a V são recalculados na hora.</p>
+      <div class="row2"><div class="field"><label>% de reajuste</label><input class="input" id="trP" inputmode="decimal" placeholder="Ex.: 5,5"></div>
+      <div class="field"><label>Aplicar em</label><select class="input" id="trB"><option value="">Todos os cargos</option>${blocos.map(b => `<option value="${h(b.id)}">${h(b.nome.split('(')[0].trim())}</option>`).join('')}</select></div></div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="trF"> Incorporar ao salário (o valor reajustado vira o novo salário fixo e o % volta a zero)</label>
+      ${(d.reajustes || []).length ? `<div class="faint" style="font-size:12px;margin-top:10px">Últimos: ${d.reajustes.slice(-5).reverse().map(r => `${fmt(r.p * 100, 2)}% em ${new Date(r.em).toLocaleDateString('pt-BR')} (${h(r.escopo)}, ${h(r.por)})`).join(' · ')}</div>` : ''}`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="trOk">Aplicar</button>`,
+    onMount: m => {
+      $('#trOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const p = tsNum($('#trP', m.el).value); if (p == null) throw new Error('Informe o %.');
+        const bl = $('#trB', m.el).value, inc = $('#trF', m.el).checked, escopo = bl ? blocos.find(b => b.id === bl).nome.split('(')[0].split('—')[0].trim() : 'todos os cargos';
+        if (!await confirmBox(`Aplicar <b>${fmt(p, 2)}%</b> em ${h(escopo)}${inc ? ' e incorporar ao salário' : ''}?`, 'Aplicar')) return;
+        m.close();
+        await tsSalvar_(`Reajuste de ${fmt(p, 2)}% (${escopo})${inc ? ' incorporado' : ''}`, dd => {
+          const md = tsMedias_(dd); let dentro = !bl;
+          dd.itens.forEach(it => {
+            if (it.t === 'bloco') dentro = !bl || it.id === bl;
+            if (it.t !== 'cargo' || !dentro) return;
+            if (inc) { const c = tsCalc_(dd, Object.assign({}, it, { reaj: p / 100 }), md); if (c.ref != null) { it.ref = c.ref; it.reaj = 0; } }
+            else it.reaj = p / 100;
+          });
+          (dd.reajustes = dd.reajustes || []).push({ p: p / 100, escopo, inc, em: new Date().toISOString(), por: S.user.nome });
+        });
+        toast('Reajuste aplicado'); done();
+      });
+    }
+  });
+}
+function openTsNiveis(done) {
+  const d = tsDoc_(), nv = Object.assign({}, d.niveis || {});
+  const ks = Object.keys(nv).filter(k => k !== 'outros');
+  modal({
+    title: '% máximo por nível (Faixa V)', icon: 'settings',
+    body: `<p class="muted" style="margin-top:0">A Faixa V é o salário referência × este %. As faixas II, III e IV ficam em degraus iguais entre a I e a V.</p>
+      <div class="ts-niv">${ks.map(k => `<div class="field"><label>${k}</label><input class="input" data-nv="${k}" inputmode="decimal" value="${fmt(nv[k] * 100, 0)}"></div>`).join('')}<div class="field"><label>Demais níveis</label><input class="input" data-nv="outros" inputmode="decimal" value="${fmt((nv.outros || 1.2) * 100, 0)}"></div></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="tnOk">Salvar</button>`,
+    onMount: m => {
+      $('#tnOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const novo = {}; $$('[data-nv]', m.el).forEach(i => { const n = tsNum(i.value); if (n == null || n < 100) throw new Error('Valores a partir de 100%.'); novo[i.dataset.nv] = n / 100; });
+        m.close(); await tsSalvar_('% máximo por nível alterado', dd => { dd.niveis = novo; }); toast('Níveis salvos'); done();
+      });
+    }
+  });
+}
+function openTsColab(i, done, cargoPadrao) {
+  const d = tsDoc_(), c0 = i != null ? d.colabs[i] : null, c = Object.assign({ cargo: cargoPadrao || '', nome: '', salario: null }, c0 || {});
+  const cargos = d.itens.filter(x => x.t === 'cargo').map(x => x.nome);
+  modal({
+    title: c0 ? 'Colaborador na média' : 'Adicionar colaborador à média', icon: 'users',
+    body: `<div class="field"><label>Cargo</label><select class="input" id="tkC">${cargos.map(n => `<option ${norm(n) === norm(c.cargo) ? 'selected' : ''}>${h(n)}</option>`).join('')}${c.cargo && !cargos.some(n => norm(n) === norm(c.cargo)) ? `<option selected>${h(c.cargo)}</option>` : ''}</select></div>
+      <div class="field"><label>Colaborador</label><input class="input" id="tkN" value="${h(c.nome)}"></div>
+      <div class="field"><label>Salário (R$)</label><input class="input" id="tkS" inputmode="decimal" value="${c.salario ? fmt(c.salario) : ''}"></div>`,
+    foot: `${c0 ? `<button class="btn danger ghost" id="tkDel" style="margin-right:auto">${ic('trash')} Remover</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="tkOk">Salvar</button>`,
+    onMount: m => {
+      $('#tkOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const x = { cargo: $('#tkC', m.el).value, nome: $('#tkN', m.el).value.trim(), salario: tsNum($('#tkS', m.el).value) };
+        if (!x.nome || !x.salario) throw new Error('Informe colaborador e salário.');
+        m.close(); await tsSalvar_((c0 ? 'Média: colaborador alterado: ' : 'Média: colaborador incluído: ') + x.nome, dd => { if (c0) dd.colabs[i] = x; else dd.colabs.push(x); }); done();
+      });
+      const del = $('#tkDel', m.el); if (del) del.onclick = async () => { if (!await confirmBox(`Remover <b>${h(c.nome)}</b> da média salarial?`, 'Remover', true)) return; m.close(); await tsSalvar_('Média: colaborador removido: ' + c.nome, dd => { dd.colabs.splice(i, 1); }); done(); };
+    }
+  });
+}
+function openTsProg(i, done) {
+  const d = tsDoc_(), r = (d.prog[i] || ['', '', '', '']).slice();
+  modal({
+    title: 'Editar progressão por mérito', icon: 'edit', wide: true,
+    body: ['Título / coluna A', 'Coluna B', 'Coluna C', 'Coluna D'].map((l, k) => `<div class="field"><label>${l}</label><textarea class="input" data-pc="${k}" rows="${r[k] && r[k].length > 80 ? 4 : 1}">${h(r[k] || '')}</textarea></div>`).join(''),
+    foot: `<button class="btn danger ghost" id="tpDel" style="margin-right:auto">${ic('trash')} Excluir linha</button><button class="btn" id="tpAdd">${ic('plus')} Inserir linha abaixo</button><button class="btn" data-close>Cancelar</button><button class="btn primary" id="tpOk">Salvar</button>`,
+    onMount: m => {
+      const ler = () => $$('[data-pc]', m.el).map(t => t.value.trim());
+      $('#tpOk', m.el).onclick = e => run(e.currentTarget, async () => { const x = ler(); m.close(); await tsSalvar_('Progressão por mérito alterada', dd => { dd.prog[i] = x; }); done(); });
+      $('#tpAdd', m.el).onclick = async () => { m.close(); await tsSalvar_('Progressão: linha inserida', dd => { dd.prog.splice(i + 1, 0, ['', '(nova linha)', '', '']); }); done(); openTsProg(i + 1, done); };
+      $('#tpDel', m.el).onclick = async () => { if (!await confirmBox('Excluir esta linha?', 'Excluir', true)) return; m.close(); await tsSalvar_('Progressão: linha excluída', dd => { dd.prog.splice(i, 1); }); done(); };
+    }
+  });
+}
+
 // quem (além dos administradores) pode usar a pesquisa salarial
 function openPesqAcesso() {
   modal({
-    title: 'Acesso à Pesquisa salarial', icon: 'shield',
-    body: `<p class="muted" style="margin-top:0">Administradores sempre têm acesso. Marque abaixo quem mais pode ver e editar a pesquisa salarial (sem virar administrador).</p><div id="pqAcL"><div class="sk" style="height:80px"></div></div>`,
+    title: 'Acesso a Cargos e salários', icon: 'shield',
+    body: `<p class="muted" style="margin-top:0">Administradores sempre têm acesso. Marque abaixo quem mais pode ver e editar a Tabela salarial e a Pesquisa salarial (sem virar administrador).</p><div id="pqAcL"><div class="sk" style="height:80px"></div></div>`,
     foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="pqAcOk">Salvar</button>`,
     onMount: async m => {
       const el = $('#pqAcL', m.el);

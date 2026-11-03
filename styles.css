@@ -608,3 +608,31 @@ optgroup{font-weight:700}
 .pq-locs>div span{display:block;font-size:11.5px;color:var(--muted)}.pq-locs>div small{display:block;font-size:11px;color:var(--faint)}
 .pq-fontes{margin-top:14px;padding:10px 12px;border-radius:12px;background:var(--surface2);font-size:12px;line-height:1.5}
 .pq-fontes a{color:var(--accent)}
+
+/* tabela salarial (PCCS) */
+.ts-head{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.ts-head h2{margin:2px 0;font-size:18px}
+.ts-wrap{overflow:auto;border:1px solid var(--border);border-radius:14px;max-height:calc(100vh - 250px);background:var(--surface)}
+.ts-t{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+.ts-t th{position:sticky;top:0;z-index:2;background:#14204a;color:#fff;font-size:10.5px;letter-spacing:.03em;padding:8px 8px;text-align:center;white-space:nowrap;border-bottom:1px solid var(--border)}
+.ts-t td{padding:7px 8px;border-bottom:1px solid var(--border);text-align:center;white-space:nowrap}
+.ts-t td.ts-cg{text-align:left;white-space:normal;min-width:180px;position:sticky;left:0;background:var(--surface);z-index:1}
+.ts-t td.ts-cg .faint{font-size:10.5px}
+.ts-t th:nth-child(2){position:sticky;left:0;z-index:3}
+.ts-t tr.ts-c{cursor:pointer}.ts-t tr.ts-c:hover td{background:var(--surface2)}
+.ts-t .ts-n{color:var(--muted);width:34px}
+.ts-t .ts-ref{background:color-mix(in srgb,var(--muted) 12%,transparent);font-weight:700}
+.ts-t .ts-fx{color:#e8794a;font-weight:600}
+.ts-t .ts-sub{font-size:11px;color:var(--muted)}
+.ts-t tr.ts-bloco td{background:#14204a;color:#fff;font-weight:800;text-align:left;font-size:13px;white-space:normal;position:static}
+.ts-t tr.ts-grupo td{background:#1e2c63;color:#fff;font-weight:700;text-align:left;white-space:normal}
+.ts-t tr.ts-sub td{background:var(--surface2);font-weight:700;text-align:left;font-style:italic}
+.ts-med{display:grid;grid-template-columns:1.2fr 1fr;gap:12px}
+.ts-prog h3.ts-pt{margin:18px 0 8px;font-size:15px;color:var(--accent)}.ts-prog h3.ts-pt:first-child{margin-top:0}
+.ts-pn{margin:8px 0 14px;font-size:12.5px;color:var(--muted);font-style:italic}
+.ts-pg td{white-space:normal;vertical-align:top;font-size:12.5px}
+.ts-prev{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:6px}
+.ts-prev>div{background:var(--surface2);border-radius:10px;padding:6px 8px}.ts-prev span{display:block;font-size:10.5px;color:var(--muted)}.ts-prev b{font-size:13px}
+.ts-niv{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (max-width:860px){.ts-med{grid-template-columns:1fr}.ts-prev{grid-template-columns:repeat(3,1fr)}.ts-niv{grid-template-columns:repeat(2,1fr)}.ts-wrap{max-height:none}}
+@media (max-width:640px){.ts-pg thead{display:none}.ts-pg tr{display:block;padding:8px 2px;border-bottom:1px solid var(--border)}.ts-pg td{display:block;border:none!important;padding:2px 4px}.ts-pg td:first-child{font-size:14px}}

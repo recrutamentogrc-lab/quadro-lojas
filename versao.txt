@@ -1,1 +1,1 @@
-versao: acesso ao modulo pesquisa salarial 2026-11-03
+versao: pesquisa salarial simplificada 2026-11-03

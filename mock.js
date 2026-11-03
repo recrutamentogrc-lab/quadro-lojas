@@ -148,10 +148,10 @@
         case 'listUsers': return { ok: true, users: clone(users) };
         case 'pesqAcesso': return { ok: true, ids: window.__pqac || [] };
         case 'setPesqAcesso': window.__pqac = p.ids || []; return { ok: true, ids: window.__pqac };
-        case 'pesqGet': return { ok: true, cargos: clone(window.__pq || []) };
-        case 'pesqSeed': if (!(window.__pq || []).length) window.__pq = clone(p.cargos || []); return { ok: true, cargos: clone(window.__pq) };
-        case 'pesqSave': { window.__pq = window.__pq || []; const i = window.__pq.findIndex(x => x.id === p.cargo.id); if (i >= 0) window.__pq[i] = p.cargo; else window.__pq.push(p.cargo); return { ok: true, cargos: clone(window.__pq) }; }
-        case 'pesqDelete': window.__pq = (window.__pq || []).filter(x => x.id !== p.id); return { ok: true, cargos: clone(window.__pq) };
+        case 'pqLista': return { ok: true, lista: clone(window.__pqh || []) };
+        case 'pqCbo': return { ok: true, itens: [{ slug: 'repositor-de-mercadorias-521125', cbo: '521125', nome: 'Repositor de mercadorias' }, { slug: 'operador-de-caixa-421125', cbo: '421125', nome: 'Operador de caixa' }] };
+        case 'pqFazer': { window.__pqh = window.__pqh || []; const it = { id: 'h' + p.funcao, funcao: p.funcao, slug: p.slug, cbo: p.slug.slice(-6), ref: p.slug.replace(/-\d{6}$/, '').replace(/-/g, ' '), salario: p.salario, merc: { FOR: [1645, 1668, 1649, 1925, 19115], EUS: [1654, 1669, 1635, 1870, 999], CE: [1641, 1666, 1629, 1954, 36736], BR: [1902, 1845, 1694, 2484, 1480642] }, em: new Date().toISOString(), por: me.nome }; window.__pqh = [it].concat(window.__pqh.filter(x => x.id !== it.id)); return { ok: true, item: clone(it), lista: clone(window.__pqh) }; }
+        case 'pqApagar': window.__pqh = (window.__pqh || []).filter(x => x.id !== p.id); return { ok: true, lista: clone(window.__pqh) };
         case 'criarConvite': { window.__cv = window.__cv || []; const d = p.data; window.__cv.unshift({ codigo: 'demo' + Date.now().toString(36), loja: (d.lojas || [d.loja]).join(','), setores: d.setores || [], perfil: 'LEITOR', titulo: d.titulo || '', criadoPor: me.nome, criadoEm: br(today), validade: iso(new Date(Date.now() + (d.dias || 30) * 864e5)), usos: 0, maxUsos: d.maxUsos || 0, ativo: true }); return { ok: true, convites: clone(window.__cv) }; }
         case 'listConvites': return { ok: true, convites: clone(window.__cv || []) };
         case 'convitesAcesso': return { ok: true, ids: window.__cva || [] };

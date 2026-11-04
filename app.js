@@ -80,6 +80,7 @@ const ICONS = {
   grad: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11v5c3 2.5 9 2.5 12 0v-5"/><path d="M22 9v6"/>',
   trend: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
   filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
+  grip: '<path d="M12 3l-3 3h6zM12 21l-3-3h6z" fill="currentColor"/><circle cx="9" cy="10" r=".6"/><circle cx="15" cy="10" r=".6"/><circle cx="9" cy="14" r=".6"/><circle cx="15" cy="14" r=".6"/>',
   eraser: '<path d="M20 20H8.5L3.6 15.1a2 2 0 0 1 0-2.8L13 3l8 8-8.5 9"/><path d="M6 11l7 7"/>',
   door: '<path d="M14 3H6a1 1 0 0 0-1 1v17h14V4a1 1 0 0 0-1-1h-1"/><path d="M14 3v18M11 12h.01"/>',
   spark: '<path d="M12 3l1.9 5.8L20 10l-5 3.7L16.8 20 12 16.4 7.2 20 9 13.7 4 10l6.1-1.2z"/>',
@@ -166,7 +167,7 @@ const OTIMISTA = { saveRow: 1, abrirVaga: 1, setVagaInfo: 1, alocar: 1, desligar
 const PEND_MS = 150000; // mantém a alteração na tela até a publicação no Firebase chegar
 const PEND = [];
 const LOTE_PEND = { desligarLote: 1, setVagaInfoLote: 1, contrBulkSet: 1 };
-const MUDA_LINHAS = { setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, movimentar: 1 }; // ações que mudam a numeração das linhas
+const MUDA_LINHAS = { moverLinha: 1, setPadrao: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, movimentar: 1 }; // ações que mudam a numeração das linhas
 const ESCRITA = Object.assign({ setVagaInfoLote: 1, saveUser: 1, deleteUser: 1, saveConfig: 1, saveProfile: 1, saveUserFoto: 1, saveFotoColab: 1, setLiderSetor: 1, saveSelecao: 1, deleteSelecao: 1, setSelecoesAcesso: 1, criarLoja: 1, criarQuadroAdm: 1 }, MUDA_LINHAS); // gravações que não passam pela fila otimista
 let filaEnvio = Promise.resolve(), pendentesEnvio = 0, pubT = null;
 function reaplicarPend_() {
@@ -942,7 +943,7 @@ function selMobLive_(semTela) {
  * para todos que estão com o sistema aberto. O Apps Script aplica cada alteração na planilha
  * em segundo plano, na ordem e com as mesmas regras de antes, e publica o resultado.
  * Ninguém mais espera a planilha para continuar trabalhando. */
-const FILA_ASYNC = { escalaSet: 1, addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
+const FILA_ASYNC = { moverLinha: 1, escalaSet: 1, addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
 const FILA_SYNC = { decidirSolicitacao: 1, iniciarSLA: 1, criarLoja: 1, criarQuadroAdm: 1, cruzarContr: 1 };
 let filaSnap = [], filaLocal = [], filaUnsub = null, filaVivo = false, filaTent = 0, filaKickT = null, filaOff = false, fbUidP = null, filaRedraw = null;
 const filaEspera = {}, filaAvisados = new Set();
@@ -984,10 +985,12 @@ async function filaStart_() {
   const uid = await fbUid_(); if (!uid || filaUnsub) return;
   filaUnsub = fbInit_().collection('fila').orderBy('criado').limit(400).onSnapshot(sn => {
     filaVivo = true; filaTent = 0;
+    const agoraOk = Date.now();
     const ids = new Set();
     filaSnap = sn.docs.map(d => { ids.add(d.id); return filaParse_(d); });
     filaLocal.forEach(o => { if (ids.has(o.id)) o.visto = true; });
     filaSnap.forEach(o => {
+      if (o.status === 'ok' && !filaOkVisto[o.id]) filaOkVisto[o.id] = agoraOk;
       const w = filaEspera[o.id];
       if (w && (o.status === 'ok' || o.status === 'aplicado')) { delete filaEspera[o.id]; let r = {}; try { r = JSON.parse(o.resultado || '{}'); } catch (e) {} w.res(Object.assign({ ok: true }, r)); }
       else if (w && o.status === 'erro') { delete filaEspera[o.id]; w.rej(new Error(o.erro || 'Erro ao salvar')); }
@@ -1000,7 +1003,7 @@ async function filaStart_() {
     filaRedraw = setTimeout(() => { if (liveOn) applyLive(); selMobLive_(); }, 60);
   }, err => {
     console.warn('fila', err); filaUnsub = null; filaVivo = false;
-    if (++filaTent <= 6) setTimeout(() => { meRefreshSessao_().finally(filaStart_); }, 3000 * filaTent);
+    setTimeout(() => { meRefreshSessao_().finally(filaStart_); }, Math.min(30000, 3000 * ++filaTent));
   });
 }
 // garante que a sessão do Firebase está registrada no servidor (renova pelo "me")
@@ -1141,8 +1144,10 @@ function startLive(keys) {
       live[n] = v;
       if (!need.every(x => x in live)) return;
       if (need.some(x => !live[x])) return fim(false); // ainda não publicado → usa o caminho antigo
-      liveOn = true; applyLive(); fim(true);
-    }, err => { console.warn('firebase', err); fim(false); })));
+      const ja = liveOn; liveOn = true; liveTent = 0;
+      if (ja) applyLiveDeb_(); else applyLive();
+      fim(true);
+    }, err => { console.warn('firebase', err); fim(false); liveFalhou_(); })));
     const sk = keys.sel ? Object.keys(keys.sel) : [];
     sk.forEach(lk => fbUnsubs.push(fbDb.collection('pub').doc(keys.sel[lk]).onSnapshot(sn => {
       let v = null; if (sn.exists) { try { v = JSON.parse(sn.data().json); } catch (e) {} }
@@ -1163,8 +1168,48 @@ function startLive(keys) {
 }
 // redesenha a tela após uma atualização automática, sem atrapalhar quem está digitando
 // e sem recarregar páginas que buscam dados no servidor (Histórico, Acessos, Aprovações...)
+let liveDebT = null, liveRetryT = null, liveTent = 0, rrPend = false, liveReinicioEm = 0;
+// junta as atualizações que chegam juntas (resumo geral + lojas) para não piscar a tela
+function applyLiveDeb_() { clearTimeout(liveDebT); liveDebT = setTimeout(() => { if (liveOn) applyLive(); }, 120); }
+function liveFalhou_() {
+  if (liveRetryT || DEMO || !FB_OK) return;
+  const d = Math.min(30000, 2000 * Math.pow(2, Math.min(liveTent++, 4)));
+  liveRetryT = setTimeout(() => { liveRetryT = null; liveReiniciar_(); }, d);
+}
+async function liveReiniciar_() {
+  const k = ls.get('grc_keys', null);
+  if (!k || !FB_OK || DEMO || !S.user || !S.token) return;
+  liveReinicioEm = Date.now();
+  await meRefreshSessao_();
+  fbKeysSig = '';
+  const ok = await startLive(k);
+  if (!ok && liveTent < 8) liveFalhou_();
+  selMobLive_();
+}
+// vigia: se o servidor já confirmou uma alteração e ela não chegou na tela, reconecta
+const filaOkVisto = {};
+setInterval(() => {
+  if (rrPend && !$('.overlay')) { rrPend = false; rerender_(); }
+}, 600);
+setInterval(() => {
+  if (DEMO || !FB_OK || !S.user || !S.data || document.hidden) return;
+  const agora = Date.now();
+  if (!filaUnsub && filaVivo === false && S.token && liveBooted) filaStart_();
+  if (!liveOn || agora - liveReinicioEm < 60000) return;
+  const atrasada = filaSnap.some(o => o.status === 'ok' && !o.gated && o.criadoMs > (S.data.ultimaOp || 0) && filaOkVisto[o.id] && agora - filaOkVisto[o.id] > 20000);
+  if (atrasada) liveReiniciar_();
+}, 5000);
+let ocultoEm = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { ocultoEm = Date.now(); return; }
+  if (DEMO || !FB_OK || !S.user || !S.token) return;
+  if (filaTodas_().some(o => o.status === 'pendente' || o.status === 'aplicado')) filaKick_();
+  if (!filaUnsub) filaStart_();
+  if (ocultoEm && Date.now() - ocultoEm > 45000) liveReiniciar_();
+});
+window.addEventListener('online', () => { if (DEMO || !FB_OK || !S.user || !S.token) return; if (!filaUnsub) filaStart_(); liveReiniciar_(); filaKick_(); });
 function rerender_() {
-  if ($('.overlay')) return;
+  if ($('.overlay')) { rrPend = true; return; }
   const pg = (location.hash.replace(/^#/, '') || '/inicio').split('/')[1];
   if (/^(historico|admin|aprovacoes|solicitacoes|perfil|recrutamento|mobilidade)$/.test(pg)) return;
   const a = document.activeElement;
@@ -2809,6 +2854,7 @@ function pgLoja(l) {
       const sa = $('#selAll', body); if (sa) sa.onchange = () => { rows.forEach(r => sa.checked ? SEL.set.add(selKey(r)) : SEL.set.delete(selKey(r))); draw(); };
     } else {
       const secs = l.setores.map(sec => ({ sec, rows: rows.filter(r => r.setor === sec.nome) })).filter(x => x.rows.length || (!filtered));
+      const podeMover = ed && !selOn && !filtered && !DEMO_RO_();
       // Setores começam recolhidos; com busca/filtro ativo, abrem automaticamente os que têm resultado
       const expKey = 'grc_exp_' + l.key;
       const expanded = ls.get(expKey, {});
@@ -2837,7 +2883,8 @@ function pgLoja(l) {
           <div class="sec-prog"><i style="width:${Math.min(100, p)}%;background:${p >= 100 ? 'var(--ok)' : p >= 85 ? 'var(--warn)' : 'var(--bad)'}"></i></div>
           ${resumo(rr)}
           <div class="sec-body">${rr.map(r => `
-            <div class="prow ${r.vagaAberta ? 'vaga' : ''} ${S.hl === r.row ? 'hl' : ''} ${selOn && SEL.set.has(selKey(r)) ? 'sel' : ''}" data-row="${r.row}">
+            <div class="prow ${r.vagaAberta ? 'vaga' : ''} ${S.hl === r.row ? 'hl' : ''} ${selOn && SEL.set.has(selKey(r)) ? 'sel' : ''} ${podeMover ? 'mov' : ''}" data-row="${r.row}">
+              ${podeMover ? `<span class="drag" data-drag title="Arraste para subir ou descer">${ic('grip')}</span>` : ''}
               ${selOn ? `<input type="checkbox" class="pchk" ${SEL.set.has(selKey(r)) ? 'checked' : ''}>` : ''}
               ${r.nome ? avatar(r.nome, '', 'sm soft') : `<div class="avatar sm vaga-av">${ic('briefcase')}</div>`}
               <div class="info"><b>${h(r.nome || 'Vaga em aberto')}</b><span>${h(r.funcao)}${r.tempo ? ' · ' + h(r.tempo) : ''}${r.vagaAberta && r.info ? ' · ' + h(r.etapa) + (r.dias != null ? ' há ' + r.dias + 'd' : '') : ''}</span></div>
@@ -2845,7 +2892,8 @@ function pgLoja(l) {
             </div>`).join('') || '<div class="empty" style="padding:16px">Sem posições</div>'}</div>
         </div>`;
       }).join('')}</div>` : `<div class="card empty">${ic('search')}<div>Nenhuma posição com esses filtros.</div></div>`;
-      $$('.prow', body).forEach(el => el.onclick = () => { const r = l.rows.find(x => x.row === +el.dataset.row); if (!r) return; if (selOn) toggleSel(r); else openRow(l, r); });
+      $$('.prow', body).forEach(el => el.onclick = e => { if (e.target.closest('[data-drag]')) return; const r = l.rows.find(x => x.row === +el.dataset.row); if (!r) return; if (selOn) toggleSel(r); else openRow(l, r); });
+      if (podeMover) $$('[data-drag]', body).forEach(hd => arrastar_(hd, l));
       if (selOn) $$('.sec-h', body).forEach(hd => { const b = document.createElement('button'); b.className = 'btn sm ghost'; b.textContent = 'Todos'; b.title = 'Selecionar todo o setor'; b.onclick = e => { e.stopPropagation(); const nm = hd.closest('.sec').dataset.sec; const rr = rows.filter(r => r.setor === nm); const all = rr.every(r => SEL.set.has(selKey(r))); rr.forEach(r => all ? SEL.set.delete(selKey(r)) : SEL.set.add(selKey(r))); draw(); }; hd.insertBefore(b, hd.querySelector(':scope > .badge')); });
       $$('[data-tog]', body).forEach(el => el.onclick = e => {
         if (e.target.closest('[data-add],[data-pad],[data-lider]')) return;
@@ -2882,6 +2930,65 @@ function pgLoja(l) {
   const draw0 = draw;
   draw = () => { draw0(); quadroBulk($('#lBulk'), () => draw()); };
   drawChips(); draw();
+}
+
+// arrastar uma posição para cima/baixo dentro do setor (mouse e toque)
+const DEMO_RO_ = () => false;
+function arrastar_(hd, l) {
+  hd.addEventListener('pointerdown', ev => {
+    if (ev.button !== undefined && ev.button !== 0) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const row = hd.closest('.prow'), lista = row.parentElement;
+    const itens = $$('.prow', lista);
+    const de = itens.indexOf(row);
+    const altura = row.getBoundingClientRect().height;
+    const y0 = ev.clientY;
+    const orig = itens.map(it => { const rc = it.getBoundingClientRect(); return rc.top + window.scrollY + rc.height / 2; });
+    let alvo = de, scT = null, ult = ev.clientY;
+    row.classList.add('arrastando'); document.body.classList.add('arrastando-pg');
+    try { hd.setPointerCapture(ev.pointerId); } catch (e) {}
+    const pos = () => {
+      const dy = ult - y0 + (window.scrollY - sy0);
+      row.style.transform = `translateY(${dy}px)`;
+      const meio = orig[de] + dy;
+      alvo = de;
+      itens.forEach((it, k) => {
+        if (k > de && meio > orig[k]) alvo = Math.max(alvo, k);
+        if (k < de && meio < orig[k]) alvo = Math.min(alvo, k);
+      });
+      itens.forEach((it, k) => {
+        if (it === row) return;
+        const d = (de < alvo && k > de && k <= alvo) ? -altura : (de > alvo && k < de && k >= alvo) ? altura : 0;
+        it.__dy = d; it.style.transform = d ? `translateY(${d}px)` : '';
+      });
+    };
+    const sy0 = window.scrollY;
+    const auto = () => {
+      clearInterval(scT); scT = null;
+      const vh = window.innerHeight, z = 70;
+      const v = ult < z ? -(z - ult) / 4 : ult > vh - z ? (ult - (vh - z)) / 4 : 0;
+      if (v) scT = setInterval(() => { window.scrollBy(0, v); pos(); }, 16);
+    };
+    const mv = e => { ult = e.clientY; pos(); auto(); };
+    const fim = () => {
+      clearInterval(scT);
+      hd.removeEventListener('pointermove', mv); hd.removeEventListener('pointerup', fim); hd.removeEventListener('pointercancel', fim);
+      document.body.classList.remove('arrastando-pg');
+      itens.forEach(it => { it.style.transform = ''; it.__dy = 0; });
+      row.classList.remove('arrastando');
+      if (alvo === de) return;
+      const r = l.rows.find(x => x.row === +row.dataset.row), t = l.rows.find(x => x.row === +itens[alvo].dataset.row);
+      if (!r || !t) return;
+      const s = l.setores.find(x => x.nome === r.setor);
+      if (!s || !moverOk_(s, r.row, t.row)) { toast('Não dá para mover essa posição para lá (há linhas de outro tipo no meio). Use o filtro limpo e mova dentro do mesmo setor.', true); return; }
+      // move na tela já (sem esperar) e envia
+      if (de < alvo) itens[alvo].after(row); else itens[alvo].before(row);
+      row.classList.add('hl');
+      api('moverLinha', { loja: l.key, setor: r.setor, row: r.row, para: t.row, expect: expectOf(r), expectPara: expectOf(t) }).catch(e => toast(e.message || 'Não foi possível mover', true));
+    };
+    hd.addEventListener('pointermove', mv); hd.addEventListener('pointerup', fim); hd.addEventListener('pointercancel', fim);
+  });
+  hd.addEventListener('click', e => e.stopPropagation());
 }
 
 /* ---------------- modais da posição ---------------- */
@@ -3726,6 +3833,7 @@ function describe(action, p) {
     case 'preencherVaga': case 'alocar': return `Preencher vaga ${e.funcao || ''} (${L}) com ${String(p.nome || '').toUpperCase()}`;
     case 'addPosicao': return `Nova posição ${p.funcao || ''} em ${p.setor || ''} (${L})`;
     case 'removerPosicao': return `Remover posição ${e.funcao || ''} (${L})`;
+    case 'moverLinha': return `Reordenar ${e.nome || 'vaga'} — ${e.funcao || ''} (${L})`;
     case 'setVagaInfo': return `Vaga ${e.funcao || ''} (${L}) → etapa ${d.etapa || ''}`;
     case 'addContratacao': return `Nova contratação: ${d[S.ck.colab] || ''} — ${d[S.ck.funcao] || ''} (${d[S.ck.loja] || ''})${p.vaga ? ' · alocar no quadro' : ''}`;
     case 'setPadrao': return `Quadro padrão de ${p.setor} (${L}): ${fmt(p.padraoAtual)} → ${fmt(p.padrao)}${p.motivo ? ' · ' + p.motivo : ''}${p.novas ? ' · criar ' + p.novas.qtd + ' vaga(s)' : ''}`;
@@ -5811,6 +5919,25 @@ function localAddPos(lk, setor, funcao, contrato, qt, motivo, resp) {
   s.linhas.splice(s.linhas.length ? 1 : 0, 0, r);
   return nr;
 }
+// reordena uma linha dentro do setor (as linhas entre a origem e o destino precisam ser contínuas)
+function moverOk_(s, de, para) {
+  const i = s.linhas.findIndex(x => x.row === +de), j = s.linhas.findIndex(x => x.row === +para);
+  if (i < 0 || j < 0 || i === j) return null;
+  const a = Math.min(i, j), b = Math.max(i, j);
+  for (let k = a; k < b; k++) if (s.linhas[k + 1].row !== s.linhas[k].row + 1) return null;
+  return { i, j };
+}
+function localMover_(p) {
+  const l = lojaBy(p.loja); if (!l) return false;
+  const s = l.setores.find(x => x.linhas.some(y => y.row === +p.row)); if (!s) return false;
+  const ix = moverOk_(s, p.row, p.para); if (!ix) return false;
+  const r = s.linhas[ix.i];
+  if (p.expect && (norm(r.nome) !== norm(p.expect.nome) || norm(r.funcao) !== norm(p.expect.funcao))) return false;
+  const nums = s.linhas.map(x => x.row);
+  s.linhas.splice(ix.i, 1); s.linhas.splice(ix.j, 0, r);
+  s.linhas.forEach((x, k) => { x.row = nums[k]; });
+  return true;
+}
 function localRemove(lk, row, expect) {
   const l = lojaBy(lk); if (!l) return false;
   for (const s of l.setores) {
@@ -5861,6 +5988,7 @@ const LOCAL = {
   },
   addPosicao: p => { localAddPos(p.loja, p.setor, p.funcao, p.contrato || 'INTEGRAL', p.qt || 1, p.motivo || 'Aumento de quadro', p.responsavel); },
   removerPosicao: p => { localRemove(p.loja, p.row, p.expect); },
+  moverLinha: p => { localMover_(p); },
   movimentar: p => localMovimentar(p),
   cruzarContr: (p, j) => { if (p.simular) return; const set = (rows, val) => (rows || []).forEach(x => { const c = (S.data.contratacoes.rows || []).find(y => y.row === x.row); if (c && S.ck.status) c[S.ck.status] = val; }); set(j.alocados, 'Alocado'); set(j.desligados, 'Desligado'); },
   desligar: p => localDesligar(p),

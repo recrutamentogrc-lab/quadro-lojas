@@ -662,3 +662,7 @@ optgroup{font-weight:700}
 .prow.arrastando{position:relative;z-index:5;transition:none;background:var(--surface);box-shadow:0 10px 30px rgba(0,0,0,.18);border-radius:12px}
 .prow.arrastando .drag{cursor:grabbing;color:var(--primary)}
 body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
+.fi-cpf{display:block;min-height:16px;margin-top:4px;font-size:12px;font-weight:600}
+.fi-cpf.ok{color:var(--ok)}.fi-cpf.bad{color:var(--bad)}
+#fiForm .input.bad{border-color:var(--bad);box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)}
+#fiForm .input.ok{border-color:var(--ok)}

@@ -502,7 +502,7 @@ async function renderFicha(codigo) {
         ${recs.length ? `<div class="field"><label>Quem do RH falou com você?</label><select class="input" name="rec" required><option value="">Selecione o(a) recrutador(a)</option>${recs.map(x => `<option>${h(x)}</option>`).join('')}</select></div>` : ''}
         <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" placeholder="Como está no documento"></div>
         <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required placeholder="Como está no documento"></div>
-        <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" placeholder="000.000.000-00"></div>
+        <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" placeholder="000.000.000-00"><small id="cpfMsg" class="fi-cpf"></small></div>
         <div class="field"><label>Data de nascimento</label><input class="input" name="nasc" type="date" required></div></div>
         ${info.titulo ? '' : `<div class="field"><label>Vaga de interesse (opcional)</label><input class="input" name="vagaI" maxlength="80" placeholder="Ex.: Operador de caixa, Repositor…"></div>`}
         <div class="field"><label>WhatsApp (opcional)</label><input class="input" name="tel" inputmode="tel" autocomplete="tel" placeholder="(85) 90000-0000"></div>
@@ -516,7 +516,16 @@ async function renderFicha(codigo) {
     </section>
   </div>`;
   const f = $('#fiForm'); if (!info) return;
-  f.cpf.addEventListener('input', () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); });
+  const cpfMsg = $('#cpfMsg');
+  const cpfCheca = fim => {
+    const d = f.cpf.value.replace(/\D/g, ''), ok = cpfOk_(d), mostra = d.length === 11 || (fim && d.length);
+    f.cpf.classList.toggle('bad', !!mostra && !ok); f.cpf.classList.toggle('ok', ok);
+    cpfMsg.className = 'fi-cpf ' + (mostra ? (ok ? 'ok' : 'bad') : '');
+    cpfMsg.textContent = !mostra ? '' : ok ? '✓ CPF válido' : d.length < 11 ? 'CPF incompleto — faltam ' + (11 - d.length) + ' número(s)' : 'CPF inválido. Confira os números.';
+    f.cpf.setCustomValidity(mostra && !ok ? 'CPF inválido. Confira os números.' : '');
+  };
+  f.cpf.addEventListener('input', () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); cpfCheca(false); });
+  f.cpf.addEventListener('blur', () => cpfCheca(true));
   f.tel.addEventListener('input', () => { const d = f.tel.value.replace(/\D/g, '').slice(0, 11); f.tel.value = d.length > 6 ? d.replace(/(\d{2})(\d{4,5})(\d{0,4})/, '($1) $2-$3') : d.length > 2 ? d.replace(/(\d{2})(\d+)/, '($1) $2') : d; });
   f.onsubmit = async e => {
     e.preventDefault();
@@ -526,7 +535,7 @@ async function renderFicha(codigo) {
     if (f.rec && !d.recrutador) return falha('Escolha quem do RH falou com você.');
     if (d.nome.trim().split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
     if (d.mae.trim().split(/\s+/).length < 2) return falha('Informe o nome completo da sua mãe.');
-    if (!cpfOk_(d.cpf)) return falha('CPF inválido. Confira os números.');
+    if (!cpfOk_(d.cpf)) { cpfCheca(true); f.cpf.focus(); return falha('CPF inválido. Confira os números.'); }
     btn.disabled = true; btn.textContent = 'Enviando…';
     try {
       const j = await sendRaw_('fichaEnviar', { codigo, data: d });

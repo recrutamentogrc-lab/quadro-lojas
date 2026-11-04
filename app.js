@@ -577,7 +577,7 @@ async function renderFicha(codigo) {
 }
 /* ---------------- RH: fichas recebidas ---------------- */
 const podeFichas = () => !!(S.user && (isAdmin() || S.user.podeFichas));
-const fichaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/?ficha=' + c; };
+const fichaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/ficha.html?ficha=' + c; };
 const fichasCache_ = () => { if (!S.fichas) S.fichas = ls.get('grc_fichas', null); return S.fichas; };
 const fichasSet_ = j => { S.fichas = { fichas: j.fichas || (S.fichas || {}).fichas || [], links: j.links || (S.fichas || {}).links || [], recrutadores: j.recrutadores || (S.fichas || {}).recrutadores || [] }; ls.set('grc_fichas', S.fichas); };
 const fichasNovas = () => ((fichasCache_() || {}).fichas || []).filter(x => !x.visto).length;

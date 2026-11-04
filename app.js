@@ -5952,11 +5952,12 @@ function shiftLoja_(l, from, delta) {
 }
 function localAddPos(lk, setor, funcao, contrato, qt, motivo, resp) {
   const l = lojaBy(lk); const s = l && l.setores.find(x => x.nome === setor); if (!s) return 0;
-  const nr = s.linhas.length ? s.linhas[0].row + 1 : (s.padraoRow || s.row) + 2;
+  // nova posição vai para o fim do setor (depois das pessoas)
+  const nr = s.linhas.length ? s.linhas[s.linhas.length - 1].row + 1 : (s.padraoRow || s.row) + 2;
   shiftLoja_(l, nr, 1);
   const r = { row: nr, qt: +qt || 1, nome: '', funcao: String(funcao || '').toUpperCase(), contrato: contrato || 'INTEGRAL', situacao: 'VAGA', tag: '', tempo: '', meses: null, vid: '', loja: l.key, setor: s.nome,
     info: { etapa: 'Aberta', responsavel: resp || S.user.nome, abertura: todayISO(), previsao: '', candidatos: '', motivo: motivo || 'Aumento de quadro', obs: '', hist: [{ e: 'Aberta', d: todayISO() }] } };
-  s.linhas.splice(s.linhas.length ? 1 : 0, 0, r);
+  s.linhas.push(r);
   return nr;
 }
 // reordena uma linha dentro do setor (as linhas entre a origem e o destino precisam ser contínuas)

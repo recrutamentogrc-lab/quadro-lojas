@@ -487,18 +487,39 @@ async function renderFicha(codigo) {
   let recs = [];
   try { const j = await sendRaw_('fichaInfo', { codigo }); if (j && j.ok) { info = j.link; recs = j.recrutadores || []; } else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; }
   const sel = (name, ops, ph) => `<select class="input" name="${name}" required><option value="">—</option>${ops.map(o => `<option>${o}</option>`).join('')}</select>`;
+  document.documentElement.dataset.theme = 'light';
+  document.title = 'Vem ser GRC · Ficha do candidato';
+  const MARCAS = [['r-center-supermercados-branco.png', 'R Center Supermercados'], ['torra-atacadista-branco.png', 'Torra Atacadista'], ['super-fraldas-branco.png', 'Super Fraldas'], ['r-center-casa-construcao-branco.png', 'R Center Casa & Construção'], ['vita-park-branco.webp', 'Vita Park Mall']];
+  const RC = 'https://www.rcentersupermercado.com.br/img/', img = (f, alt, cls) => `<img src="${RC}${f === 'equipe.jpg' ? 'sobre-equipe.jpg' : 'grupo/' + f}" alt="${h(alt)}" class="${cls || ''}" loading="lazy" onerror="this.style.display='none'">`;
   $('#root').innerHTML = `
-  <div class="login-wrap">
-    <section class="login-hero">
-      <div class="grid-bg"></div><div class="orb"></div>
-      <div class="brand" style="position:relative;color:#fff">${brandHTML(true)}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
-      <div style="position:relative"><h1>Ficha do<br><span>candidato</span></h1><p>Preencha seus dados para darmos andamento ao seu processo seletivo.</p></div>
-    </section>
-    <section class="login-box">
-      <form class="login-card" id="fiForm" autocomplete="on" style="max-width:460px">
-        <div class="brand mobile-only">${brandHTML()}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
-        ${info ? `<h2>Ficha do candidato</h2>
-        ${info.titulo ? `<div class="card" style="background:var(--surface2);padding:10px 14px;margin:6px 0 16px"><div class="muted" style="font-size:12px">Vaga</div><b>${h(info.titulo)}</b></div>` : '<p class="muted" style="margin-top:0">Preencha com atenção, exatamente como está nos seus documentos.</p>'}
+  <div class="fx">
+    <header class="fx-top"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo')}<span>Trabalhe conosco</span></div></header>
+    <div class="fx-wrap">
+      <section class="fx-hero">
+        <div class="fx-hero-txt">
+          <small>#indoalemporvoce</small>
+          <h1>Vem ser <b>GRC</b></h1>
+          <p class="fx-plus">+ OPORTUNIDADE</p>
+          <p>Que bom ter você aqui! Falta pouco para darmos o próximo passo no seu processo seletivo.</p>
+        </div>
+        <div class="fx-hero-img">${img('equipe.jpg', 'Equipe do Grupo R Center')}</div>
+      </section>
+
+      <div class="fx-grid">
+        <aside class="fx-sobre">
+          <h2>Vem ser GRC 💙🧡</h2>
+          <p>Há mais de <b>40 anos</b>, o Grupo R Center faz parte da história do Ceará, construindo uma trajetória marcada por crescimento, credibilidade, inovação e, principalmente, <b>por pessoas</b>.</p>
+          <p>Buscamos talentos com vontade de aprender, crescer e fazer parte dessa história. Aqui, cada pessoa tem a oportunidade de desenvolver o seu potencial.</p>
+          <div class="fx-passos">
+            <div><i>1</i><span><b>Preencha a ficha</b>Leva menos de 2 minutos.</span></div>
+            <div><i>2</i><span><b>O RH recebe na hora</b>Seus dados chegam direto para a equipe.</span></div>
+            <div><i>3</i><span><b>Entramos em contato</b>Fique de olho no seu WhatsApp.</span></div>
+          </div>
+        </aside>
+
+        <form class="fx-card" id="fiForm" autocomplete="on">
+        ${info ? `<div class="fx-card-h"><h2>Ficha do candidato</h2><p>Preencha com atenção, exatamente como está nos seus documentos.</p></div>
+        ${info.titulo ? `<div class="fx-vaga"><span>Vaga</span><b>${h(info.titulo)}</b></div>` : ''}
         ${recs.length ? `<div class="field"><label>Quem do RH falou com você?</label><select class="input" name="rec" required><option value="">Selecione o(a) recrutador(a)</option>${recs.map(x => `<option>${h(x)}</option>`).join('')}</select></div>` : ''}
         <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" placeholder="Como está no documento"></div>
         <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required placeholder="Como está no documento"></div>
@@ -509,11 +530,20 @@ async function renderFicha(codigo) {
         <div class="fi-sec">Fardamento</div>
         <div class="fi-farda"><div class="field"><label>Blusa</label>${sel('blusa', FICHA_BLUSA, 'Tamanho')}</div><div class="field"><label>Calça</label>${sel('calca', FICHA_CALCA, 'Tamanho')}</div><div class="field"><label>Bota / calçado</label>${sel('bota', FICHA_BOTA, 'Número')}</div></div>
         <div id="fiErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
-        <button class="btn primary block" type="submit">Enviar meus dados</button>
-        <p class="faint" style="font-size:11.5px;margin-top:14px;line-height:1.5">Seus dados serão usados somente pelo RH do ${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))} para o processo seletivo e a admissão, conforme a Lei Geral de Proteção de Dados (LGPD).</p>`
-        : `<h2>Link indisponível</h2><div class="badge b-bad" style="display:flex;padding:10px 12px;margin:10px 0 16px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p>`}
-      </form>
+        <button class="btn primary block fx-btn" type="submit">Enviar meus dados</button>
+        <p class="fx-lgpd">🔒 Seus dados serão usados somente pelo RH do Grupo R Center para o processo seletivo e a admissão, conforme a Lei Geral de Proteção de Dados (LGPD).</p>`
+        : `<div class="fx-card-h"><h2>Link indisponível</h2></div><div class="badge b-bad" style="display:flex;padding:10px 12px;margin:10px 0 16px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p>`}
+        </form>
+      </div>
+    </div>
+
+    <section class="fx-marcas">
+      <div class="fx-wrap">
+        <h3>Nossas marcas</h3>
+        <div class="fx-logos">${MARCAS.map(([f, n]) => `<div title="${h(n)}">${img(f, n)}</div>`).join('')}</div>
+      </div>
     </section>
+    <footer class="fx-rodape"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo-sm')}<span>© ${new Date().getFullYear()} Grupo R Center · Indo além por você</span></div></footer>
   </div>`;
   const f = $('#fiForm'); if (!info) return;
   const cpfMsg = $('#cpfMsg');
@@ -540,7 +570,8 @@ async function renderFicha(codigo) {
     try {
       const j = await sendRaw_('fichaEnviar', { codigo, data: d });
       if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível enviar.');
-      f.innerHTML = `<div style="text-align:center;padding:20px 0"><div style="font-size:46px">✅</div><h2>Dados enviados!</h2><p class="muted">Obrigado, ${h(d.nome.trim().split(/\s+/)[0])}. O RH já recebeu sua ficha e vai entrar em contato.</p></div>`;
+      f.innerHTML = `<div class="fx-ok"><div class="fx-ok-ic">✓</div><h2>Ficha enviada!</h2><p>Obrigado, <b>${h(d.nome.trim().split(/\s+/)[0])}</b>! O RH do Grupo R Center já recebeu os seus dados e vai entrar em contato em breve.</p><p class="fx-ok-tag">#VemSerGRC 💙🧡</p></div>`;
+      f.scrollIntoView({ block: 'start', behavior: 'smooth' });
     } catch (ex) { falha(ex.message); btn.disabled = false; btn.textContent = 'Enviar meus dados'; }
   };
 }

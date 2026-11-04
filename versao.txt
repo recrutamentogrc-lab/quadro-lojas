@@ -1,1 +1,1 @@
-versao: validacao de CPF na ficha 2026-11-04
+versao: ficha do candidato com identidade Vem ser GRC 2026-11-04

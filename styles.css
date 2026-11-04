@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Nunito+Sans:wght@400;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
 
 :root{
@@ -666,3 +667,70 @@ body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
 .fi-cpf.ok{color:var(--ok)}.fi-cpf.bad{color:var(--bad)}
 #fiForm .input.bad{border-color:var(--bad);box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 18%,transparent)}
 #fiForm .input.ok{border-color:var(--ok)}
+
+/* ===== ficha pública do candidato (identidade Vem ser GRC) ===== */
+.fx{--fx-azul:#0a0d7c;--fx-azul2:#151aa8;--fx-lar:#ff5a14;--fx-tx:#1e293b;--fx-mu:#5b6478;min-height:100vh;background:#f4f6fb;color:var(--fx-tx);font-family:'Nunito Sans',system-ui,sans-serif}
+.fx .fx-wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+.fx-top{background:var(--fx-azul);color:#fff}
+.fx-top .fx-wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+.fx-logo{height:30px;width:auto}
+.fx-top span{font-weight:700;font-size:13px;letter-spacing:.3px;opacity:.9}
+.fx-hero{position:relative;overflow:hidden;margin:18px 0 0;border-radius:24px;background:radial-gradient(120% 140% at 85% 10%,var(--fx-azul2) 0%,var(--fx-azul) 55%,#060862 100%);color:#fff;display:grid;grid-template-columns:1.15fr .85fr;align-items:stretch;min-height:280px}
+.fx-hero::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);background-size:38px 38px;pointer-events:none}
+.fx-hero-txt{position:relative;padding:34px 36px;display:flex;flex-direction:column;justify-content:center}
+.fx-hero-txt small{color:var(--fx-lar);font-weight:800;font-size:13px;letter-spacing:.4px}
+.fx-hero h1{font-family:'Anton',Impact,sans-serif;font-weight:400;font-size:clamp(46px,8vw,86px);line-height:.95;margin:6px 0 2px;text-transform:uppercase;color:var(--fx-lar);letter-spacing:.5px}
+.fx-hero h1 b{font-weight:400;color:var(--fx-lar)}
+.fx-plus{font-weight:800;font-size:15px;letter-spacing:1px;margin:0 0 14px}
+.fx-hero-txt p:last-child{margin:0;max-width:440px;font-size:16px;line-height:1.5;opacity:.92}
+.fx-hero-img{position:relative}
+.fx-hero-img img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 28%);mask-image:linear-gradient(90deg,transparent 0,#000 28%)}
+.fx-grid{display:grid;grid-template-columns:1fr 460px;gap:28px;align-items:start;margin:28px 0 40px}
+.fx-sobre h2{font-size:28px;font-weight:800;margin:4px 0 12px;color:var(--fx-tx)}
+.fx-sobre p{font-size:16px;line-height:1.65;color:#334155;margin:0 0 12px}
+.fx-passos{display:grid;gap:10px;margin-top:20px}
+.fx-passos>div{display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #e3e8f2;border-radius:14px;padding:12px 14px}
+.fx-passos i{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:800;color:#fff;background:var(--fx-lar)}
+.fx-passos span{font-size:13.5px;color:var(--fx-mu);line-height:1.35}
+.fx-passos b{display:block;color:var(--fx-tx);font-size:14.5px}
+.fx-card{background:#fff;border-radius:20px;padding:24px;box-shadow:0 18px 50px rgba(10,13,124,.12);border:1px solid #e6eaf3;border-top:5px solid var(--fx-lar)}
+.fx-card-h h2{margin:0 0 4px;font-size:22px;font-weight:800;color:var(--fx-azul)}
+.fx-card-h p{margin:0 0 16px;color:var(--fx-mu);font-size:14px}
+.fx-vaga{display:flex;flex-direction:column;background:#fff4ee;border:1px solid #ffd7c2;border-radius:12px;padding:10px 14px;margin:0 0 16px}
+.fx-vaga span{font-size:11.5px;font-weight:800;color:var(--fx-lar);text-transform:uppercase;letter-spacing:.6px}
+.fx-vaga b{color:var(--fx-tx);font-size:15px}
+.fx .field label{font-weight:700;color:#334155}
+.fx .input{background:#f8fafc;border-color:#dbe2ee;color:var(--fx-tx)}
+.fx .input:focus{border-color:var(--fx-azul2);box-shadow:0 0 0 3px rgba(21,26,168,.14);background:#fff}
+.fx .fi-sec{color:var(--fx-azul)}
+.fx .fx-btn{background:var(--fx-lar);border-color:var(--fx-lar);color:#fff;font-weight:800;font-size:16px;padding:14px;border-radius:12px;box-shadow:0 8px 20px rgba(255,90,20,.3)}
+.fx .fx-btn:hover{filter:brightness(1.05)}
+.fx-lgpd{font-size:11.5px;color:var(--fx-mu);margin:14px 0 0;line-height:1.5}
+.fx-ok{text-align:center;padding:26px 6px}
+.fx-ok-ic{width:72px;height:72px;margin:0 auto 14px;border-radius:50%;background:#e8f8ef;color:#16a34a;display:grid;place-items:center;font-size:38px;font-weight:800}
+.fx-ok h2{color:var(--fx-azul);font-size:26px;font-weight:800;margin:0 0 8px}
+.fx-ok p{color:#334155;font-size:15.5px;line-height:1.55;margin:0 0 8px}
+.fx-ok-tag{font-weight:800;color:var(--fx-lar)!important}
+.fx-marcas{background:var(--fx-azul);color:#fff;padding:34px 0}
+.fx-marcas h3{text-align:center;font-size:13px;letter-spacing:2px;text-transform:uppercase;font-weight:800;opacity:.8;margin:0 0 20px}
+.fx-logos{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:22px 42px}
+.fx-logos div{height:46px;display:flex;align-items:center}
+.fx-logos img{max-height:46px;max-width:170px;width:auto;opacity:.95}
+.fx-rodape{background:#060862;color:rgba(255,255,255,.75);font-size:12.5px}
+.fx-rodape .fx-wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:16px;padding-bottom:16px;flex-wrap:wrap}
+.fx-logo-sm{height:22px;width:auto}
+@media (max-width:900px){
+  .fx-grid{grid-template-columns:1fr;gap:20px;margin-top:20px}
+  .fx-card{order:-1}
+}
+@media (max-width:700px){
+  .fx-hero{grid-template-columns:1fr;min-height:0;border-radius:20px;margin-top:12px}
+  .fx-hero-txt{padding:24px 20px 18px}
+  .fx-hero-img{height:190px}
+  .fx-hero-img img{-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 35%);mask-image:linear-gradient(180deg,transparent 0,#000 35%);object-position:center 25%}
+  .fx-card{padding:18px;border-radius:18px}
+  .fx-sobre h2{font-size:23px}
+  .fx-logos{gap:18px 26px}
+  .fx-logos div{height:36px}.fx-logos img{max-height:36px;max-width:130px}
+  .fx-rodape .fx-wrap{justify-content:center;text-align:center}
+}

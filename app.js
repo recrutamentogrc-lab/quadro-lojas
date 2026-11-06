@@ -778,7 +778,7 @@ function openFichaLinks(done) {
 const TESTE_INFO = {
   disc: { nome: 'Perfil comportamental', curto: 'DISC', icone: '🧭', min: 6, cor: '#3b82f6', desc: 'Como você costuma agir, decidir e se relacionar no dia a dia.' },
   forcas: { nome: 'Forças pessoais', curto: 'Forças', icone: '💪', min: 7, cor: '#16a34a', desc: 'Descubra as qualidades que mais aparecem em você.' },
-  situacional: { nome: 'Desafio da Loja', curto: 'Jogo', icone: '🎲', min: 9, cor: '#ff5a14', desc: 'Jogo de tabuleiro no supermercado: decisões, troco, validade e caça ao erro.' },
+  situacional: { nome: 'Jornada GRC', curto: 'Jogo', icone: '🗺️', min: 12, cor: '#ff5a14', desc: 'Jogo de aventura: crie seu personagem, explore as cidades do Grupo R Center e conquiste os selos.' },
   fit: { nome: 'Fit cultural', curto: 'Fit cultural', icone: '💙', min: 5, cor: '#0a0d7c', desc: 'O quanto você se identifica com os nossos valores.' }
 };
 const TESTE_ORDEM = ['disc', 'forcas', 'situacional', 'fit'];
@@ -923,8 +923,9 @@ function testeCorrigir_(r) {
     const cls = nota >= 80 ? 'Excelente' : nota >= 65 ? 'Bom' : nota >= 50 ? 'Regular' : 'Atenção';
     const [md, mn] = medalha_(nota);
     const todos = comp.concat(mini || []), fracas = todos.filter(x => x.p < 60);
-    const txt = `${jogo ? `Desafio da Loja (jogo): ${md} medalha de ${mn}, nota ${nota}% (${cls}).\nDecisões nas situações de loja: ${dec}%.` : `Desempenho nas situações de loja: ${nota}% (${cls}).`}\nMelhor desempenho: ${comp[0].nome} (${comp[0].p}%).${mini ? `\nMinigames: troco ${mini[0].p}%, validade ${mini[1].p}%, atenção ${mini[2].p}%, agilidade ${mini[3].p}%.` : ''}\n${fracas.length ? `Pontos a aprofundar na entrevista: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : 'Nenhuma competência abaixo de 60%.'}`;
-    return { tipo: 'situacional', comp, mini, dec, nota, cls, md, mn, rotulo: nota + '% · ' + cls, txt };
+    const txt = `${jogo ? `Jornada GRC (jogo): ${md} medalha de ${mn}, nota ${nota}% (${cls}).\nDecisões nas situações de loja: ${dec}%.` : `Desempenho nas situações de loja: ${nota}% (${cls}).`}\nMelhor desempenho: ${comp[0].nome} (${comp[0].p}%).${mini ? `\nMinigames: troco ${mini[0].p}%, validade ${mini[1].p}%, atenção ${mini[2].p}%, agilidade ${mini[3].p}%.` : ''}\n${fracas.length ? `Pontos a aprofundar na entrevista: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : 'Nenhuma competência abaixo de 60%.'}`;
+    const sz = R[23] !== '' && R[23] != null && MW_SETORES[Number(R[23])], heroi = sz ? { p: Number(R[20]) || 0, cor: Number(R[21]) || 0, ac: Number(R[22]) || 0, setor: Number(R[23]) } : null;
+    return { tipo: 'situacional', comp, mini, dec, nota, cls, md, mn, heroi, rotulo: nota + '% · ' + cls, txt: txt + (sz ? `\nSetor de interesse escolhido no jogo: ${sz[1]}.` : '') };
   }
   if (r.teste === 'fit') {
     const s = FIT_VAL.map(() => [0, 0]); let incoer = 0;
@@ -963,78 +964,216 @@ const SOM = (() => {
     medalha() { seq([523, 523, 523, 659, 784, 0, 659, 784, 1047, 1047], 'square', .1, .13); setTimeout(() => seq([1047, 1319, 1568, 2093], 'triangle', .08, .1), 1400); }
   };
 })();
-// ================= JOGO "Desafio da Loja": tabuleiro + minigames =================
+// ================= JOGO "Jornada GRC": RPG em mundo aberto + minigames =================
 // resp[0..11] = escolhas das 12 situações (índice original) · resp[12] troco acertos (0-3) · [13] troco seg
-// [14] validade posições certas (0-5) · [15] validade seg · [16] etiquetas acertos (0-2) · [17] etiquetas falsos · [18] etiquetas seg · [19] moedas de sorte
-const JOGO_CASAS = [
-  { t: 'ini', ic: '🚪', nome: 'Entrada' },
-  { t: 's', q: 0, ic: '🛒', nome: 'Caixa' },
-  { t: 'troco', ic: '💵', nome: 'Troco rápido' },
-  { t: 's', q: 6, ic: '🧓', nome: 'Corredor' },
-  { t: 's', q: 1, ic: '🧾', nome: 'Fechamento' },
-  { t: 's', q: 3, ic: '🥛', nome: 'Laticínios' },
-  { t: 'peps', ic: '📅', nome: 'Validade' },
-  { t: 's', q: 2, ic: '🤝', nome: 'Equipe' },
-  { t: 's', q: 4, ic: '🖥️', nome: 'Sistema' },
-  { t: 's', q: 5, ic: '📣', nome: 'Promoção' },
-  { t: 'etiq', ic: '🏷️', nome: 'Etiquetas' },
-  { t: 's', q: 7, ic: '🍫', nome: 'Doceria' },
-  { t: 's', q: 8, ic: '💬', nome: 'Liderança' },
-  { t: 's', q: 9, ic: '🧹', nome: 'Fim de turno' },
-  { t: 's', q: 10, ic: '🚨', nome: 'Prevenção' },
-  { t: 's', q: 11, ic: '🎯', nome: 'Meta do mês' },
-  { t: 'fim', ic: '🏁', nome: 'Chegada' }
-];
+// [14] validade posições certas (0-5) · [15] validade seg · [16] etiquetas acertos (0-2) · [17] etiquetas falsos · [18] etiquetas seg
+// [19] moedas · [20] personagem · [21] cor do uniforme · [22] acessório · [23] setor dos sonhos
 const JOGO_TROCO = [[37.40, 50], [12.85, 20], [63.10, 100]];
 const JOGO_NOTAS = [50, 20, 10, 5, 2, 1, 0.5, 0.25, 0.1, 0.05];
 const JOGO_PEPS = [['🥛 Leite integral', 3], ['🧀 Queijo mussarela', 9], ['🥣 Iogurte morango', 1], ['🧈 Manteiga', 15], ['🍮 Creme de leite', 6]];
 const JOGO_ETIQ = [['☕ Café 500g', 18.9, 18.9], ['🍚 Arroz 5kg', 27.49, 24.79], ['🫘 Feijão 1kg', 8.99, 8.99], ['🧴 Sabão líquido', 21.9, 21.9], ['🍝 Macarrão 500g', 4.79, 4.29], ['🥫 Molho de tomate', 3.49, 3.49]];
 const brlJ_ = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
 const medalha_ = n => n >= 85 ? ['🥇', 'Ouro', '#d4a017'] : n >= 70 ? ['🥈', 'Prata', '#8a9bb0'] : n >= 50 ? ['🥉', 'Bronze', '#b8733e'] : ['🎖️', 'Participação', '#64748b'];
-function jogoLoja_(M, st, salvar, xpAdd, onFim) {
-  const J = st.jogo = st.jogo || { pos: 0, resp: [], moedas: 0, estrelas: {}, t0: Date.now() };
+// ---- personagem
+const MW_PERS = [
+  { n: 'Ana', pele: '#f1c27d', cab: '#3b2314', est: 'longo' },
+  { n: 'Beto', pele: '#8d5524', cab: '#1b1b1b', est: 'curto' },
+  { n: 'Clara', pele: '#ffdbac', cab: '#b5531f', est: 'rabo' },
+  { n: 'Davi', pele: '#c68642', cab: '#1b1b1b', est: 'cacho' },
+  { n: 'Júlia', pele: '#6b4226', cab: '#120b06', est: 'afro' },
+  { n: 'Rafa', pele: '#e0ac69', cab: '#c9932f', est: 'topete' }
+];
+const MW_CORES = [['#1a22b5', 'Azul GRC'], ['#ff5a14', 'Laranja'], ['#16a34a', 'Verde'], ['#dc2626', 'Vermelho'], ['#7c3aed', 'Roxo'], ['#0f172a', 'Preto']];
+const MW_ACESS = [['', 'Nenhum', '🚫'], ['bone', 'Boné', '🧢'], ['avental', 'Avental', '🥼'], ['cracha', 'Crachá', '🪪'], ['oculos', 'Óculos', '👓']];
+const MW_SETORES = [['🛒', 'Caixa'], ['📦', 'Reposição'], ['🥬', 'Hortifrúti'], ['🥩', 'Açougue'], ['🥖', 'Padaria'], ['💬', 'Atendimento ao cliente'], ['🚚', 'Depósito e logística'], ['🛡️', 'Prevenção de perdas'], ['💼', 'Administrativo']];
+function mwAvatar_(p, cls) {
+  p = p || {};
+  const P = MW_PERS[p.p || 0] || MW_PERS[0], cor = (MW_CORES[p.cor || 0] || MW_CORES[0])[0], ac = (MW_ACESS[p.ac || 0] || MW_ACESS[0])[0], pe = P.pele, cb = P.cab;
+  const topo = 'M17 30 Q16 13 32 13 Q48 13 47 30 Q44 21 32 21 Q20 21 17 30Z';
+  const cab = {
+    curto: `<path d="${topo}" fill="${cb}"/>`,
+    longo: `<path d="M16 30 Q15 12 32 12 Q49 12 48 30 L49 52 Q45 54 42 50 L42 26 Q32 19 22 26 L22 50 Q19 54 15 52Z" fill="${cb}"/>`,
+    rabo: `<circle cx="49" cy="24" r="7" fill="${cb}"/><path d="${topo}" fill="${cb}"/>`,
+    cacho: [[19, 26], [24, 18], [32, 15], [40, 18], [45, 26]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="6.5" fill="${cb}"/>`).join(''),
+    afro: `<path d="M18 28 Q20 18 32 18 Q44 18 46 28 Q40 23 32 23 Q24 23 18 28Z" fill="${cb}"/>`,
+    topete: `<path d="M17 30 Q16 15 29 12 Q34 5 43 10 Q49 15 47 30 Q44 21 32 21 Q20 21 17 30Z" fill="${cb}"/>`
+  }[P.est];
+  const acc = {
+    bone: `<path d="M17 27 Q17 10 32 10 Q47 10 47 27Z" fill="${cor}"/><path d="M30 24 H55 Q57 24 56 28 H30Z" fill="${cor}"/><path d="M30 24 H55 Q57 24 56 28 H30Z" fill="#000" opacity=".25"/><circle cx="32" cy="18" r="3" fill="#fff"/>`,
+    avental: `<path d="M22 56 H42 V80 H22Z" fill="#fff" opacity=".93"/><path d="M22 57 L18 51 M42 57 L46 51" stroke="#fff" stroke-width="2.2"/><rect x="27" y="66" width="10" height="6" rx="1.5" fill="none" stroke="#cbd5e1" stroke-width="1.2"/>`,
+    cracha: `<path d="M27 51 L39 62" stroke="#ff5a14" stroke-width="1.6"/><rect x="36" y="61" width="10" height="13" rx="1.8" fill="#fff" stroke="#cbd5e1"/><rect x="37.6" y="63" width="6.8" height="3.4" rx=".8" fill="#1a22b5"/><rect x="37.6" y="68" width="6.8" height="1.3" fill="#94a3b8"/>`,
+    oculos: `<g fill="rgba(255,255,255,.25)" stroke="#111827" stroke-width="1.6"><circle cx="26.5" cy="33" r="4.2"/><circle cx="37.5" cy="33" r="4.2"/></g><path d="M30.7 33 H33.3" stroke="#111827" stroke-width="1.6"/>`
+  }[ac] || '';
+  return `<svg class="mw-av ${cls || ''}" viewBox="0 0 64 80" aria-hidden="true">
+    ${P.est === 'afro' ? `<circle cx="32" cy="26" r="19" fill="${cb}"/>` : ''}
+    <path d="M11 80 Q11 52 32 50 Q53 52 53 80Z" fill="${cor}"/>${ac === 'avental' ? '' : '<rect x="19" y="63" width="8" height="2.6" rx="1" fill="#ff5a14"/>'}
+    <rect x="28" y="42" width="8" height="10" rx="2" fill="${pe}"/><path d="M26 51 L32 57 L38 51" fill="none" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/>
+    <circle cx="18.5" cy="33" r="3" fill="${pe}"/><circle cx="45.5" cy="33" r="3" fill="${pe}"/><circle cx="32" cy="32" r="14" fill="${pe}"/>
+    ${cab}
+    <circle cx="26.5" cy="33" r="1.9" fill="#1f2937"/><circle cx="37.5" cy="33" r="1.9" fill="#1f2937"/>
+    <circle cx="23" cy="37.6" r="2.4" fill="#f87171" opacity=".35"/><circle cx="41" cy="37.6" r="2.4" fill="#f87171" opacity=".35"/>
+    <path d="M27.5 38.5 Q32 42.5 36.5 38.5" stroke="#7c2d12" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    ${acc}</svg>`;
+}
+// ---- mapa: cidades do Grupo R Center (cada uma com missões e um selo)
+const MW_REG = [
+  { id: 'SM', nome: 'R Center Supermercados', ic: '🛒', cor: '#1d4ed8', x: 17, y: 76, de: [], selo: 'Selo do Atendimento',
+    hist: 'Tudo começa aqui, na loja mais movimentada do grupo. Clientes, gôndolas e caixas cheios: mostre que você sabe cuidar de cada detalhe.',
+    m: [{ s: 0, tit: 'Preço divergente', npc: '🧔', quem: 'Seu Raimundo', papel: 'cliente no caixa' }, { s: 6, tit: 'Uma ajudinha', npc: '👵', quem: 'Dona Socorro', papel: 'cliente fiel da loja' }, { s: 3, tit: 'Surpresa na gôndola', npc: '🧑‍🔧', quem: 'Léo', papel: 'repositor' }, { g: 'peps', tit: 'Organize a gôndola', npc: '👩‍💼', quem: 'Márcia', papel: 'encarregada de perecíveis', fala: 'Chegou mercadoria nova! Me ajuda a organizar a gôndola de laticínios do jeito certo?' }] },
+  { id: 'TA', nome: 'Torra Atacadista', ic: '📦', cor: '#ea580c', x: 45, y: 55, de: ['SM'], selo: 'Selo da Agilidade',
+    hist: 'No atacado tudo é em grande volume e em ritmo acelerado. Aqui, trabalho em equipe e agilidade fazem toda a diferença.',
+    m: [{ s: 2, tit: 'Time desfalcado', npc: '👨‍💼', quem: 'Paulo', papel: 'encarregado do setor' }, { s: 4, tit: 'O sistema travou', npc: '👩', quem: 'Bia', papel: 'operadora de caixa' }, { g: 'troco', tit: 'Troco rápido', npc: '🧓', quem: 'Seu Zé', papel: 'cliente apressado', fala: 'Tô com pressa, viu? Confere meu troco direitinho, por favor!' }] },
+  { id: 'SF', nome: 'Super Fraldas', ic: '🍼', cor: '#db2777', x: 21, y: 28, de: ['SM'], selo: 'Selo da Integridade',
+    hist: 'Uma loja onde as famílias confiam em nós todos os dias. Por aqui, honestidade e integridade valem mais que tudo.',
+    m: [{ s: 1, tit: 'Sobrou no caixa', npc: '👩‍💼', quem: 'Fernanda', papel: 'tesoureira' }, { s: 7, tit: 'Atitude do colega', npc: '🧑', quem: 'Kauã', papel: 'colega de setor' }, { s: 10, tit: 'Algo suspeito', npc: '👮', quem: 'Sr. Lima', papel: 'prevenção de perdas' }] },
+  { id: 'CC', nome: 'R Center Casa & Construção', ic: '🔨', cor: '#15803d', x: 71, y: 77, de: ['TA'], selo: 'Selo da Organização',
+    hist: 'Cada peça no lugar certo. Aqui, organização e respeito à liderança constroem resultados sólidos.',
+    m: [{ s: 8, tit: 'Ideias diferentes', npc: '👷', quem: 'Ricardo', papel: 'líder de loja' }, { s: 9, tit: 'Fim de turno', npc: '👩‍🔧', quem: 'Carla', papel: 'colega do próximo turno' }, { g: 'etiq', tit: 'Caça ao erro de preço', npc: '🧑‍💼', quem: 'Sônia', papel: 'gerente da loja', fala: 'Recebemos reclamação de preço. Vamos conferir as etiquetas da gôndola com o sistema?' }] },
+  { id: 'VP', nome: 'Vita Park Mall', ic: '🎡', cor: '#7c3aed', x: 63, y: 24, de: ['SF'], selo: 'Selo do Resultado',
+    hist: 'O ponto de encontro da cidade. Aqui o foco é resultado: campanhas, metas e clientes encantados.',
+    m: [{ s: 5, tit: 'Campanha de vendas', npc: '🧑‍🎤', quem: 'Diego', papel: 'time de marketing' }, { s: 11, tit: 'Meta do mês', npc: '👨‍💼', quem: 'Seu Antônio', papel: 'gerente geral' }] }
+];
+const MW_SEDE = { id: 'HQ', nome: 'Sede GRC', ic: '🏆', cor: '#d4a017', x: 88, y: 50 };
+const MW_ESTR = [['SM', 'TA'], ['SM', 'SF'], ['TA', 'CC'], ['SF', 'VP'], ['CC', 'HQ'], ['VP', 'HQ']];
+const MW_DEC = [['🌳', 6, 52], ['🌲', 34, 10], ['🌳', 50, 34], ['🌴', 88, 86], ['🌲', 7, 93], ['⛲', 36, 84], ['🌳', 80, 40], ['☁️', 46, 6], ['🚗', 30, 63], ['🏠', 8, 12], ['🌻', 56, 90], ['🚚', 76, 58]];
+function mundoGRC_(M, st, salvar, xpAdd, onFim) {
+  const J = st.mundo = st.mundo || { perfil: null, feito: {}, moedas: 0, pos: 'SM', resp: [], t0: Date.now() };
   const R = J.resp;
-  M.onclick = e => { const b = e.target.closest('#jgSom'); if (b) { b.textContent = SOM.alternar() ? '🔇' : '🔊'; } };
-  const tab = () => `<div class="jg-top"><div class="jg-hud"><span>🪙 <b>${J.moedas}</b></span><span>⭐ <b>${Object.values(J.estrelas).reduce((a, b) => a + b, 0)}</b></span><span>📍 <b>${J.pos}/${JOGO_CASAS.length - 1}</b></span><button class="jg-som" id="jgSom" title="Som">${SOM.mudo ? '🔇' : '🔊'}</button></div>
-    <div class="jg-board">${JOGO_CASAS.map((c, i) => `<div class="jg-casa ${i < J.pos ? 'feita' : ''} ${i === J.pos ? 'aqui' : ''} t-${c.t}"><span>${c.ic}</span><small>${c.nome}</small>${J.estrelas[i] != null ? `<em>${'★'.repeat(J.estrelas[i])}${'☆'.repeat(3 - J.estrelas[i])}</em>` : ''}${i === J.pos ? '<i class="jg-peao">🧑‍💼</i>' : ''}</div>`).join('')}</div></div>`;
-  const ganhar = (casa, est, moedas) => { J.pend = false; J.estrelas[casa] = est; J.moedas += moedas; salvar(); xpAdd(moedas); };
-  const tela = () => {
-    if (J.pos >= JOGO_CASAS.length - 1) return final();
-    const prox = JOGO_CASAS[J.pos + 1];
-    M.innerHTML = `<div class="jg">${tab()}
-      <div class="jg-acao"><div class="jg-dado" id="jgD">🎲</div><div><b>Próxima parada: ${prox.ic} ${prox.nome}</b><small>Role o dado para andar. O número sorteado vira moedas de bônus!</small></div><button class="btn primary fx-btn" id="jgR">Rolar dado</button></div></div>`;
-    $('#jgR').onclick = () => {
-      SOM.musica(true); SOM.dado();
-      $('#jgR').disabled = true; const d = $('#jgD'); let n = 0;
-      const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-      const anim = setInterval(() => { d.textContent = faces[Math.floor(Math.random() * 6)]; d.classList.toggle('rola'); if (++n > 10) { clearInterval(anim); const v = 1 + Math.floor(Math.random() * 6); d.textContent = faces[v - 1]; R[19] = String((Number(R[19]) || 0) + v); J.moedas += v * 2; J.pos++; J.pend = true; salvar(); SOM.passo(); setTimeout(() => casa(J.pos), 450); } }, 70);
-    };
+  const todos = MW_REG.concat([MW_SEDE]), by = id => todos.find(r => r.id === id);
+  const regFeita = r => r.m.every((m, i) => J.feito[r.id + ':' + i] != null);
+  const sedeLib = () => MW_REG.every(regFeita);
+  const lib = r => r.id === 'HQ' ? sedeLib() : r.id === 'SM' || r.de.some(id => regFeita(by(id)));
+  const estrelas = () => Object.values(J.feito).reduce((a, b) => a + b, 0);
+  const nivel = () => 1 + Math.floor(J.moedas / 80);
+  const nome = () => h((J.perfil && J.perfil.apelido) || 'Herói');
+  const top = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+  M.onclick = e => {
+    const b = e.target.closest('#jgSom'); if (b) { b.textContent = SOM.alternar() ? '🔇' : '🔊'; return; }
+    if (e.target.closest('#mwPerf')) { SOM.clique(); perfil(false); }
   };
-  const card = (c, corpo) => `<div class="jg">${tab()}<div class="jg-card"><div class="tx-tag">${c.ic} ${c.nome}</div>${corpo}</div></div>`;
-  const depois = (casa, est, moedas, msg) => {
-    ganhar(casa, est, moedas);
+  const hud = () => `<div class="mw-hud"><button class="mw-me" id="mwPerf" title="Editar perfil">${mwAvatar_(J.perfil)}<span><b>${nome()}</b><small>Nível ${nivel()} · ✏️ perfil</small></span></button>
+    <span class="mw-st">🪙 <b>${J.moedas}</b></span><span class="mw-st">⭐ <b>${estrelas()}</b></span><span class="mw-st">🏅 <b>${MW_REG.filter(regFeita).length}/5</b></span><button class="jg-som" id="jgSom" title="Som">${SOM.mudo ? '🔇' : '🔊'}</button></div>`;
+  // 1) criar / editar o personagem
+  const perfil = novo => {
+    const P = Object.assign({ p: 0, cor: 0, ac: 0, setor: -1, apelido: '' }, J.perfil || {});
+    const draw = () => {
+      M.innerHTML = `<div class="mw"><div class="mw-perf">
+        <div class="mw-ph"><small>${novo ? 'Passo 1 · Crie o seu herói' : 'Editar perfil'}</small><h2>${novo ? 'Quem vai partir nessa jornada?' : 'Seu personagem'}</h2></div>
+        <div class="mw-pgrid">
+          <div class="mw-prev" style="--c:${MW_CORES[P.cor][0]}">${mwAvatar_(P, 'grande')}<b>${h(P.apelido || MW_PERS[P.p].n)}</b><small>${P.setor >= 0 ? MW_SETORES[P.setor].join(' ') : 'Escolha seu setor dos sonhos'}</small></div>
+          <div class="mw-pform">
+            <label>Personagem</label><div class="mw-chars">${MW_PERS.map((x, i) => `<button class="mw-ch ${P.p === i ? 'sel' : ''}" data-p="${i}">${mwAvatar_(Object.assign({}, P, { p: i }))}<small>${x.n}</small></button>`).join('')}</div>
+            <label>Apelido do herói</label><input class="input" id="mwApe" maxlength="14" placeholder="Ex.: ${MW_PERS[P.p].n} Estrela" value="${h(P.apelido)}">
+            <label>Cor do uniforme</label><div class="mw-cores">${MW_CORES.map((c, i) => `<button class="mw-cor ${P.cor === i ? 'sel' : ''}" data-c="${i}" title="${c[1]}" style="background:${c[0]}"></button>`).join('')}</div>
+            <label>Acessório</label><div class="mw-chips">${MW_ACESS.map((a, i) => `<button class="mw-chip ${P.ac === i ? 'sel' : ''}" data-a="${i}">${a[2]} ${a[1]}</button>`).join('')}</div>
+            <label>Setor dos sonhos</label><div class="mw-chips">${MW_SETORES.map((s, i) => `<button class="mw-chip ${P.setor === i ? 'sel' : ''}" data-s="${i}">${s[0]} ${s[1]}</button>`).join('')}</div>
+            <div id="mwErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-top:12px;white-space:normal"></div>
+            <button class="btn primary block fx-btn" id="mwOk" style="margin-top:14px">${novo ? 'Partir para a aventura ▶' : 'Salvar e voltar ▶'}</button>
+          </div></div></div></div>`;
+      const ape = $('#mwApe');
+      ape.oninput = () => { P.apelido = ape.value.replace(/[<>]/g, ''); const b = $('.mw-prev b', M); if (b) b.textContent = P.apelido || MW_PERS[P.p].n; };
+      const pick = (sel, k) => $$(sel, M).forEach(b => b.onclick = () => { SOM.clique(); P[k] = Number(b.dataset[{ p: 'p', cor: 'c', ac: 'a', setor: 's' }[k]]); draw(); });
+      pick('[data-p]', 'p'); pick('[data-c]', 'cor'); pick('[data-a]', 'ac'); pick('[data-s]', 'setor');
+      $('#mwOk').onclick = () => {
+        const err = $('#mwErr'); P.apelido = ape.value.replace(/[<>]/g, '').trim();
+        if (!P.apelido) P.apelido = MW_PERS[P.p].n;
+        if (P.setor < 0) { err.textContent = 'Escolha o seu setor dos sonhos para continuar.'; err.classList.remove('hidden'); return; }
+        J.perfil = P; salvar(); SOM.certo(); SOM.musica(true);
+        novo ? historia() : mapa();
+      };
+    };
+    draw(); top();
+  };
+  // 2) história
+  const historia = () => {
+    M.innerHTML = `<div class="mw"><div class="mw-hist-c"><div class="mw-hist-av">${mwAvatar_(J.perfil, 'grande')}</div>
+      <small>Capítulo 1 · O chamado</small><h2>Bem-vindo(a) ao Mundo GRC, ${nome()}!</h2>
+      <p>O Grupo R Center está procurando a sua próxima <b>Estrela</b>. Para conquistar esse título, você vai viajar pelas <b>5 cidades do grupo</b>, conhecer pessoas, resolver situações do dia a dia e encarar minigames.</p>
+      <p>Cada cidade guarda um <b>selo</b>. Ao concluir as missões de uma cidade, novas cidades se abrem no mapa, e você escolhe o caminho. Com os 5 selos, siga para a <b>Sede GRC</b> para a cerimônia final. 🏆</p>
+      <div class="mw-selos">${MW_REG.map(r => `<span style="--c:${r.cor}">${r.ic}<small>${r.selo.replace('Selo d', '').replace(/^[oa] /, '')}</small></span>`).join('')}</div>
+      <p class="mw-obs">💡 Não existe pegadinha: escolha sempre o que você faria de verdade.</p>
+      <button class="btn primary block fx-btn" id="mwGo">Abrir o mapa 🗺️</button></div></div>`;
+    $('#mwGo').onclick = () => { SOM.passo(); mapa(); };
+    top();
+  };
+  // 3) mapa do mundo aberto
+  const mapa = () => {
+    const cur = by(J.pos) || MW_REG[0];
+    const prog = r => `${r.m.filter((m, i) => J.feito[r.id + ':' + i] != null).length}/${r.m.length} missões`;
+    M.innerHTML = `<div class="mw">${hud()}
+      <div class="mw-map">
+        <svg class="mw-rd" viewBox="0 0 100 100" preserveAspectRatio="none">${MW_ESTR.map(([a, b]) => { const A = by(a), B = by(b); return `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" class="${lib(A) && lib(B) ? 'on' : ''}" vector-effect="non-scaling-stroke"/>`; }).join('')}</svg>
+        <div class="mw-lago"></div>
+        ${MW_DEC.map(([e, x, y]) => `<i class="mw-dec" style="left:${x}%;top:${y}%">${e}</i>`).join('')}
+        ${todos.map(r => { const L = lib(r), F = r.id !== 'HQ' && regFeita(r); return `<button class="mw-no ${L ? '' : 'lock'} ${F ? 'feito' : ''} ${r.id === 'HQ' ? 'sede' : ''}" data-r="${r.id}" style="left:${r.x}%;top:${r.y}%;--c:${r.cor}"><span class="mw-ic">${L ? r.ic : '🔒'}</span><b>${r.nome}</b><em>${F ? '✅ selo' : r.id === 'HQ' ? (L ? 'cerimônia!' : '5 selos') : L ? prog(r) : 'bloqueada'}</em></button>`; }).join('')}
+        <div class="mw-heroi" id="mwH" style="left:${cur.x}%;top:${cur.y}%">${mwAvatar_(J.perfil)}</div>
+      </div>
+      <div class="mw-dica" id="mwDica">${sedeLib() ? '🏆 Você conquistou os 5 selos! Siga para a <b>Sede GRC</b> para a cerimônia final.' : '🗺️ Toque em uma cidade liberada para viajar. Conclua as missões para destravar novas cidades.'}</div></div>`;
+    $$('.mw-no', M).forEach(b => b.onclick = () => {
+      const r = by(b.dataset.r);
+      if (!lib(r)) {
+        SOM.erro(); b.classList.remove('treme'); void b.offsetWidth; b.classList.add('treme');
+        $('#mwDica').innerHTML = r.id === 'HQ' ? '🔒 A Sede GRC abre quando você tiver os <b>5 selos</b>.' : `🔒 Para liberar <b>${r.nome}</b>, conclua as missões de <b>${r.de.map(id => by(id).nome).join(' ou ')}</b>.`;
+        return;
+      }
+      $$('.mw-no', M).forEach(x => x.disabled = true); SOM.musica(true);
+      const abrir = () => { J.pos = r.id; salvar(); r.id === 'HQ' ? sede() : regiao(r); };
+      if (r.id === J.pos) return abrir();
+      const H = $('#mwH'); H.classList.add('anda'); H.style.left = r.x + '%'; H.style.top = r.y + '%';
+      let n = 0; const pa = setInterval(() => { SOM.passo(); if (++n >= 4) clearInterval(pa); }, 220);
+      setTimeout(abrir, 1000);
+    });
+  };
+  // 4) cidade
+  const regiao = r => {
+    const feitas = r.m.filter((m, i) => J.feito[r.id + ':' + i] != null).length;
+    M.innerHTML = `<div class="mw">${hud()}<div class="mw-reg" style="--c:${r.cor}">
+      <div class="mw-rh"><button class="tx-back" id="mwV" title="Voltar ao mapa">‹</button><span class="mw-ric">${r.ic}</span><div><small>Cidade</small><h2>${r.nome}</h2></div></div>
+      <p class="mw-rhist">${r.hist}</p>
+      <div class="tx-prog"><i style="width:${Math.round(feitas / r.m.length * 100)}%"></i></div><small class="mw-rp">${feitas} de ${r.m.length} missões · recompensa: <b>🏅 ${r.selo}</b></small>
+      <div class="mw-ms">${r.m.map((m, i) => { const e = J.feito[r.id + ':' + i]; return `<button class="mw-m ${e != null ? 'ok' : ''}" data-i="${i}" ${e != null ? 'disabled' : ''}><span class="mw-npc">${m.npc}</span><span class="mw-mt"><b>${m.tit}</b><small>${m.quem} · ${m.papel}</small></span><em>${e != null ? '★'.repeat(e) + '☆'.repeat(3 - e) : m.g ? '🎮 minigame' : '💬 missão'}</em></button>`; }).join('')}</div>
+      <button class="btn block" id="mwV2" style="margin-top:12px">🗺️ Voltar ao mapa</button></div></div>`;
+    $('#mwV').onclick = $('#mwV2').onclick = () => { SOM.clique(); mapa(); };
+    $$('.mw-m', M).forEach(b => b.onclick = () => { SOM.clique(); missao(r, Number(b.dataset.i)); });
+    top();
+  };
+  const card = (r, m, corpo) => `<div class="mw">${hud()}<div class="jg-card mw-card" style="--c:${r.cor}"><div class="tx-tag">${r.ic} ${r.nome} · ${m.tit}</div>${corpo}</div></div>`;
+  const fala = (m, txt) => `<div class="mw-fala"><span class="mw-npcg">${m.npc}</span><div><b>${m.quem} <small>${m.papel}</small></b><p>${h(txt)}</p></div></div>`;
+  const eu = txt => `<div class="mw-eu">${mwAvatar_(J.perfil)}<span>${txt}</span></div>`;
+  const depois = (r, i, est, moedas, msg) => {
+    const ja = regFeita(r);
+    J.feito[r.id + ':' + i] = est; J.moedas += moedas; salvar(); xpAdd(moedas);
     if (est >= 2) { SOM.certo(); setTimeout(() => SOM.moeda(), 380); } else if (est === 1) SOM.moeda(); else SOM.erro();
     const b = document.createElement('div'); b.className = 'jg-pop'; b.innerHTML = `<div><b>${'★'.repeat(est)}${'☆'.repeat(3 - est)}</b><span>+${moedas} 🪙</span><small>${msg || ''}</small></div>`;
-    document.body.appendChild(b); setTimeout(() => { b.remove(); tela(); }, 1300);
+    document.body.appendChild(b); setTimeout(() => { b.remove(); !ja && regFeita(r) ? selo(r) : regiao(r); }, 1300);
   };
-  const casa = i => {
-    const c = JOGO_CASAS[i];
-    if (c.t === 's') {
-      const q = SIT_Q[c.q], ord = embaralha_(4, c.q + 3);
-      M.innerHTML = card(c, `<div class="tx-emoji">${q[1]}</div><h3>${h(q[2])}</h3><p class="tx-sub">O que você faria?</p><div class="tx-ops">${ord.map((k, j) => `<button class="tx-op" data-k="${k}"><i>${'ABCD'[j]}</i><span>${h(q[3][k][0])}</span></button>`).join('')}</div>`);
-      $$('.tx-op', M).forEach(b => b.onclick = () => { SOM.clique(); $$('.tx-op', M).forEach(x => x.disabled = true); b.classList.add('sel'); const k = Number(b.dataset.k), pt = q[3][k][1]; R[c.q] = String(k); depois(i, pt, 10 + pt * 10, pt === 3 ? 'Mandou bem!' : pt === 2 ? 'Boa!' : 'Seguindo em frente'); });
-    } else if (c.t === 'troco') minTroco(i, c);
-    else if (c.t === 'peps') minPeps(i, c);
-    else if (c.t === 'etiq') minEtiq(i, c);
-    else tela();
+  const missao = (r, i) => {
+    const m = r.m[i];
+    if (m.g === 'troco') return minTroco(r, i, m);
+    if (m.g === 'peps') return minPeps(r, i, m);
+    if (m.g === 'etiq') return minEtiq(r, i, m);
+    const q = SIT_Q[m.s], ord = embaralha_(4, m.s + 3);
+    M.innerHTML = card(r, m, `${fala(m, q[2])}${eu(`O que você faria, ${nome()}?`)}<div class="tx-ops">${ord.map((k, j) => `<button class="tx-op" data-k="${k}"><i>${'ABCD'[j]}</i><span>${h(q[3][k][0])}</span></button>`).join('')}</div>`);
+    $$('.tx-op', M).forEach(b => b.onclick = () => { SOM.clique(); $$('.tx-op', M).forEach(x => x.disabled = true); b.classList.add('sel'); const k = Number(b.dataset.k), pt = q[3][k][1]; R[m.s] = String(k); depois(r, i, pt, 10 + pt * 10, pt === 3 ? 'Mandou bem!' : pt === 2 ? 'Boa!' : 'Seguindo em frente'); });
+    top();
+  };
+  // selo conquistado
+  const selo = r => {
+    const novas = MW_REG.filter(x => x.de.includes(r.id) && !regFeita(x)), todosS = sedeLib();
+    M.innerHTML = `<div class="mw">${hud()}<div class="jg-card jg-final mw-selo" style="--m:${r.cor}"><div class="jg-conf">${Array.from('🎉✨🪙⭐'.repeat(3)).map((x, i) => `<i style="left:${(i * 37) % 100}%;animation-delay:${(i % 7) * .12}s">${x}</i>`).join('')}</div>
+      <div class="mw-bdg" style="--c:${r.cor}">${r.ic}</div><small>Cidade concluída</small><h2>${r.selo} conquistado!</h2>
+      <p>Você concluiu todas as missões de <b>${r.nome}</b>.</p>
+      ${todosS ? '<div class="mw-lib">🏆 A <b>Sede GRC</b> foi liberada! Hora da cerimônia final.</div>' : novas.length ? `<div class="mw-lib">🔓 Nova cidade liberada: <b>${novas.map(x => x.ic + ' ' + x.nome).join(', ')}</b></div>` : ''}
+      <button class="btn primary block fx-btn" id="mwM">Voltar ao mapa 🗺️</button></div></div>`;
+    SOM.medalha(); $('#mwM').onclick = () => { SOM.clique(); mapa(); }; top();
   };
   // minigame 1: montar o troco
-  const minTroco = (ci, c) => {
+  const minTroco = (r, ci, m) => {
     let rod = 0, ac = 0; const t0 = Date.now();
     const rodada = () => {
-      if (rod >= JOGO_TROCO.length) { R[12] = String(ac); R[13] = String(Math.round((Date.now() - t0) / 1000)); const est = ac === 3 ? 3 : ac === 2 ? 2 : ac ? 1 : 0; return depois(ci, est, 15 + ac * 15, `${ac} de 3 trocos certos`); }
+      if (rod >= JOGO_TROCO.length) { R[12] = String(ac); R[13] = String(Math.round((Date.now() - t0) / 1000)); const est = ac === 3 ? 3 : ac === 2 ? 2 : ac ? 1 : 0; return depois(r, ci, est, 15 + ac * 15, `${ac} de 3 trocos certos`); }
       const [tot, pago] = JOGO_TROCO[rod], certo = Math.round((pago - tot) * 100); let soma = 0;
-      M.innerHTML = card(c, `<h3>Cliente ${rod + 1} de 3</h3><div class="jg-tr"><div><small>Compra</small><b>${brlJ_(tot)}</b></div><div><small>Pagou com</small><b>${brlJ_(pago)}</b></div><div class="soma"><small>Seu troco</small><b id="trS">R$ 0,00</b></div></div>
+      M.innerHTML = card(r, m, `${rod === 0 ? fala(m, m.fala) : ''}<h3>Cliente ${rod + 1} de 3</h3><div class="jg-tr"><div><small>Compra</small><b>${brlJ_(tot)}</b></div><div><small>Pagou com</small><b>${brlJ_(pago)}</b></div><div class="soma"><small>Seu troco</small><b id="trS">R$ 0,00</b></div></div>
         <p class="tx-sub">Toque nas notas e moedas para montar o troco certo.</p>
         <div class="jg-notas">${JOGO_NOTAS.filter(v => v < pago).map(v => `<button class="jg-nota ${v >= 2 ? 'cedula' : 'moeda'}" data-v="${v}">${v >= 1 ? 'R$ ' + v : (v * 100) + '¢'}</button>`).join('')}</div>
         <div class="jg-bts"><button class="btn" id="trZ">Limpar</button><button class="btn primary fx-btn" id="trOk">Entregar troco</button></div>`);
@@ -1043,27 +1182,27 @@ function jogoLoja_(M, st, salvar, xpAdd, onFim) {
       $('#trZ').onclick = () => { soma = 0; atual(); };
       $('#trOk').onclick = () => { const ok = soma === certo; if (ok) { ac++; SOM.certo(); } else SOM.erro(); const el = $('#trS'); el.textContent = ok ? '✅ Certo!' : '❌ Era ' + brlJ_(certo / 100); setTimeout(() => { rod++; rodada(); }, 900); $('#trOk').disabled = true; };
     };
-    rodada();
+    rodada(); top();
   };
-  // minigame 2: validade (PEPS) — tocar do que vence primeiro ao último
-  const minPeps = (ci, c) => {
+  // minigame 2: validade (PEPS)
+  const minPeps = (r, ci, m) => {
     const t0 = Date.now(), ord = embaralha_(JOGO_PEPS.length, 5), esc = [], hoje = new Date();
     const dt = d => { const x = new Date(hoje); x.setDate(x.getDate() + d); return x.toLocaleDateString('pt-BR').slice(0, 5); };
     const draw = () => {
-      M.innerHTML = card(c, `<h3>Organize a gôndola</h3><p class="tx-sub">Toque nos produtos na ordem em que <b>vencem</b>: o que vence primeiro vai para a frente (PEPS).</p>
+      M.innerHTML = card(r, m, `${fala(m, m.fala)}<p class="tx-sub">Toque nos produtos na ordem em que <b>vencem</b>: o que vence primeiro vai para a frente (PEPS).</p>
         <div class="jg-peps">${ord.map(k => { const p = JOGO_PEPS[k], n = esc.indexOf(k); return `<button class="jg-prod ${n >= 0 ? 'ok' : ''}" data-k="${k}" ${n >= 0 ? 'disabled' : ''}>${n >= 0 ? `<i>${n + 1}º</i>` : ''}<b>${p[0]}</b><small>Vence ${dt(p[1])}</small></button>`; }).join('')}</div>
         <div class="jg-fila">Frente da gôndola ➜ ${esc.map(k => JOGO_PEPS[k][0].split(' ')[0]).join(' ') || '…'}</div>
         <div class="jg-bts"><button class="btn" id="peZ">Recomeçar</button></div>`);
       $$('.jg-prod', M).forEach(b => b.onclick = () => { SOM.clique(); esc.push(Number(b.dataset.k)); if (esc.length < JOGO_PEPS.length) draw(); else fim(); });
       $('#peZ').onclick = () => { esc.length = 0; draw(); };
     };
-    const fim = () => { const certa = JOGO_PEPS.map((p, k) => k).sort((a, b) => JOGO_PEPS[a][1] - JOGO_PEPS[b][1]); const n = esc.filter((k, i) => certa[i] === k).length; R[14] = String(n); R[15] = String(Math.round((Date.now() - t0) / 1000)); depois(ci, n === 5 ? 3 : n >= 3 ? 2 : n >= 1 ? 1 : 0, 10 + n * 8, `${n} de 5 na posição certa`); };
-    draw();
+    const fim = () => { const certa = JOGO_PEPS.map((p, k) => k).sort((a, b) => JOGO_PEPS[a][1] - JOGO_PEPS[b][1]); const n = esc.filter((k, i) => certa[i] === k).length; R[14] = String(n); R[15] = String(Math.round((Date.now() - t0) / 1000)); depois(r, ci, n === 5 ? 3 : n >= 3 ? 2 : n >= 1 ? 1 : 0, 10 + n * 8, `${n} de 5 na posição certa`); };
+    draw(); top();
   };
-  // minigame 3: etiquetas — achar preço da gôndola diferente do sistema
-  const minEtiq = (ci, c) => {
+  // minigame 3: etiquetas
+  const minEtiq = (r, ci, m) => {
     const t0 = Date.now(), sel = new Set();
-    M.innerHTML = card(c, `<h3>Caça ao erro de preço</h3><p class="tx-sub">Compare o preço da <b>gôndola</b> com o do <b>sistema</b> e marque as etiquetas erradas. Depois toque em Conferir.</p>
+    M.innerHTML = card(r, m, `${fala(m, m.fala)}<p class="tx-sub">Compare o preço da <b>gôndola</b> com o do <b>sistema</b> e marque as etiquetas erradas. Depois toque em Conferir.</p>
       <div class="jg-etq">${JOGO_ETIQ.map((e, k) => `<button class="jg-et" data-k="${k}"><b>${e[0]}</b><span><small>Gôndola</small>${brlJ_(e[1])}</span><span><small>Sistema</small>${brlJ_(e[2])}</span></button>`).join('')}</div>
       <div class="jg-bts"><button class="btn primary fx-btn" id="etOk">Conferir</button></div>`);
     $$('.jg-et', M).forEach(b => b.onclick = () => { SOM.clique(); const k = Number(b.dataset.k); sel.has(k) ? sel.delete(k) : sel.add(k); b.classList.toggle('sel'); });
@@ -1071,19 +1210,29 @@ function jogoLoja_(M, st, salvar, xpAdd, onFim) {
       const errados = JOGO_ETIQ.map((e, k) => e[1] !== e[2] ? k : -1).filter(k => k >= 0);
       const hit = errados.filter(k => sel.has(k)).length, fal = [...sel].filter(k => !errados.includes(k)).length;
       R[16] = String(hit); R[17] = String(fal); R[18] = String(Math.round((Date.now() - t0) / 1000));
-      const sc = Math.max(0, hit - fal); depois(ci, sc === 2 ? 3 : sc === 1 ? 1 : 0, 10 + sc * 15, `${hit} de 2 erros encontrados`);
+      const sc = Math.max(0, hit - fal); depois(r, ci, sc === 2 ? 3 : sc === 1 ? 1 : 0, 10 + sc * 15, `${hit} de 2 erros encontrados`);
     };
+    top();
   };
-  const final = () => {
-    for (let i = 0; i < 20; i++) if (R[i] == null) R[i] = '';
+  // 5) Sede GRC: cerimônia final
+  const sede = () => {
+    for (let i = 0; i < 24; i++) if (R[i] == null) R[i] = '';
+    const P = J.perfil; R[19] = String(J.moedas); R[20] = String(P.p); R[21] = String(P.cor); R[22] = String(P.ac); R[23] = String(P.setor);
     const nota = testeCorrigir_({ teste: 'situacional', resp: R }).nota, [md, mn, cor] = medalha_(nota);
-    M.innerHTML = `<div class="jg">${tab()}<div class="jg-card jg-final" style="--m:${cor}"><div class="jg-conf">${Array.from('🎉✨🪙⭐'.repeat(4)).map((x, i) => `<i style="left:${(i * 37) % 100}%;animation-delay:${(i % 7) * .12}s">${x}</i>`).join('')}</div>
-      <div class="jg-med">${md}</div><h2>Medalha de ${mn}!</h2><p>Você completou o Desafio da Loja com <b>${J.moedas} moedas</b> e <b>${Object.values(J.estrelas).reduce((a, b) => a + b, 0)} estrelas</b>.</p>
+    M.innerHTML = `<div class="mw">${hud()}<div class="jg-card jg-final mw-fim" style="--m:${cor}"><div class="jg-conf">${Array.from('🎉✨🪙⭐'.repeat(4)).map((x, i) => `<i style="left:${(i * 37) % 100}%;animation-delay:${(i % 7) * .12}s">${x}</i>`).join('')}</div>
+      <small>Capítulo final · Sede GRC</small><h2>${nome()}, você é uma Estrela GRC!</h2>
+      <div class="mw-cart" style="--c:${MW_CORES[P.cor][0]}">
+        <div class="mw-cart-av">${mwAvatar_(P, 'grande')}</div>
+        <div class="mw-cart-tx"><small>Carteirinha de herói</small><b>${nome()}</b><span>Nível ${nivel()} · ${MW_SETORES[P.setor].join(' ')}</span>
+          <div class="mw-cart-s">${MW_REG.map(r => `<i style="--c:${r.cor}" title="${r.selo}">${r.ic}</i>`).join('')}</div>
+          <div class="mw-cart-n"><span>🪙 ${J.moedas}</span><span>⭐ ${estrelas()}</span><span class="md">${md} ${mn}</span></div></div>
+      </div>
+      <div class="jg-med">${md}</div><h3>Medalha de ${mn}!</h3><p>Você percorreu as 5 cidades do Grupo R Center e conquistou todos os selos. Obrigado por embarcar nessa jornada com a gente! 💙🧡</p>
       <button class="btn primary block fx-btn" id="jgF">Enviar e continuar ▶</button></div></div>`;
-    SOM.musica(false); setTimeout(() => SOM.medalha(), 200);
-    $('#jgF').onclick = () => onFim(R.slice(0, 20), Math.round((Date.now() - J.t0) / 1000), J.moedas);
+    SOM.musica(false); setTimeout(() => SOM.medalha(), 200); top();
+    $('#jgF').onclick = () => onFim(R.slice(0, 24), Math.round((Date.now() - J.t0) / 1000), J.moedas);
   };
-  if (J.pend && J.pos < JOGO_CASAS.length - 1) casa(J.pos); else tela();
+  if (!J.perfil) perfil(true); else if (J.pos === 'HQ' && sedeLib()) sede(); else mapa();
 }
 
 // ---- página pública do candidato (?teste=CODIGO)
@@ -1187,7 +1336,7 @@ async function renderTeste(codigo) {
       try {
         const j = await sendRaw_('testeEnviar', { codigo, data: { teste: t, nome: st.nome, cpf: st.cpf, tel: st.tel, recrutador: st.rec, vaga: st.vaga, resp: R, seg: st['s_' + t] || 0 } });
         if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível enviar.');
-        const ganho = 100 + Q.length * 10; st.feitos[t] = ganho; st.xp += ganho; delete st[k]; if (t === 'situacional') delete st.jogo; salvar(); xp();
+        const ganho = 100 + Q.length * 10; st.feitos[t] = ganho; st.xp += ganho; delete st[k]; if (t === 'situacional') { delete st.mundo; delete st.jogo; } salvar(); xp();
         M.innerHTML = `<div class="fx-card tx-card tx-win" style="--c:${T.cor}"><div class="tx-badge">${T.icone}</div><h2>Desafio concluído!</h2><p>Você ganhou <b>+${ganho} XP</b> e o selo <b>${T.nome}</b>.</p><button class="btn primary block fx-btn" id="txC">Continuar ▶</button></div>`;
         $('#txC').onclick = telaLista;
       } catch (e) {
@@ -1195,7 +1344,7 @@ async function renderTeste(codigo) {
         $('#txR').onclick = enviar;
       }
     };
-    if (t === 'situacional') jogoLoja_(M, st, salvar, n => { st.xp += n; salvar(); xp(); }, (resp, seg) => { R = resp; st['s_' + t] = seg; salvar(); enviar(); });
+    if (t === 'situacional') mundoGRC_(M, st, salvar, n => { st.xp += n; salvar(); xp(); }, (resp, seg) => { R = resp; st['s_' + t] = seg; salvar(); enviar(); });
     else tela();
   };
   if (st.ini) telaLista(); else telaIni();
@@ -1224,7 +1373,7 @@ function testeResumoHTML_(r) {
   let corpo = '';
   if (c.tipo === 'disc') corpo = `<div class="tr-disc">${'DISC'.split('').map(k => `<div class="${c.pri === k ? 'top' : ''}" style="--c:${DISC_FATOR[k].cor}"><b>${k}</b><i style="height:${Math.max(6, c.p[k])}%"></i><span>${c.p[k]}%</span><small>${DISC_FATOR[k].nome}</small></div>`).join('')}</div>`;
   if (c.tipo === 'forcas') corpo = `<div class="tr-top">${c.top.map((x, i) => `<span class="tr-chip"><b>${i + 1}</b> ${h(x.nome)}</span>`).join('')}</div>${c.virt.map(v => barra_(v.nome, v.p, '#16a34a')).join('')}<details class="tr-det"><summary>Ver as 24 forças</summary>${c.lista.map(x => barra_(x.nome, x.p, '#86efac')).join('')}</details>`;
-  if (c.tipo === 'situacional') { const cb = x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444'); corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}">${c.mini ? `<span class="tr-med">${c.md}</span>` : ''}<b>${c.nota}%</b><span>${c.mini ? 'Medalha de ' + c.mn + ' · ' : ''}${c.cls}</span></div>${c.mini ? '<div class="tr-sub">Decisões nas situações</div>' : ''}${c.comp.map(cb).join('')}${c.mini ? '<div class="tr-sub">Minigames</div>' + c.mini.map(cb).join('') : ''}`; }
+  if (c.tipo === 'situacional') { const cb = x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444'); corpo = `${c.heroi ? `<div class="tr-heroi">${mwAvatar_(c.heroi)}<span><small>Personagem criado no jogo</small><b>Setor dos sonhos: ${MW_SETORES[c.heroi.setor].join(' ')}</b></span></div>` : ''}<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}">${c.mini ? `<span class="tr-med">${c.md}</span>` : ''}<b>${c.nota}%</b><span>${c.mini ? 'Medalha de ' + c.mn + ' · ' : ''}${c.cls}</span></div>${c.mini ? '<div class="tr-sub">Decisões nas situações</div>' : ''}${c.comp.map(cb).join('')}${c.mini ? '<div class="tr-sub">Minigames</div>' + c.mini.map(cb).join('') : ''}`; }
   if (c.tipo === 'fit') corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}</span></div>${c.vals.map(x => barra_(x.emoji + ' ' + x.nome, x.p, '#0a0d7c')).join('')}`;
   return `<div class="card tr-sec"><div class="tr-h"><span class="tr-ic">${T.icone}</span><div><b>${T.nome}</b><small>${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div><button class="btn sm ghost" data-cpp="${h(r.id)}" title="Copiar parecer">${ic('copy')}</button></div>${corpo}<div class="tr-parecer">${h(c.txt).replace(/\n/g, '<br>')}</div>
     <div class="field" style="margin:10px 0 0"><label>Parecer do psicólogo / RH</label><textarea class="input" rows="3" data-obs="${h(r.id)}" placeholder="Escreva sua análise...">${h(r.obs || '')}</textarea>${r.obsPor ? `<small class="faint">Último registro: ${h(r.obsPor)} · ${dtHr_(r.obsEm)}</small>` : ''}<div style="margin-top:6px"><button class="btn sm" data-obsok="${h(r.id)}">${ic('check')} Salvar parecer</button></div></div></div>`;

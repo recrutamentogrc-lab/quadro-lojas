@@ -778,7 +778,7 @@ function openFichaLinks(done) {
 const TESTE_INFO = {
   disc: { nome: 'Perfil comportamental', curto: 'DISC', icone: '🧭', min: 6, cor: '#3b82f6', desc: 'Como você costuma agir, decidir e se relacionar no dia a dia.' },
   forcas: { nome: 'Forças pessoais', curto: 'Forças', icone: '💪', min: 7, cor: '#16a34a', desc: 'Descubra as qualidades que mais aparecem em você.' },
-  situacional: { nome: 'Desafio da loja', curto: 'Situações', icone: '🎮', min: 6, cor: '#ff5a14', desc: 'Situações reais de supermercado: o que você faria?' },
+  situacional: { nome: 'Desafio da Loja', curto: 'Jogo', icone: '🎲', min: 9, cor: '#ff5a14', desc: 'Jogo de tabuleiro no supermercado: decisões, troco, validade e caça ao erro.' },
   fit: { nome: 'Fit cultural', curto: 'Fit cultural', icone: '💙', min: 5, cor: '#0a0d7c', desc: 'O quanto você se identifica com os nossos valores.' }
 };
 const TESTE_ORDEM = ['disc', 'forcas', 'situacional', 'fit'];
@@ -907,11 +907,24 @@ function testeCorrigir_(r) {
   if (r.teste === 'situacional') {
     const c = {}; let tot = 0;
     SIT_Q.forEach((q, i) => { const k = Number(R[i]); const pt = q[3][k] ? q[3][k][1] : 0; tot += pt; (c[q[0]] = c[q[0]] || [0, 0]); c[q[0]][0] += pt; c[q[0]][1] += 3; });
-    const nota = pct(tot, SIT_Q.length * 3), comp = Object.keys(c).map(k => ({ nome: SIT_COMP[k], p: pct(c[k][0], c[k][1]) })).sort((a, b) => b.p - a.p);
+    const dec = pct(tot, SIT_Q.length * 3);
+    let comp = Object.keys(c).map(k => ({ nome: SIT_COMP[k], p: pct(c[k][0], c[k][1]) }));
+    const jogo = R.length > 12 && R[12] !== '' && R[12] != null;
+    let nota = dec, mini = null, agil = null;
+    if (jogo) {
+      const n = i => Number(R[i]) || 0;
+      const troco = pct(n(12), 3), peps = pct(n(14), 5), etiq = pct(Math.max(0, n(16) - n(17)), 2);
+      const lim = (s, ok) => s <= ok ? 100 : Math.max(0, Math.round(100 - (s - ok) / ok * 100));
+      agil = Math.round((lim(n(13), 60) + lim(n(15), 25) + lim(n(18), 30)) / 3);
+      mini = [{ nome: 'Cálculo de troco', p: troco }, { nome: 'Validade (PEPS)', p: peps }, { nome: 'Atenção a detalhes', p: etiq }, { nome: 'Agilidade', p: agil }];
+      nota = Math.round(dec * .6 + (troco + peps + etiq) / 3 * .3 + agil * .1);
+    }
+    comp = comp.sort((a, b) => b.p - a.p);
     const cls = nota >= 80 ? 'Excelente' : nota >= 65 ? 'Bom' : nota >= 50 ? 'Regular' : 'Atenção';
-    const fracas = comp.filter(x => x.p < 60);
-    const txt = `Desempenho nas situações de loja: ${nota}% (${cls}).\nMelhor desempenho: ${comp[0].nome} (${comp[0].p}%).\n${fracas.length ? `Pontos a aprofundar na entrevista: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : 'Nenhuma competência abaixo de 60%.'}`;
-    return { tipo: 'situacional', comp, nota, cls, rotulo: nota + '% · ' + cls, txt };
+    const [md, mn] = medalha_(nota);
+    const todos = comp.concat(mini || []), fracas = todos.filter(x => x.p < 60);
+    const txt = `${jogo ? `Desafio da Loja (jogo): ${md} medalha de ${mn}, nota ${nota}% (${cls}).\nDecisões nas situações de loja: ${dec}%.` : `Desempenho nas situações de loja: ${nota}% (${cls}).`}\nMelhor desempenho: ${comp[0].nome} (${comp[0].p}%).${mini ? `\nMinigames: troco ${mini[0].p}%, validade ${mini[1].p}%, atenção ${mini[2].p}%, agilidade ${mini[3].p}%.` : ''}\n${fracas.length ? `Pontos a aprofundar na entrevista: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : 'Nenhuma competência abaixo de 60%.'}`;
+    return { tipo: 'situacional', comp, mini, dec, nota, cls, md, mn, rotulo: nota + '% · ' + cls, txt };
   }
   if (r.teste === 'fit') {
     const s = FIT_VAL.map(() => [0, 0]); let incoer = 0;
@@ -924,6 +937,153 @@ function testeCorrigir_(r) {
     return { tipo: 'fit', vals, nota, cls, incoer, rotulo: nota + '% · ' + cls, txt };
   }
   return { txt: '' };
+}
+
+// ---- efeitos sonoros e trilha (sintetizados no aparelho, sem arquivos)
+const SOM = (() => {
+  let ctx = null, master = null, musT = null, passo = 0, mudo = false;
+  try { mudo = localStorage.getItem('grc_som') === '0'; } catch (e) {}
+  const ini = () => { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); master = ctx.createGain(); master.gain.value = mudo ? 0 : 1; master.connect(ctx.destination); } catch (e) { ctx = null; } } if (ctx && ctx.state === 'suspended') ctx.resume(); return ctx; };
+  const tom = (f, d, tipo, vol, quando) => { if (!ini() || !f) return; const t = ctx.currentTime + (quando || 0), o = ctx.createOscillator(), g = ctx.createGain(); o.type = tipo || 'square'; o.frequency.setValueAtTime(f, t); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol || .12, t + .01); g.gain.exponentialRampToValueAtTime(0.0001, t + d); o.connect(g); g.connect(master); o.start(t); o.stop(t + d + .02); };
+  const seq = (notas, tipo, vol, dur) => notas.forEach((f, i) => tom(f, dur || .12, tipo, vol, i * (dur || .12) * .9));
+  // trilha alegre em loop (melodia + baixo), 8 bits
+  const MEL = [523, 0, 659, 784, 659, 0, 523, 587, 659, 0, 587, 523, 440, 0, 494, 523, 587, 0, 698, 880, 698, 0, 587, 659, 698, 0, 659, 587, 523, 0, 0, 0];
+  const BAS = [131, 131, 196, 196, 147, 147, 196, 196];
+  const tick = () => { if (!ctx) return; const i = passo % MEL.length; tom(MEL[i], .16, 'square', .035); if (i % 4 === 0) tom(BAS[(i / 4) % BAS.length], .3, 'triangle', .07); if (i % 2 === 0) tom(3000, .02, 'square', .008); passo++; };
+  return {
+    get mudo() { return mudo; },
+    alternar() { mudo = !mudo; try { localStorage.setItem('grc_som', mudo ? '0' : '1'); } catch (e) {} if (master) master.gain.value = mudo ? 0 : 1; return mudo; },
+    musica(on) { if (on) { if (musT || !ini()) return; musT = setInterval(tick, 150); } else { clearInterval(musT); musT = null; } },
+    dado() { for (let i = 0; i < 8; i++) tom(200 + Math.random() * 400, .04, 'square', .05, i * .07); },
+    passo() { seq([392, 523], 'triangle', .1, .08); },
+    clique() { tom(660, .05, 'square', .06); },
+    moeda() { seq([988, 1319], 'square', .08, .07); },
+    certo() { seq([523, 659, 784, 1047], 'square', .09, .09); },
+    erro() { seq([311, 233], 'sawtooth', .07, .16); },
+    medalha() { seq([523, 523, 523, 659, 784, 0, 659, 784, 1047, 1047], 'square', .1, .13); setTimeout(() => seq([1047, 1319, 1568, 2093], 'triangle', .08, .1), 1400); }
+  };
+})();
+// ================= JOGO "Desafio da Loja": tabuleiro + minigames =================
+// resp[0..11] = escolhas das 12 situações (índice original) · resp[12] troco acertos (0-3) · [13] troco seg
+// [14] validade posições certas (0-5) · [15] validade seg · [16] etiquetas acertos (0-2) · [17] etiquetas falsos · [18] etiquetas seg · [19] moedas de sorte
+const JOGO_CASAS = [
+  { t: 'ini', ic: '🚪', nome: 'Entrada' },
+  { t: 's', q: 0, ic: '🛒', nome: 'Caixa' },
+  { t: 'troco', ic: '💵', nome: 'Troco rápido' },
+  { t: 's', q: 6, ic: '🧓', nome: 'Corredor' },
+  { t: 's', q: 1, ic: '🧾', nome: 'Fechamento' },
+  { t: 's', q: 3, ic: '🥛', nome: 'Laticínios' },
+  { t: 'peps', ic: '📅', nome: 'Validade' },
+  { t: 's', q: 2, ic: '🤝', nome: 'Equipe' },
+  { t: 's', q: 4, ic: '🖥️', nome: 'Sistema' },
+  { t: 's', q: 5, ic: '📣', nome: 'Promoção' },
+  { t: 'etiq', ic: '🏷️', nome: 'Etiquetas' },
+  { t: 's', q: 7, ic: '🍫', nome: 'Doceria' },
+  { t: 's', q: 8, ic: '💬', nome: 'Liderança' },
+  { t: 's', q: 9, ic: '🧹', nome: 'Fim de turno' },
+  { t: 's', q: 10, ic: '🚨', nome: 'Prevenção' },
+  { t: 's', q: 11, ic: '🎯', nome: 'Meta do mês' },
+  { t: 'fim', ic: '🏁', nome: 'Chegada' }
+];
+const JOGO_TROCO = [[37.40, 50], [12.85, 20], [63.10, 100]];
+const JOGO_NOTAS = [50, 20, 10, 5, 2, 1, 0.5, 0.25, 0.1, 0.05];
+const JOGO_PEPS = [['🥛 Leite integral', 3], ['🧀 Queijo mussarela', 9], ['🥣 Iogurte morango', 1], ['🧈 Manteiga', 15], ['🍮 Creme de leite', 6]];
+const JOGO_ETIQ = [['☕ Café 500g', 18.9, 18.9], ['🍚 Arroz 5kg', 27.49, 24.79], ['🫘 Feijão 1kg', 8.99, 8.99], ['🧴 Sabão líquido', 21.9, 21.9], ['🍝 Macarrão 500g', 4.79, 4.29], ['🥫 Molho de tomate', 3.49, 3.49]];
+const brlJ_ = v => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+const medalha_ = n => n >= 85 ? ['🥇', 'Ouro', '#d4a017'] : n >= 70 ? ['🥈', 'Prata', '#8a9bb0'] : n >= 50 ? ['🥉', 'Bronze', '#b8733e'] : ['🎖️', 'Participação', '#64748b'];
+function jogoLoja_(M, st, salvar, xpAdd, onFim) {
+  const J = st.jogo = st.jogo || { pos: 0, resp: [], moedas: 0, estrelas: {}, t0: Date.now() };
+  const R = J.resp;
+  M.onclick = e => { const b = e.target.closest('#jgSom'); if (b) { b.textContent = SOM.alternar() ? '🔇' : '🔊'; } };
+  const tab = () => `<div class="jg-top"><div class="jg-hud"><span>🪙 <b>${J.moedas}</b></span><span>⭐ <b>${Object.values(J.estrelas).reduce((a, b) => a + b, 0)}</b></span><span>📍 <b>${J.pos}/${JOGO_CASAS.length - 1}</b></span><button class="jg-som" id="jgSom" title="Som">${SOM.mudo ? '🔇' : '🔊'}</button></div>
+    <div class="jg-board">${JOGO_CASAS.map((c, i) => `<div class="jg-casa ${i < J.pos ? 'feita' : ''} ${i === J.pos ? 'aqui' : ''} t-${c.t}"><span>${c.ic}</span><small>${c.nome}</small>${J.estrelas[i] != null ? `<em>${'★'.repeat(J.estrelas[i])}${'☆'.repeat(3 - J.estrelas[i])}</em>` : ''}${i === J.pos ? '<i class="jg-peao">🧑‍💼</i>' : ''}</div>`).join('')}</div></div>`;
+  const ganhar = (casa, est, moedas) => { J.pend = false; J.estrelas[casa] = est; J.moedas += moedas; salvar(); xpAdd(moedas); };
+  const tela = () => {
+    if (J.pos >= JOGO_CASAS.length - 1) return final();
+    const prox = JOGO_CASAS[J.pos + 1];
+    M.innerHTML = `<div class="jg">${tab()}
+      <div class="jg-acao"><div class="jg-dado" id="jgD">🎲</div><div><b>Próxima parada: ${prox.ic} ${prox.nome}</b><small>Role o dado para andar. O número sorteado vira moedas de bônus!</small></div><button class="btn primary fx-btn" id="jgR">Rolar dado</button></div></div>`;
+    $('#jgR').onclick = () => {
+      SOM.musica(true); SOM.dado();
+      $('#jgR').disabled = true; const d = $('#jgD'); let n = 0;
+      const faces = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+      const anim = setInterval(() => { d.textContent = faces[Math.floor(Math.random() * 6)]; d.classList.toggle('rola'); if (++n > 10) { clearInterval(anim); const v = 1 + Math.floor(Math.random() * 6); d.textContent = faces[v - 1]; R[19] = String((Number(R[19]) || 0) + v); J.moedas += v * 2; J.pos++; J.pend = true; salvar(); SOM.passo(); setTimeout(() => casa(J.pos), 450); } }, 70);
+    };
+  };
+  const card = (c, corpo) => `<div class="jg">${tab()}<div class="jg-card"><div class="tx-tag">${c.ic} ${c.nome}</div>${corpo}</div></div>`;
+  const depois = (casa, est, moedas, msg) => {
+    ganhar(casa, est, moedas);
+    if (est >= 2) { SOM.certo(); setTimeout(() => SOM.moeda(), 380); } else if (est === 1) SOM.moeda(); else SOM.erro();
+    const b = document.createElement('div'); b.className = 'jg-pop'; b.innerHTML = `<div><b>${'★'.repeat(est)}${'☆'.repeat(3 - est)}</b><span>+${moedas} 🪙</span><small>${msg || ''}</small></div>`;
+    document.body.appendChild(b); setTimeout(() => { b.remove(); tela(); }, 1300);
+  };
+  const casa = i => {
+    const c = JOGO_CASAS[i];
+    if (c.t === 's') {
+      const q = SIT_Q[c.q], ord = embaralha_(4, c.q + 3);
+      M.innerHTML = card(c, `<div class="tx-emoji">${q[1]}</div><h3>${h(q[2])}</h3><p class="tx-sub">O que você faria?</p><div class="tx-ops">${ord.map((k, j) => `<button class="tx-op" data-k="${k}"><i>${'ABCD'[j]}</i><span>${h(q[3][k][0])}</span></button>`).join('')}</div>`);
+      $$('.tx-op', M).forEach(b => b.onclick = () => { SOM.clique(); $$('.tx-op', M).forEach(x => x.disabled = true); b.classList.add('sel'); const k = Number(b.dataset.k), pt = q[3][k][1]; R[c.q] = String(k); depois(i, pt, 10 + pt * 10, pt === 3 ? 'Mandou bem!' : pt === 2 ? 'Boa!' : 'Seguindo em frente'); });
+    } else if (c.t === 'troco') minTroco(i, c);
+    else if (c.t === 'peps') minPeps(i, c);
+    else if (c.t === 'etiq') minEtiq(i, c);
+    else tela();
+  };
+  // minigame 1: montar o troco
+  const minTroco = (ci, c) => {
+    let rod = 0, ac = 0; const t0 = Date.now();
+    const rodada = () => {
+      if (rod >= JOGO_TROCO.length) { R[12] = String(ac); R[13] = String(Math.round((Date.now() - t0) / 1000)); const est = ac === 3 ? 3 : ac === 2 ? 2 : ac ? 1 : 0; return depois(ci, est, 15 + ac * 15, `${ac} de 3 trocos certos`); }
+      const [tot, pago] = JOGO_TROCO[rod], certo = Math.round((pago - tot) * 100); let soma = 0;
+      M.innerHTML = card(c, `<h3>Cliente ${rod + 1} de 3</h3><div class="jg-tr"><div><small>Compra</small><b>${brlJ_(tot)}</b></div><div><small>Pagou com</small><b>${brlJ_(pago)}</b></div><div class="soma"><small>Seu troco</small><b id="trS">R$ 0,00</b></div></div>
+        <p class="tx-sub">Toque nas notas e moedas para montar o troco certo.</p>
+        <div class="jg-notas">${JOGO_NOTAS.filter(v => v < pago).map(v => `<button class="jg-nota ${v >= 2 ? 'cedula' : 'moeda'}" data-v="${v}">${v >= 1 ? 'R$ ' + v : (v * 100) + '¢'}</button>`).join('')}</div>
+        <div class="jg-bts"><button class="btn" id="trZ">Limpar</button><button class="btn primary fx-btn" id="trOk">Entregar troco</button></div>`);
+      const atual = () => { $('#trS').textContent = brlJ_(soma / 100); };
+      $$('.jg-nota', M).forEach(b => b.onclick = () => { SOM.moeda(); soma += Math.round(Number(b.dataset.v) * 100); atual(); b.classList.add('tap'); setTimeout(() => b.classList.remove('tap'), 150); });
+      $('#trZ').onclick = () => { soma = 0; atual(); };
+      $('#trOk').onclick = () => { const ok = soma === certo; if (ok) { ac++; SOM.certo(); } else SOM.erro(); const el = $('#trS'); el.textContent = ok ? '✅ Certo!' : '❌ Era ' + brlJ_(certo / 100); setTimeout(() => { rod++; rodada(); }, 900); $('#trOk').disabled = true; };
+    };
+    rodada();
+  };
+  // minigame 2: validade (PEPS) — tocar do que vence primeiro ao último
+  const minPeps = (ci, c) => {
+    const t0 = Date.now(), ord = embaralha_(JOGO_PEPS.length, 5), esc = [], hoje = new Date();
+    const dt = d => { const x = new Date(hoje); x.setDate(x.getDate() + d); return x.toLocaleDateString('pt-BR').slice(0, 5); };
+    const draw = () => {
+      M.innerHTML = card(c, `<h3>Organize a gôndola</h3><p class="tx-sub">Toque nos produtos na ordem em que <b>vencem</b>: o que vence primeiro vai para a frente (PEPS).</p>
+        <div class="jg-peps">${ord.map(k => { const p = JOGO_PEPS[k], n = esc.indexOf(k); return `<button class="jg-prod ${n >= 0 ? 'ok' : ''}" data-k="${k}" ${n >= 0 ? 'disabled' : ''}>${n >= 0 ? `<i>${n + 1}º</i>` : ''}<b>${p[0]}</b><small>Vence ${dt(p[1])}</small></button>`; }).join('')}</div>
+        <div class="jg-fila">Frente da gôndola ➜ ${esc.map(k => JOGO_PEPS[k][0].split(' ')[0]).join(' ') || '…'}</div>
+        <div class="jg-bts"><button class="btn" id="peZ">Recomeçar</button></div>`);
+      $$('.jg-prod', M).forEach(b => b.onclick = () => { SOM.clique(); esc.push(Number(b.dataset.k)); if (esc.length < JOGO_PEPS.length) draw(); else fim(); });
+      $('#peZ').onclick = () => { esc.length = 0; draw(); };
+    };
+    const fim = () => { const certa = JOGO_PEPS.map((p, k) => k).sort((a, b) => JOGO_PEPS[a][1] - JOGO_PEPS[b][1]); const n = esc.filter((k, i) => certa[i] === k).length; R[14] = String(n); R[15] = String(Math.round((Date.now() - t0) / 1000)); depois(ci, n === 5 ? 3 : n >= 3 ? 2 : n >= 1 ? 1 : 0, 10 + n * 8, `${n} de 5 na posição certa`); };
+    draw();
+  };
+  // minigame 3: etiquetas — achar preço da gôndola diferente do sistema
+  const minEtiq = (ci, c) => {
+    const t0 = Date.now(), sel = new Set();
+    M.innerHTML = card(c, `<h3>Caça ao erro de preço</h3><p class="tx-sub">Compare o preço da <b>gôndola</b> com o do <b>sistema</b> e marque as etiquetas erradas. Depois toque em Conferir.</p>
+      <div class="jg-etq">${JOGO_ETIQ.map((e, k) => `<button class="jg-et" data-k="${k}"><b>${e[0]}</b><span><small>Gôndola</small>${brlJ_(e[1])}</span><span><small>Sistema</small>${brlJ_(e[2])}</span></button>`).join('')}</div>
+      <div class="jg-bts"><button class="btn primary fx-btn" id="etOk">Conferir</button></div>`);
+    $$('.jg-et', M).forEach(b => b.onclick = () => { SOM.clique(); const k = Number(b.dataset.k); sel.has(k) ? sel.delete(k) : sel.add(k); b.classList.toggle('sel'); });
+    $('#etOk').onclick = () => {
+      const errados = JOGO_ETIQ.map((e, k) => e[1] !== e[2] ? k : -1).filter(k => k >= 0);
+      const hit = errados.filter(k => sel.has(k)).length, fal = [...sel].filter(k => !errados.includes(k)).length;
+      R[16] = String(hit); R[17] = String(fal); R[18] = String(Math.round((Date.now() - t0) / 1000));
+      const sc = Math.max(0, hit - fal); depois(ci, sc === 2 ? 3 : sc === 1 ? 1 : 0, 10 + sc * 15, `${hit} de 2 erros encontrados`);
+    };
+  };
+  const final = () => {
+    for (let i = 0; i < 20; i++) if (R[i] == null) R[i] = '';
+    const nota = testeCorrigir_({ teste: 'situacional', resp: R }).nota, [md, mn, cor] = medalha_(nota);
+    M.innerHTML = `<div class="jg">${tab()}<div class="jg-card jg-final" style="--m:${cor}"><div class="jg-conf">${Array.from('🎉✨🪙⭐'.repeat(4)).map((x, i) => `<i style="left:${(i * 37) % 100}%;animation-delay:${(i % 7) * .12}s">${x}</i>`).join('')}</div>
+      <div class="jg-med">${md}</div><h2>Medalha de ${mn}!</h2><p>Você completou o Desafio da Loja com <b>${J.moedas} moedas</b> e <b>${Object.values(J.estrelas).reduce((a, b) => a + b, 0)} estrelas</b>.</p>
+      <button class="btn primary block fx-btn" id="jgF">Enviar e continuar ▶</button></div></div>`;
+    SOM.musica(false); setTimeout(() => SOM.medalha(), 200);
+    $('#jgF').onclick = () => onFim(R.slice(0, 20), Math.round((Date.now() - J.t0) / 1000), J.moedas);
+  };
+  if (J.pend && J.pos < JOGO_CASAS.length - 1) casa(J.pos); else tela();
 }
 
 // ---- página pública do candidato (?teste=CODIGO)
@@ -1014,7 +1174,7 @@ async function renderTeste(codigo) {
       try {
         const j = await sendRaw_('testeEnviar', { codigo, data: { teste: t, nome: st.nome, cpf: st.cpf, tel: st.tel, recrutador: st.rec, vaga: st.vaga, resp: R, seg: st['s_' + t] || 0 } });
         if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível enviar.');
-        const ganho = 100 + Q.length * 10; st.feitos[t] = ganho; st.xp += ganho; delete st[k]; salvar(); xp();
+        const ganho = 100 + Q.length * 10; st.feitos[t] = ganho; st.xp += ganho; delete st[k]; if (t === 'situacional') delete st.jogo; salvar(); xp();
         M.innerHTML = `<div class="fx-card tx-card tx-win" style="--c:${T.cor}"><div class="tx-badge">${T.icone}</div><h2>Desafio concluído!</h2><p>Você ganhou <b>+${ganho} XP</b> e o selo <b>${T.nome}</b>.</p><button class="btn primary block fx-btn" id="txC">Continuar ▶</button></div>`;
         $('#txC').onclick = telaLista;
       } catch (e) {
@@ -1022,7 +1182,8 @@ async function renderTeste(codigo) {
         $('#txR').onclick = enviar;
       }
     };
-    tela();
+    if (t === 'situacional') jogoLoja_(M, st, salvar, n => { st.xp += n; salvar(); xp(); }, (resp, seg) => { R = resp; st['s_' + t] = seg; salvar(); enviar(); });
+    else tela();
   };
   if (st.ini) telaLista(); else telaIni();
 }
@@ -1050,7 +1211,7 @@ function testeResumoHTML_(r) {
   let corpo = '';
   if (c.tipo === 'disc') corpo = `<div class="tr-disc">${'DISC'.split('').map(k => `<div class="${c.pri === k ? 'top' : ''}" style="--c:${DISC_FATOR[k].cor}"><b>${k}</b><i style="height:${Math.max(6, c.p[k])}%"></i><span>${c.p[k]}%</span><small>${DISC_FATOR[k].nome}</small></div>`).join('')}</div>`;
   if (c.tipo === 'forcas') corpo = `<div class="tr-top">${c.top.map((x, i) => `<span class="tr-chip"><b>${i + 1}</b> ${h(x.nome)}</span>`).join('')}</div>${c.virt.map(v => barra_(v.nome, v.p, '#16a34a')).join('')}<details class="tr-det"><summary>Ver as 24 forças</summary>${c.lista.map(x => barra_(x.nome, x.p, '#86efac')).join('')}</details>`;
-  if (c.tipo === 'situacional') corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}</span></div>${c.comp.map(x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444')).join('')}`;
+  if (c.tipo === 'situacional') { const cb = x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444'); corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}">${c.mini ? `<span class="tr-med">${c.md}</span>` : ''}<b>${c.nota}%</b><span>${c.mini ? 'Medalha de ' + c.mn + ' · ' : ''}${c.cls}</span></div>${c.mini ? '<div class="tr-sub">Decisões nas situações</div>' : ''}${c.comp.map(cb).join('')}${c.mini ? '<div class="tr-sub">Minigames</div>' + c.mini.map(cb).join('') : ''}`; }
   if (c.tipo === 'fit') corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}</span></div>${c.vals.map(x => barra_(x.emoji + ' ' + x.nome, x.p, '#0a0d7c')).join('')}`;
   return `<div class="card tr-sec"><div class="tr-h"><span class="tr-ic">${T.icone}</span><div><b>${T.nome}</b><small>${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div><button class="btn sm ghost" data-cpp="${h(r.id)}" title="Copiar parecer">${ic('copy')}</button></div>${corpo}<div class="tr-parecer">${h(c.txt).replace(/\n/g, '<br>')}</div>
     <div class="field" style="margin:10px 0 0"><label>Parecer do psicólogo / RH</label><textarea class="input" rows="3" data-obs="${h(r.id)}" placeholder="Escreva sua análise...">${h(r.obs || '')}</textarea>${r.obsPor ? `<small class="faint">Último registro: ${h(r.obsPor)} · ${dtHr_(r.obsEm)}</small>` : ''}<div style="margin-top:6px"><button class="btn sm" data-obsok="${h(r.id)}">${ic('check')} Salvar parecer</button></div></div></div>`;
@@ -1108,7 +1269,7 @@ async function pgTestes() {
     ${lista.length ? `<div class="fi-grid">${lista.map(x => `
       <div class="card fi-card tr-card${x.novo ? ' nova' : ''}" data-cand="${h(x.cpf)}">
         <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')}</div></div>${x.novo ? '<span class="badge b-info">novo</span>' : ''}</div>
-        <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : k.nota + '%')}</b></div>`; }).join('')}</div>
+        <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : (k.mini ? k.md + ' ' : '') + k.nota + '%')}</b></div>`; }).join('')}</div>
         <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button></div>
       </div>`).join('')}</div>`
       : `<div class="card empty" style="text-align:center;padding:30px"><b>${cands.length ? 'Nenhum resultado com esses filtros' : 'Nenhum teste respondido ainda'}</b><p class="muted">Clique em <b>Mandar teste ao candidato</b>, escolha os testes e envie o link pelo WhatsApp. O resultado aparece aqui assim que ele terminar.</p></div>`}

@@ -340,6 +340,7 @@ function init() {
   S.cfg = ls.get('grc_cfg', null);
   applyFavicon();
   if (QS.get('ficha')) { renderFicha(QS.get('ficha')); refreshPublicCfg(); }
+  else if (QS.get('teste')) { renderTeste(QS.get('teste')); refreshPublicCfg(); }
   else if (S.token) {
     const cache = DEMO ? null : ls.get('grc_data', null);
     if (cache && cache.data && cache.data.user) {
@@ -769,6 +770,437 @@ function openFichaLinks(done) {
       $$('[data-cl]', m.el).forEach(b => b.onclick = () => copiar_(fichaUrl_(b.dataset.cl), 'Link copiado'));
       $$('[data-qr]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.qr); openFichaQR(l.codigo, l.titulo, l.geral); });
       $$('[data-off]', m.el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem abrir depois não consegue mais enviar.', 'Desativar', true)) return; const j = await api('fichaLinkDesativar', { codigo: b.dataset.off }); fichasSet_({ links: j.links }); m.close(); openFichaLinks(done); if (done) done(); });
+    }
+  });
+}
+/* ================= TESTES DE AVALIAÇÃO (DISC · forças · situações de loja · fit cultural) ================= */
+// Questionários próprios do Grupo R Center (não reproduzem testes comerciais). Ferramenta de apoio à entrevista.
+const TESTE_INFO = {
+  disc: { nome: 'Perfil comportamental', curto: 'DISC', icone: '🧭', min: 6, cor: '#3b82f6', desc: 'Como você costuma agir, decidir e se relacionar no dia a dia.' },
+  forcas: { nome: 'Forças pessoais', curto: 'Forças', icone: '💪', min: 7, cor: '#16a34a', desc: 'Descubra as qualidades que mais aparecem em você.' },
+  situacional: { nome: 'Desafio da loja', curto: 'Situações', icone: '🎮', min: 6, cor: '#ff5a14', desc: 'Situações reais de supermercado: o que você faria?' },
+  fit: { nome: 'Fit cultural', curto: 'Fit cultural', icone: '💙', min: 5, cor: '#0a0d7c', desc: 'O quanto você se identifica com os nossos valores.' }
+};
+const TESTE_ORDEM = ['disc', 'forcas', 'situacional', 'fit'];
+// ---- DISC: escolha a frase que MAIS combina com você (D, I, S, C)
+const DISC_Q = [
+  ['Gosto de assumir o controle e decidir rápido.', 'Gosto de conversar e animar as pessoas.', 'Gosto de ajudar e manter o clima tranquilo.', 'Gosto de fazer tudo certinho, seguindo as regras.'],
+  ['Sou direto(a) e objetivo(a).', 'Sou comunicativo(a) e expansivo(a).', 'Sou paciente e calmo(a).', 'Sou detalhista e cuidadoso(a).'],
+  ['Diante de um problema, parto logo para a ação.', 'Diante de um problema, chamo o pessoal para pensar junto.', 'Diante de um problema, mantenho a calma e sigo passo a passo.', 'Diante de um problema, analiso as informações antes de agir.'],
+  ['Me motiva bater metas e vencer desafios.', 'Me motiva ser reconhecido(a) e conhecer gente nova.', 'Me motiva ter estabilidade e um time unido.', 'Me motiva fazer um trabalho sem erros e bem feito.'],
+  ['No trabalho, as pessoas me veem como determinado(a).', 'No trabalho, as pessoas me veem como alegre e simpático(a).', 'No trabalho, as pessoas me veem como confiável e prestativo(a).', 'No trabalho, as pessoas me veem como organizado(a) e preciso(a).'],
+  ['Quando discordo, falo na hora.', 'Quando discordo, tento convencer com bom humor.', 'Quando discordo, evito conflito e espero o melhor momento.', 'Quando discordo, mostro fatos e dados.'],
+  ['Prefiro tarefas com desafio e autonomia.', 'Prefiro tarefas com contato com pessoas.', 'Prefiro tarefas com rotina definida.', 'Prefiro tarefas que exigem atenção a detalhes.'],
+  ['Sob pressão, fico mais exigente.', 'Sob pressão, falo mais e busco apoio.', 'Sob pressão, fico mais quieto(a) e cumpro o combinado.', 'Sob pressão, fico mais crítico(a) e reviso tudo.'],
+  ['Meu ritmo é rápido.', 'Meu ritmo é animado e variado.', 'Meu ritmo é constante.', 'Meu ritmo é cuidadoso.'],
+  ['Valorizo resultado.', 'Valorizo entusiasmo.', 'Valorizo lealdade.', 'Valorizo qualidade.'],
+  ['Em um time, costumo liderar.', 'Em um time, costumo motivar.', 'Em um time, costumo apoiar.', 'Em um time, costumo organizar.'],
+  ['Mudanças me animam se trouxerem resultado.', 'Mudanças me animam se forem novidade.', 'Mudanças me deixam inseguro(a) se forem de repente.', 'Mudanças precisam ser bem explicadas para mim.'],
+  ['Sou competitivo(a).', 'Sou otimista.', 'Sou compreensivo(a).', 'Sou disciplinado(a).'],
+  ['Ao receber uma tarefa, quero saber o objetivo final.', 'Ao receber uma tarefa, quero saber quem vai participar.', 'Ao receber uma tarefa, quero saber como fazer passo a passo.', 'Ao receber uma tarefa, quero saber qual é o padrão de qualidade.'],
+  ['Falo de forma firme.', 'Falo de forma entusiasmada.', 'Falo de forma tranquila.', 'Falo de forma precisa.'],
+  ['Me incomoda gente lenta e indecisa.', 'Me incomoda ambiente frio e sem conversa.', 'Me incomoda briga e grosseria.', 'Me incomoda bagunça e falta de padrão.'],
+  ['Tomo decisões pensando no resultado.', 'Tomo decisões pensando nas pessoas e no clima.', 'Tomo decisões depois de ouvir todos.', 'Tomo decisões depois de checar os dados.'],
+  ['Sou ousado(a).', 'Sou persuasivo(a).', 'Sou leal.', 'Sou cauteloso(a).'],
+  ['No fim do dia, fico feliz se resolvi muita coisa.', 'No fim do dia, fico feliz se o dia foi divertido.', 'No fim do dia, fico feliz se ajudei alguém.', 'No fim do dia, fico feliz se não houve nenhum erro.'],
+  ['Prefiro ser cobrado(a) por metas.', 'Prefiro ser cobrado(a) com elogios e incentivo.', 'Prefiro ser cobrado(a) com calma e clareza.', 'Prefiro ser cobrado(a) com critérios bem definidos.'],
+  ['Aprendo melhor fazendo na prática.', 'Aprendo melhor trocando ideia com as pessoas.', 'Aprendo melhor com alguém me acompanhando.', 'Aprendo melhor lendo e seguindo instruções.'],
+  ['Sou independente.', 'Sou sociável.', 'Sou colaborativo(a).', 'Sou analítico(a).'],
+  ['Quando algo dá errado, busco uma solução rápida.', 'Quando algo dá errado, tento levantar o ânimo do grupo.', 'Quando algo dá errado, ajudo a resolver sem alarde.', 'Quando algo dá errado, investigo a causa.'],
+  ['Meu ponto forte é a iniciativa.', 'Meu ponto forte é a comunicação.', 'Meu ponto forte é a constância.', 'Meu ponto forte é a precisão.']
+];
+const DISC_FATOR = {
+  D: { nome: 'Dominância', cor: '#ef4444', resumo: 'Perfil executor: direto, decidido, movido a desafios e resultados.', fortes: 'iniciativa, rapidez na tomada de decisão, foco em resultado, coragem para assumir responsabilidades', atencao: 'impaciência, pouca escuta, tendência a atropelar processos e pessoas sob pressão', gestao: 'dar metas claras, autonomia e desafios; combinar limites e a importância do trabalho em equipe', funcoes: 'liderança operacional, encarregaturas, vendas com meta, abertura e fechamento de loja' },
+  I: { nome: 'Influência', cor: '#f59e0b', resumo: 'Perfil comunicador: sociável, otimista, motiva e conecta pessoas.', fortes: 'comunicação, simpatia no atendimento, entusiasmo, facilidade de se relacionar e de convencer', atencao: 'dispersão, dificuldade com rotinas repetitivas e com detalhes, promessas sem acompanhamento', gestao: 'reconhecimento frequente, contato com pessoas, combinados claros e acompanhamento de prazos', funcoes: 'atendimento ao cliente, frente de loja, promoção e degustação, balcões de atendimento' },
+  S: { nome: 'Estabilidade', cor: '#16a34a', resumo: 'Perfil apoiador: calmo, paciente, leal e colaborativo.', fortes: 'constância, confiabilidade, paciência, espírito de equipe e boa convivência', atencao: 'resistência a mudanças bruscas, dificuldade de dizer não e de se posicionar em conflitos', gestao: 'explicar mudanças com antecedência, dar segurança, rotina definida e reconhecimento pela dedicação', funcoes: 'operação de caixa, reposição, padaria, açougue, depósito e funções de rotina' },
+  C: { nome: 'Conformidade', cor: '#3b82f6', resumo: 'Perfil analítico: organizado, preciso e cuidadoso com padrões.', fortes: 'atenção a detalhes, organização, qualidade, cumprimento de normas e procedimentos', atencao: 'perfeccionismo, lentidão para decidir sem informação completa, autocrítica e crítica excessivas', gestao: 'dar padrões e critérios claros, tempo para fazer bem feito e feedback objetivo', funcoes: 'conferência, prevenção de perdas, fiscal de caixa, CPD, controle de estoque e validade' }
+};
+// ---- Forças pessoais (24 forças em 6 virtudes), 2 frases cada, escala 1 a 5
+const FORCAS = [
+  ['Criatividade', 'Sabedoria', 'Encontra jeitos novos e práticos de resolver as coisas.', ['Costumo ter ideias diferentes para resolver problemas.', 'Gosto de inventar jeitos melhores de fazer as tarefas.']],
+  ['Curiosidade', 'Sabedoria', 'Tem interesse genuíno em aprender e explorar coisas novas.', ['Gosto de entender como as coisas funcionam.', 'Faço perguntas quando algo é novo para mim.']],
+  ['Pensamento crítico', 'Sabedoria', 'Analisa antes de concluir e considera diferentes pontos de vista.', ['Penso bem antes de tomar uma decisão.', 'Consigo mudar de opinião quando vejo bons argumentos.']],
+  ['Amor ao aprendizado', 'Sabedoria', 'Busca se desenvolver e aprender coisas novas por conta própria.', ['Gosto de fazer cursos e treinamentos.', 'Fico feliz quando aprendo algo novo no trabalho.']],
+  ['Perspectiva', 'Sabedoria', 'Enxerga o todo e costuma dar bons conselhos.', ['As pessoas costumam me pedir conselhos.', 'Consigo ver o lado bom e o lado ruim de uma situação.']],
+  ['Coragem', 'Coragem', 'Enfrenta desafios e defende o que é certo, mesmo com medo.', ['Falo o que é certo mesmo quando é difícil.', 'Enfrento desafios novos mesmo sentindo medo.']],
+  ['Perseverança', 'Coragem', 'Termina o que começa e não desiste diante das dificuldades.', ['Termino o que começo, mesmo quando fica difícil.', 'Não desisto fácil quando algo dá errado.']],
+  ['Honestidade', 'Coragem', 'É verdadeiro(a), assume os próprios erros e age com transparência.', ['Assumo meus erros sem colocar a culpa nos outros.', 'Prefiro falar a verdade, mesmo que me prejudique.']],
+  ['Entusiasmo', 'Coragem', 'Tem energia, disposição e anima o ambiente.', ['Acordo com disposição para trabalhar.', 'Costumo fazer as coisas com energia e vontade.']],
+  ['Afeto', 'Humanidade', 'Valoriza relações próximas e verdadeiras.', ['Cuido bem das pessoas que são importantes para mim.', 'Demonstro carinho e consideração pelas pessoas.']],
+  ['Bondade', 'Humanidade', 'Gosta de ajudar e é generoso(a) com as pessoas.', ['Gosto de ajudar as pessoas sem esperar nada em troca.', 'Me preocupo quando vejo alguém passando por dificuldade.']],
+  ['Inteligência social', 'Humanidade', 'Percebe o que os outros sentem e sabe se adaptar.', ['Percebo quando alguém está chateado, mesmo sem falar.', 'Sei como agir em diferentes situações com pessoas.']],
+  ['Trabalho em equipe', 'Justiça', 'Colabora, cumpre sua parte e pensa no grupo.', ['Faço minha parte para o grupo dar certo.', 'Gosto de trabalhar junto com outras pessoas.']],
+  ['Justiça', 'Justiça', 'Trata todos com igualdade e imparcialidade.', ['Trato todas as pessoas da mesma forma.', 'Me incomoda quando alguém é tratado de forma injusta.']],
+  ['Liderança', 'Justiça', 'Organiza e incentiva o grupo a alcançar objetivos.', ['Consigo organizar um grupo para cumprir uma tarefa.', 'As pessoas costumam seguir minhas orientações.']],
+  ['Perdão', 'Moderação', 'Dá segundas chances e não guarda mágoa.', ['Consigo perdoar quem errou comigo.', 'Não fico remoendo situações do passado.']],
+  ['Humildade', 'Moderação', 'Não busca holofotes e reconhece que pode aprender com todos.', ['Não gosto de me exibir pelo que faço.', 'Reconheço que posso aprender com qualquer pessoa.']],
+  ['Prudência', 'Moderação', 'É cuidadoso(a) e evita riscos desnecessários.', ['Penso nas consequências antes de agir.', 'Evito correr riscos desnecessários.']],
+  ['Autocontrole', 'Moderação', 'Controla impulsos e emoções, mesmo sob pressão.', ['Consigo manter a calma quando alguém me provoca.', 'Tenho disciplina para cumprir horários e combinados.']],
+  ['Apreciação do belo', 'Transcendência', 'Valoriza o que é bem feito, bonito e caprichado.', ['Admiro um trabalho bem feito e caprichado.', 'Percebo e valorizo os detalhes bonitos do dia a dia.']],
+  ['Gratidão', 'Transcendência', 'Reconhece e agradece as oportunidades e as pessoas.', ['Costumo agradecer as pessoas que me ajudam.', 'Sou grato(a) pelas oportunidades que recebo.']],
+  ['Esperança', 'Transcendência', 'Acredita no futuro e trabalha para que ele aconteça.', ['Acredito que coisas boas vão acontecer.', 'Tenho planos e objetivos para o meu futuro.']],
+  ['Bom humor', 'Transcendência', 'Leva leveza ao ambiente e faz as pessoas sorrirem.', ['Gosto de deixar o ambiente mais leve.', 'Consigo rir de situações do dia a dia.']],
+  ['Propósito', 'Transcendência', 'Tem fé ou valores fortes que dão sentido ao que faz.', ['Tenho valores ou fé que guiam minhas atitudes.', 'Sinto que meu trabalho tem um sentido maior.']]
+];
+const FORCAS_ITENS = FORCAS.flatMap((f, i) => f[3].map(t => ({ f: i, t })));
+const FORCAS_ORDEM_ = (() => { const o = FORCAS_ITENS.map((_, i) => i); let s = 7; for (let i = o.length - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; })();
+// ---- Desafio da loja (situacional): 4 opções com pontos 0 a 3 por competência
+const SIT_COMP = { atend: 'Atendimento ao cliente', etica: 'Ética e integridade', equipe: 'Trabalho em equipe', org: 'Organização e cuidado', prob: 'Resolução de problemas', res: 'Foco no resultado' };
+const SIT_Q = [
+  ['atend', '🛒', 'Um cliente chega irritado no caixa reclamando que o preço da gôndola está diferente do preço cobrado.', [['Escuto com calma, peço desculpas pelo transtorno e chamo o fiscal para conferir e resolver.', 3], ['Explico que o preço certo é o do sistema e que não posso fazer nada.', 0], ['Cobro o menor preço por conta própria para evitar discussão.', 1], ['Peço para ele aguardar e continuo atendendo a fila, sem dar retorno.', 0]]],
+  ['etica', '💵', 'Ao fechar o caixa, você percebe que sobrou R$ 50,00 a mais do que deveria.', [['Informo o fiscal ou a liderança e registro a diferença.', 3], ['Guardo o valor para cobrir alguma falta futura.', 0], ['Deixo no caixa e não comento com ninguém.', 1], ['Divido com o colega do lado.', 0]]],
+  ['equipe', '🤝', 'Um colega faltou e o setor ficou sobrecarregado. Seu encarregado pede ajuda além da sua tarefa.', [['Ajudo no que for preciso e me organizo para não deixar minha tarefa atrasar.', 3], ['Ajudo, mas reclamo o tempo todo.', 1], ['Digo que não é minha função.', 0], ['Faço só a minha parte e deixo o resto para quem faltou resolver depois.', 0]]],
+  ['org', '🥛', 'Durante a reposição, você encontra alguns produtos vencidos no fundo da gôndola.', [['Retiro os produtos, separo conforme o procedimento e aviso o responsável.', 3], ['Coloco os produtos novos na frente e deixo os vencidos atrás.', 0], ['Deixo como está, porque não fui eu quem repôs.', 0], ['Retiro, mas jogo fora sem avisar ninguém.', 1]]],
+  ['prob', '🧾', 'O sistema do caixa trava com uma fila grande esperando.', [['Aviso o fiscal imediatamente, informo os clientes com educação e sigo a orientação recebida.', 3], ['Fico tentando resolver sozinho(a) sem avisar ninguém.', 1], ['Saio do caixa para procurar ajuda e deixo a fila sem explicação.', 0], ['Mando os clientes procurarem outro caixa.', 1]]],
+  ['res', '📈', 'A loja está com uma campanha de vendas e você tem a chance de oferecer um produto em promoção.', [['Ofereço com naturalidade a todos os clientes, explicando a vantagem.', 3], ['Ofereço só quando lembro.', 1], ['Não ofereço porque acho chato.', 0], ['Insisto muito, mesmo quando o cliente já disse que não quer.', 1]]],
+  ['atend', '👵', 'Uma cliente idosa pede ajuda para encontrar um produto, mas você está no meio de uma tarefa.', [['Acompanho a cliente até o produto ou chamo um colega para ajudá-la.', 3], ['Aponto o corredor de longe e volto para a tarefa.', 1], ['Digo que estou ocupado(a).', 0], ['Finjo que não ouvi.', 0]]],
+  ['etica', '🍫', 'Você vê um colega comendo um produto da loja sem pagar.', [['Falo com o colega e, se continuar, comunico a liderança.', 3], ['Ignoro, porque não é problema meu.', 0], ['Comento com outros colegas sobre o ocorrido.', 0], ['Aviso a liderança imediatamente sem conversar com ele.', 2]]],
+  ['equipe', '💬', 'Você discorda da forma como seu líder pediu para organizar o setor.', [['Faço o que foi pedido e depois apresento minha sugestão com respeito.', 3], ['Faço do meu jeito sem avisar.', 0], ['Reclamo com os colegas, mas faço.', 1], ['Me recuso a fazer.', 0]]],
+  ['org', '🧹', 'Seu turno está acabando e o setor ainda está desorganizado.', [['Organizo o que for possível e passo as informações para o próximo turno.', 3], ['Vou embora no horário e deixo como está.', 1], ['Deixo um bilhete reclamando da bagunça.', 0], ['Fico até tarde sem avisar ninguém.', 1]]],
+  ['prob', '🚨', 'Você percebe um cliente escondendo um produto na bolsa.', [['Aviso discretamente a prevenção de perdas ou a liderança, sem abordar o cliente.', 3], ['Abordo o cliente na frente de todos.', 0], ['Finjo que não vi.', 0], ['Sigo o cliente pela loja.', 1]]],
+  ['res', '🎯', 'Seu setor tem uma meta de reduzir perdas no mês.', [['Sigo os procedimentos, aviso sobre produtos próximos do vencimento e sugiro melhorias.', 3], ['Faço meu trabalho normal, meta é problema da liderança.', 0], ['Só me preocupo no fim do mês.', 1], ['Escondo as perdas para o setor parecer melhor.', 0]]]
+];
+// ---- Fit cultural: valores do Grupo R Center (4 frases cada, 1 invertida), escala 1 a 5
+const FIT_VAL = [
+  ['Foco no resultado', '🎯', [['Gosto de saber qual é a meta e de acompanhar se estou chegando lá.', 0], ['Me esforço para entregar mais do que o combinado.', 0], ['Quando algo atrapalha o resultado, procuro resolver em vez de reclamar.', 0], ['Desde que eu cumpra meu horário, o resultado não é responsabilidade minha.', 1]]],
+  ['Amor pelo que fazemos', '❤️', [['Faço meu trabalho com capricho, mesmo quando ninguém está olhando.', 0], ['Sinto orgulho quando um cliente sai satisfeito.', 0], ['Gosto de trabalhar com atendimento e com o varejo.', 0], ['Para mim, trabalho é só uma obrigação para pagar as contas.', 1]]],
+  ['Humildade', '🙏', [['Aceito bem quando alguém me corrige.', 0], ['Peço ajuda quando não sei fazer algo.', 0], ['Reconheço o mérito dos colegas.', 0], ['Tenho dificuldade em admitir que errei.', 1]]],
+  ['Respeito', '🤝', [['Trato clientes e colegas com educação, mesmo em dias difíceis.', 0], ['Respeito opiniões diferentes da minha.', 0], ['Cumpro horários e combinados porque respeito o tempo dos outros.', 0], ['Se alguém me trata mal, acho justo responder da mesma forma.', 1]]],
+  ['União', '🫂', [['Gosto de ajudar um colega que está sobrecarregado.', 0], ['Acredito que o time vence junto.', 0], ['Compartilho o que sei com os colegas.', 0], ['Prefiro trabalhar sozinho(a) e não depender de ninguém.', 1]]],
+  ['Desenvolvimento humano', '🌱', [['Quero crescer dentro da empresa.', 0], ['Gosto de receber feedback para melhorar.', 0], ['Me interesso em aprender novas funções.', 0], ['Não vejo necessidade de treinamentos.', 1]]]
+];
+const FIT_ITENS = FIT_VAL.flatMap((v, i) => v[2].map(([t, inv]) => ({ v: i, t, inv })));
+const FIT_ORDEM_ = (() => { const o = FIT_ITENS.map((_, i) => i); let s = 11; for (let i = o.length - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; })();
+const LIKERT_ = ['Discordo totalmente', 'Discordo', 'Neutro', 'Concordo', 'Concordo totalmente'];
+// ordem embaralhada (estável por item) das alternativas
+const embaralha_ = (n, seed) => { const o = [...Array(n).keys()]; let s = seed * 7919 + 13; for (let i = n - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; };
+// perguntas de cada teste no formato da tela
+function testePerguntas_(t) {
+  if (t === 'disc') return DISC_Q.map((q, i) => ({ tipo: 'esc', titulo: 'Qual frase MAIS combina com você?', ops: embaralha_(4, i + 1).map(k => ({ v: 'DISC'[k], t: q[k] })) }));
+  if (t === 'forcas') return FORCAS_ORDEM_.map(k => ({ tipo: 'lik', titulo: FORCAS_ITENS[k].t, k }));
+  if (t === 'situacional') return SIT_Q.map((q, i) => ({ tipo: 'esc', fase: true, emoji: q[1], titulo: q[2], ops: embaralha_(4, i + 3).map(k => ({ v: String(k), t: q[3][k][0] })) }));
+  if (t === 'fit') return FIT_ORDEM_.map(k => ({ tipo: 'lik', titulo: FIT_ITENS[k].t, k }));
+  return [];
+}
+// ---- correção e parecer (feito no Quadro, a partir das respostas brutas)
+function testeCorrigir_(r) {
+  const R = r.resp || [], pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+  if (r.teste === 'disc') {
+    const n = { D: 0, I: 0, S: 0, C: 0 }; R.forEach(x => { if (n[x] != null) n[x]++; });
+    const tot = Object.values(n).reduce((a, b) => a + b, 0) || 1, p = {}; Object.keys(n).forEach(k => p[k] = pct(n[k], tot));
+    const ord = Object.keys(p).sort((a, b) => p[b] - p[a]), pri = ord[0], sec = p[ord[1]] >= 22 ? ord[1] : '';
+    const F = DISC_FATOR[pri], F2 = sec ? DISC_FATOR[sec] : null;
+    const perfil = pri + (sec || '');
+    const txt = `Perfil predominante: ${F.nome} (${p[pri]}%)${F2 ? `, com traços de ${F2.nome} (${p[sec]}%)` : ''}. ${F.resumo}\n\nPontos fortes: ${F.fortes}${F2 ? `; e também ${F2.fortes.split(',')[0]}` : ''}.\nPontos de atenção: ${F.atencao}.\nComo gerir: ${F.gestao}.\nFunções com maior afinidade: ${F.funcoes}.`;
+    return { tipo: 'disc', p, perfil, pri, sec, nota: null, rotulo: perfil + ' · ' + F.nome, txt };
+  }
+  if (r.teste === 'forcas') {
+    const s = FORCAS.map(() => 0);
+    FORCAS_ORDEM_.forEach((k, i) => { s[FORCAS_ITENS[k].f] += Number(R[i]) || 0; });
+    const lista = FORCAS.map((f, i) => ({ nome: f[0], virt: f[1], desc: f[2], v: s[i], p: Math.round((s[i] - 2) / 8 * 100) })).sort((a, b) => b.v - a.v || a.nome.localeCompare(b.nome));
+    const virt = {}; lista.forEach(x => { (virt[x.virt] = virt[x.virt] || []).push(x.p); });
+    const V = Object.keys(virt).map(k => ({ nome: k, p: Math.round(virt[k].reduce((a, b) => a + b, 0) / virt[k].length) })).sort((a, b) => b.p - a.p);
+    const top = lista.slice(0, 5), baixo = lista.slice(-3);
+    const txt = `Forças de destaque: ${top.map(x => x.nome).join(', ')}.\n${top.map(x => `• ${x.nome}: ${x.desc}`).join('\n')}\n\nVirtude mais presente: ${V[0].nome}. Forças menos evidentes nas respostas: ${baixo.map(x => x.nome).join(', ')} (podem ser exploradas na entrevista).`;
+    return { tipo: 'forcas', lista, virt: V, top, nota: null, rotulo: top.slice(0, 3).map(x => x.nome).join(' · '), txt };
+  }
+  if (r.teste === 'situacional') {
+    const c = {}; let tot = 0;
+    SIT_Q.forEach((q, i) => { const k = Number(R[i]); const pt = q[3][k] ? q[3][k][1] : 0; tot += pt; (c[q[0]] = c[q[0]] || [0, 0]); c[q[0]][0] += pt; c[q[0]][1] += 3; });
+    const nota = pct(tot, SIT_Q.length * 3), comp = Object.keys(c).map(k => ({ nome: SIT_COMP[k], p: pct(c[k][0], c[k][1]) })).sort((a, b) => b.p - a.p);
+    const cls = nota >= 80 ? 'Excelente' : nota >= 65 ? 'Bom' : nota >= 50 ? 'Regular' : 'Atenção';
+    const fracas = comp.filter(x => x.p < 60);
+    const txt = `Desempenho nas situações de loja: ${nota}% (${cls}).\nMelhor desempenho: ${comp[0].nome} (${comp[0].p}%).\n${fracas.length ? `Pontos a aprofundar na entrevista: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : 'Nenhuma competência abaixo de 60%.'}`;
+    return { tipo: 'situacional', comp, nota, cls, rotulo: nota + '% · ' + cls, txt };
+  }
+  if (r.teste === 'fit') {
+    const s = FIT_VAL.map(() => [0, 0]); let incoer = 0;
+    FIT_ORDEM_.forEach((k, i) => { const it = FIT_ITENS[k], v = Number(R[i]) || 3, val = it.inv ? 6 - v : v; s[it.v][0] += val; s[it.v][1] += 5; if (it.inv && v >= 4) incoer++; });
+    const vals = FIT_VAL.map((x, i) => ({ nome: x[0], emoji: x[1], p: Math.round((s[i][0] - 4) / (s[i][1] - 4) * 100) }));
+    const nota = Math.round(vals.reduce((a, b) => a + b.p, 0) / vals.length);
+    const cls = nota >= 80 ? 'Alta aderência' : nota >= 65 ? 'Boa aderência' : nota >= 50 ? 'Aderência moderada' : 'Baixa aderência';
+    const ord = vals.slice().sort((a, b) => b.p - a.p);
+    const txt = `Aderência aos valores do Grupo R Center: ${nota}% (${cls}).\nValores mais fortes: ${ord.slice(0, 2).map(x => `${x.nome} (${x.p}%)`).join(', ')}.\nValor a observar: ${ord[ord.length - 1].nome} (${ord[ord.length - 1].p}%).${incoer >= 3 ? '\nObservação: respostas pouco consistentes (concordou com frases opostas). Recomenda-se confirmar na entrevista.' : ''}`;
+    return { tipo: 'fit', vals, nota, cls, incoer, rotulo: nota + '% · ' + cls, txt };
+  }
+  return { txt: '' };
+}
+
+// ---- página pública do candidato (?teste=CODIGO)
+async function renderTeste(codigo) {
+  document.documentElement.dataset.theme = 'light';
+  document.title = 'Vem ser GRC · Etapa de avaliação';
+  $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo…</div></div></div>`;
+  let info = null, erro = '', recs = [];
+  try { const j = await sendRaw_('testeInfo', { codigo }); if (j && j.ok) { info = j.link; recs = j.recrutadores || []; } else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; }
+  const RC = 'https://www.rcentersupermercado.com.br/img/', img = (f, alt, cls) => `<img src="${RC}grupo/${f}" alt="${h(alt)}" class="${cls || ''}" onerror="this.style.display='none'">`;
+  const LK = 'grc_teste_' + codigo;
+  let st = {}; try { st = JSON.parse(localStorage.getItem(LK) || '{}'); } catch (e) {}
+  const salvar = () => { try { localStorage.setItem(LK, JSON.stringify(st)); } catch (e) {} };
+  st.feitos = st.feitos || {}; st.xp = st.xp || 0;
+  const testes = info ? (info.testes || []).filter(t => TESTE_INFO[t]).sort((a, b) => TESTE_ORDEM.indexOf(a) - TESTE_ORDEM.indexOf(b)) : [];
+  $('#root').innerHTML = `<div class="fx tx">
+    <header class="fx-top"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo')}<span id="txXp" class="tx-xp"></span></div></header>
+    <div class="fx-wrap"><div class="tx-main" id="txM"></div></div>
+    <footer class="fx-rodape"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo-sm')}<span>© ${new Date().getFullYear()} Grupo R Center · Indo além por você</span></div></footer>
+  </div>`;
+  const M = $('#txM');
+  const xp = () => { const e = $('#txXp'); if (e) e.innerHTML = st.ini ? `⭐ <b>${st.xp}</b> XP` : 'Etapa de avaliação'; };
+  xp();
+  if (!info) { M.innerHTML = `<div class="fx-card tx-card"><div class="fx-card-h"><h2>Link indisponível</h2></div><div class="badge b-bad" style="display:flex;padding:10px 12px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p></div>`; return; }
+  // 1) identificação
+  const telaIni = () => {
+    M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Etapa de <b>avaliação</b></h1><p class="fx-plus">${testes.length} ${testes.length > 1 ? 'DESAFIOS' : 'DESAFIO'} · CERCA DE ${testes.reduce((a, t) => a + TESTE_INFO[t].min, 0)} MINUTOS</p><p>Não existe resposta certa ou errada: responda com sinceridade, do jeito que você realmente é.</p></div></section>
+      <form class="fx-card tx-card" id="txF">
+        <div class="fx-card-h"><h2>Antes de começar</h2><p>Precisamos identificar você.</p></div>
+        ${info.titulo ? `<div class="fx-vaga"><span>Vaga</span><b>${h(info.titulo)}</b></div>` : ''}
+        ${recs.length ? `<div class="field"><label>Quem do RH falou com você?</label><select class="input" name="rec" required><option value="">Selecione o(a) recrutador(a)</option>${recs.map(x => `<option ${st.rec === x ? 'selected' : ''}>${h(x)}</option>`).join('')}</select></div>` : ''}
+        <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" value="${h(st.nome || '')}" placeholder="Como está no documento"></div>
+        <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" value="${h(st.cpf ? cpfFmt(st.cpf) : '')}" placeholder="000.000.000-00"><small id="cpfMsg" class="fi-cpf"></small></div>
+        <div class="field"><label>WhatsApp (opcional)</label><input class="input" name="tel" inputmode="tel" value="${h(st.tel || '')}" placeholder="(85) 90000-0000"></div></div>
+        ${info.titulo ? '' : `<div class="field"><label>Vaga de interesse (opcional)</label><input class="input" name="vaga" maxlength="80" value="${h(st.vaga || '')}" placeholder="Ex.: Operador de caixa"></div>`}
+        <label class="tx-lgpd"><input type="checkbox" name="ok" ${st.ini ? 'checked' : ''}> <span>Autorizo o Grupo R Center a usar minhas respostas somente neste processo seletivo, conforme a LGPD. Os resultados são analisados pela equipe de RH e por psicólogo(a).</span></label>
+        <div id="fiErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
+        <button class="btn primary block fx-btn" type="submit">Começar ▶</button>
+      </form>`;
+    const f = $('#txF'), err = $('#fiErr');
+    f.cpf.oninput = () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); const m = $('#cpfMsg'); m.className = 'fi-cpf ' + (d.length === 11 ? (cpfOk_(d) ? 'ok' : 'bad') : ''); m.textContent = d.length === 11 ? (cpfOk_(d) ? '✓ CPF válido' : 'CPF inválido. Confira os números.') : ''; };
+    f.onsubmit = e => {
+      e.preventDefault(); err.classList.add('hidden');
+      const falha = m => { err.textContent = m; err.classList.remove('hidden'); };
+      if (f.rec && !f.rec.value) return falha('Escolha quem do RH falou com você.');
+      if (f.nome.value.trim().split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
+      if (!cpfOk_(f.cpf.value)) return falha('CPF inválido. Confira os números.');
+      if (!f.ok.checked) return falha('Para continuar, marque a autorização de uso dos dados.');
+      Object.assign(st, { ini: true, nome: f.nome.value.trim(), cpf: f.cpf.value.replace(/\D/g, ''), tel: f.tel.value, rec: f.rec ? f.rec.value : '', vaga: f.vaga ? f.vaga.value.trim() : '' }); salvar(); xp();
+      telaLista();
+    };
+  };
+  // 2) lista de desafios
+  const telaLista = () => {
+    const feitos = testes.filter(t => st.feitos[t]).length, todos = feitos === testes.length;
+    M.innerHTML = `<div class="tx-head"><h2>${todos ? '🏆 Missão cumprida!' : `Olá, ${h(st.nome.split(' ')[0])}! 👋`}</h2><p>${todos ? 'Você concluiu todos os desafios. O RH já recebeu suas respostas. Obrigado pela participação!' : 'Escolha um desafio para começar. Você pode fazer um de cada vez.'}</p>
+      <div class="tx-prog"><i style="width:${Math.round(feitos / testes.length * 100)}%"></i></div><small>${feitos} de ${testes.length} concluído(s)</small></div>
+      <div class="tx-lista">${testes.map((t, i) => { const T = TESTE_INFO[t], ok = st.feitos[t]; return `<button class="tx-item ${ok ? 'ok' : ''}" data-t="${t}" ${ok ? 'disabled' : ''} style="--c:${T.cor}"><span class="tx-ic">${ok ? '✅' : T.icone}</span><span class="tx-it"><b>${i + 1}. ${T.nome}</b><small>${T.desc}</small><em>${ok ? 'Concluído · +' + st.feitos[t] + ' XP' : '⏱ cerca de ' + T.min + ' min'}</em></span><span class="tx-go">${ok ? '' : '▶'}</span></button>`; }).join('')}</div>
+      ${todos ? `<div class="tx-fim">#VemSerGRC 💙🧡</div>` : `<p class="tx-dica">💡 Responda pensando em como você é de verdade, não em como acha que deveria ser.</p>`}`;
+    $$('[data-t]', M).forEach(b => b.onclick = () => rodar(b.dataset.t));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  // 3) responder um desafio (uma pergunta por tela)
+  const rodar = t => {
+    const Q = testePerguntas_(t), T = TESTE_INFO[t];
+    const k = 'r_' + t; let R = st[k] || [], t0 = Date.now() - (st['s_' + t] || 0) * 1000;
+    let i = Math.min(R.length, Q.length - 1); if (R.length >= Q.length) i = Q.length - 1;
+    const tela = () => {
+      const q = Q[i], pr = Math.round(i / Q.length * 100);
+      M.innerHTML = `<div class="tx-q" style="--c:${T.cor}">
+        <div class="tx-qtop"><button class="tx-back" id="txV">‹</button><div class="tx-prog"><i style="width:${pr}%"></i></div><span>${i + 1}/${Q.length}</span></div>
+        <div class="tx-qcard">
+          <div class="tx-tag">${T.icone} ${T.nome}${q.fase ? ` · Fase ${i + 1}` : ''}</div>
+          ${q.emoji ? `<div class="tx-emoji">${q.emoji}</div>` : ''}
+          <h3>${h(q.titulo)}</h3>
+          ${t === 'situacional' ? '<p class="tx-sub">O que você faria?</p>' : t === 'forcas' || t === 'fit' ? '<p class="tx-sub">O quanto essa frase combina com você?</p>' : ''}
+          <div class="tx-ops ${q.tipo === 'lik' ? 'lik' : ''}">${q.tipo === 'lik' ? LIKERT_.map((l, j) => `<button class="tx-op lk ${String(R[i]) === String(j + 1) ? 'sel' : ''}" data-v="${j + 1}"><i>${['😕', '🙁', '😐', '🙂', '😄'][j]}</i><span>${l}</span></button>`).join('') : q.ops.map((o, j) => `<button class="tx-op ${String(R[i]) === o.v ? 'sel' : ''}" data-v="${h(o.v)}"><i>${'ABCD'[j]}</i><span>${h(o.t)}</span></button>`).join('')}</div>
+        </div></div>`;
+      $('#txV').onclick = () => { if (i > 0) { i--; tela(); } else telaLista(); };
+      $$('.tx-op', M).forEach(b => b.onclick = () => {
+        $$('.tx-op', M).forEach(x => x.classList.remove('sel')); b.classList.add('sel');
+        R[i] = b.dataset.v; st[k] = R; st['s_' + t] = Math.round((Date.now() - t0) / 1000); salvar();
+        setTimeout(() => { if (i < Q.length - 1) { i++; tela(); } else enviar(); }, 230);
+      });
+    };
+    const enviar = async () => {
+      M.innerHTML = `<div class="fx-card tx-card" style="text-align:center;padding:40px 20px"><div class="spin" style="margin:0 auto 14px"></div><b>Enviando suas respostas…</b></div>`;
+      try {
+        const j = await sendRaw_('testeEnviar', { codigo, data: { teste: t, nome: st.nome, cpf: st.cpf, tel: st.tel, recrutador: st.rec, vaga: st.vaga, resp: R, seg: st['s_' + t] || 0 } });
+        if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível enviar.');
+        const ganho = 100 + Q.length * 10; st.feitos[t] = ganho; st.xp += ganho; delete st[k]; salvar(); xp();
+        M.innerHTML = `<div class="fx-card tx-card tx-win" style="--c:${T.cor}"><div class="tx-badge">${T.icone}</div><h2>Desafio concluído!</h2><p>Você ganhou <b>+${ganho} XP</b> e o selo <b>${T.nome}</b>.</p><button class="btn primary block fx-btn" id="txC">Continuar ▶</button></div>`;
+        $('#txC').onclick = telaLista;
+      } catch (e) {
+        M.innerHTML = `<div class="fx-card tx-card"><h2>Ops!</h2><div class="badge b-bad" style="display:flex;padding:10px 12px;white-space:normal;margin-bottom:14px">${h(e.message)}</div><button class="btn primary block fx-btn" id="txR">Tentar de novo</button></div>`;
+        $('#txR').onclick = enviar;
+      }
+    };
+    tela();
+  };
+  if (st.ini) telaLista(); else telaIni();
+}
+
+/* ---------------- RH: resultados dos testes ---------------- */
+const podeTestes = () => !!(S.user && (isAdmin() || S.user.podeTestes));
+const testeUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/teste.html?teste=' + c; };
+const testesCache_ = () => { if (!S.testes) S.testes = ls.get('grc_testes', null); return S.testes; };
+const testesSet_ = j => { const c = S.testes || {}; S.testes = { testes: j.testes || c.testes || [], links: j.links || c.links || [], recrutadores: j.recrutadores || c.recrutadores || [] }; ls.set('grc_testes', S.testes); };
+const testesNovos = () => ((testesCache_() || {}).testes || []).filter(x => !x.visto).length;
+// agrupa por candidato (CPF)
+function testesCandidatos_(L) {
+  const m = {};
+  L.forEach(r => { const c = m[r.cpf] = m[r.cpf] || { cpf: r.cpf, nome: r.nome, tel: r.tel, recrutador: r.recrutador, titulo: r.titulo, em: r.em, testes: {}, novo: false }; if (r.em > c.em) c.em = r.em; if (!c.testes[r.teste] || c.testes[r.teste].em < r.em) c.testes[r.teste] = r; if (!r.visto) c.novo = true; if (!c.recrutador) c.recrutador = r.recrutador; if (!c.titulo) c.titulo = r.titulo; });
+  return Object.values(m).sort((a, b) => a.em < b.em ? 1 : -1);
+}
+function compartilharTeste_(c, titulo) {
+  const url = testeUrl_(c), txt = `Olá! Esta é a etapa de avaliação do seu processo seletivo${titulo ? ' (' + titulo + ')' : ''} no ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}. Leva poucos minutos e não tem resposta certa ou errada: ${url}`;
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+const dtHr_ = s => { const d = new Date(s); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+const barra_ = (nome, p, cor, extra) => `<div class="tr-bar"><span>${nome}</span><div><i style="width:${Math.max(2, Math.min(100, p))}%;background:${cor || 'var(--accent)'}"></i></div><b>${p}%</b>${extra || ''}</div>`;
+function testeResumoHTML_(r) {
+  const c = testeCorrigir_(r), T = TESTE_INFO[r.teste];
+  let corpo = '';
+  if (c.tipo === 'disc') corpo = `<div class="tr-disc">${'DISC'.split('').map(k => `<div class="${c.pri === k ? 'top' : ''}" style="--c:${DISC_FATOR[k].cor}"><b>${k}</b><i style="height:${Math.max(6, c.p[k])}%"></i><span>${c.p[k]}%</span><small>${DISC_FATOR[k].nome}</small></div>`).join('')}</div>`;
+  if (c.tipo === 'forcas') corpo = `<div class="tr-top">${c.top.map((x, i) => `<span class="tr-chip"><b>${i + 1}</b> ${h(x.nome)}</span>`).join('')}</div>${c.virt.map(v => barra_(v.nome, v.p, '#16a34a')).join('')}<details class="tr-det"><summary>Ver as 24 forças</summary>${c.lista.map(x => barra_(x.nome, x.p, '#86efac')).join('')}</details>`;
+  if (c.tipo === 'situacional') corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}</span></div>${c.comp.map(x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444')).join('')}`;
+  if (c.tipo === 'fit') corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}</span></div>${c.vals.map(x => barra_(x.emoji + ' ' + x.nome, x.p, '#0a0d7c')).join('')}`;
+  return `<div class="card tr-sec"><div class="tr-h"><span class="tr-ic">${T.icone}</span><div><b>${T.nome}</b><small>${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div><button class="btn sm ghost" data-cpp="${h(r.id)}" title="Copiar parecer">${ic('copy')}</button></div>${corpo}<div class="tr-parecer">${h(c.txt).replace(/\n/g, '<br>')}</div>
+    <div class="field" style="margin:10px 0 0"><label>Parecer do psicólogo / RH</label><textarea class="input" rows="3" data-obs="${h(r.id)}" placeholder="Escreva sua análise...">${h(r.obs || '')}</textarea>${r.obsPor ? `<small class="faint">Último registro: ${h(r.obsPor)} · ${dtHr_(r.obsEm)}</small>` : ''}<div style="margin-top:6px"><button class="btn sm" data-obsok="${h(r.id)}">${ic('check')} Salvar parecer</button></div></div></div>`;
+}
+function openTesteCand(c, done) {
+  const R = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean);
+  const textoTudo = () => `*${c.nome}* · CPF ${cpfFmt(c.cpf)}${c.titulo ? '\nVaga: ' + c.titulo : ''}\n\n` + R.map(r => `*${TESTE_INFO[r.teste].nome}*\n${testeCorrigir_(r).txt}${r.obs ? '\n_Parecer:_ ' + r.obs : ''}`).join('\n\n');
+  modal({
+    title: c.nome, icon: 'users', wide: true,
+    body: `<div class="faint" style="margin:-4px 0 12px">CPF ${h(cpfFmt(c.cpf))}${c.tel ? ' · <a style="color:var(--accent)" target="_blank" rel="noopener" href="https://wa.me/55' + h(c.tel) + '">' + h(telFmt(c.tel)) + '</a>' : ''}${c.recrutador ? ' · <b>' + h(c.recrutador) + '</b>' : ''}${c.titulo ? ' · ' + h(c.titulo) : ''}</div>
+      <div class="tr-aviso">Resultados de apoio à entrevista. A decisão deve considerar também a entrevista e a análise do(a) psicólogo(a).</div>
+      ${R.map(testeResumoHTML_).join('')}`,
+    foot: `<button class="btn ghost" id="tcDel" style="margin-right:auto;color:var(--bad)">${ic('trash')} Apagar</button><button class="btn" data-close>Fechar</button><button class="btn primary" id="tcCp">${ic('copy')} Copiar relatório</button>`,
+    onMount: m => {
+      $('#tcCp', m.el).onclick = () => copiar_(textoTudo(), 'Relatório copiado');
+      $$('[data-cpp]', m.el).forEach(b => b.onclick = () => { const r = R.find(x => x.id === b.dataset.cpp); copiar_(`*${TESTE_INFO[r.teste].nome}* · ${c.nome}\n${testeCorrigir_(r).txt}`, 'Parecer copiado'); });
+      $$('[data-obsok]', m.el).forEach(b => b.onclick = ev => run(ev.currentTarget, async () => {
+        const id = b.dataset.obsok, obs = $(`[data-obs="${id}"]`, m.el).value;
+        const j = await api('testeObs', { id, obs });
+        const L = (testesCache_().testes || []).map(x => x.id === id ? j.teste : x); testesSet_({ testes: L }); toast('Parecer salvo');
+      }));
+      $('#tcDel', m.el).onclick = async () => {
+        if (!await confirmBox(`Apagar todos os resultados de <b>${h(c.nome)}</b>?`, 'Apagar', true)) return;
+        const ids = (testesCache_().testes || []).filter(x => x.cpf === c.cpf).map(x => x.id);
+        await api('testeApagar', { ids }); testesSet_({ testes: (testesCache_().testes || []).filter(x => x.cpf !== c.cpf) }); m.close(); if (done) done();
+      };
+    }
+  });
+}
+async function pgTestes() {
+  setTitle('Testes de avaliação', 'DISC · forças pessoais · desafio da loja · fit cultural');
+  const v = $('#view'), f = getF('testes');
+  const draw = () => {
+    const c = testesCache_();
+    if (!c) { v.innerHTML = `<div class="sk" style="height:260px"></div>`; return; }
+    const q = norm(f.q || ''), qd = String(f.q || '').replace(/\D/g, '');
+    const dia = x => new Date(x.em).toLocaleDateString('sv-SE');
+    const cands = testesCandidatos_(c.testes || []);
+    const recsAll = uniq([...(c.recrutadores || []), ...cands.map(x => x.recrutador).filter(Boolean)]);
+    const lista = cands.filter(x => (!q || norm(x.nome + ' ' + (x.titulo || '') + ' ' + (x.recrutador || '')).includes(q) || (qd.length >= 3 && x.cpf.includes(qd)))
+      && (!f.rec || norm(x.recrutador) === norm(f.rec)) && (!f.t || x.testes[f.t]) && (!f.de || dia(x) >= f.de) && (!f.ate || dia(x) <= f.ate));
+    const ativos = (c.links || []).filter(l => l.ativo);
+    v.innerHTML = `
+    <div class="toolbar">
+      <div class="input-icon search">${ic('search')}<input class="input" id="trQ" placeholder="Buscar por nome, CPF ou vaga" value="${h(f.q || '')}" style="width:100%"></div>
+      <select class="input" id="trRec"><option value="">Recrutador: todos</option>${recsAll.map(x => `<option ${f.rec === x ? 'selected' : ''}>${h(x)}</option>`).join('')}</select>
+      <select class="input" id="trT"><option value="">Teste: todos</option>${TESTE_ORDEM.map(t => `<option value="${t}" ${f.t === t ? 'selected' : ''}>${TESTE_INFO[t].nome}</option>`).join('')}</select>
+      <label class="fi-dt"><span>De</span><input class="input" type="date" id="trDe" value="${h(f.de || '')}"></label>
+      <label class="fi-dt"><span>até</span><input class="input" type="date" id="trAte" value="${h(f.ate || '')}"></label>
+      <span class="spacer"></span>
+      ${isAdmin() ? `<button class="btn" id="trAc" title="Quem pode ver os testes">${ic('shield')} Acesso</button>` : ''}
+      <button class="btn" id="trLinks">${ic('link')} Links (${ativos.length})</button>
+      <button class="btn primary" id="trNovo">${ic('share')} Mandar teste ao candidato</button>
+    </div>
+    ${lista.length ? `<div class="fi-grid">${lista.map(x => `
+      <div class="card fi-card tr-card${x.novo ? ' nova' : ''}" data-cand="${h(x.cpf)}">
+        <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')}</div></div>${x.novo ? '<span class="badge b-info">novo</span>' : ''}</div>
+        <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : k.nota + '%')}</b></div>`; }).join('')}</div>
+        <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button></div>
+      </div>`).join('')}</div>`
+      : `<div class="card empty" style="text-align:center;padding:30px"><b>${cands.length ? 'Nenhum resultado com esses filtros' : 'Nenhum teste respondido ainda'}</b><p class="muted">Clique em <b>Mandar teste ao candidato</b>, escolha os testes e envie o link pelo WhatsApp. O resultado aparece aqui assim que ele terminar.</p></div>`}
+    <div class="faint" style="font-size:12px;margin-top:10px">${lista.length} candidato(s) · Ferramenta de apoio: os resultados não devem ser usados isoladamente para eliminar candidatos.</div>`;
+    const qi = $('#trQ'); qi.oninput = () => { f.q = qi.value; saveF(); draw(); const e2 = $('#trQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); };
+    [['trRec', 'rec'], ['trT', 't'], ['trDe', 'de'], ['trAte', 'ate']].forEach(([id, k]) => { $('#' + id).onchange = e => { f[k] = e.target.value; saveF(); draw(); }; });
+    $('#trNovo').onclick = () => openTesteLink(draw);
+    $('#trLinks').onclick = () => openTesteLinks(draw);
+    if ($('#trAc')) $('#trAc').onclick = openTesteAcesso;
+    $$('[data-cand]').forEach(el => el.onclick = () => {
+      const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === el.dataset.cand); if (!cand) return;
+      openTesteCand(cand, draw);
+      const novos = Object.values(cand.testes).filter(r => !r.visto).map(r => r.id);
+      if (novos.length) { testesSet_({ testes: testesCache_().testes.map(r => novos.includes(r.id) ? Object.assign({}, r, { visto: true }) : r) }); updateShell(); api('testeMarcar', { ids: novos }, { silent: true }).catch(() => {}); }
+    });
+  };
+  draw();
+  const rt = S.rt;
+  try { const j = await api('testesList', {}, { silent: true }); if (rt !== S.rt) return; testesSet_(j); if (!$('.overlay')) draw(); updateShell(); }
+  catch (e) { if (!testesCache_()) v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; else toast(e.message, true); }
+}
+function openTesteAcesso() {
+  modal({
+    title: 'Acesso aos Testes de avaliação', icon: 'shield',
+    body: `<p class="muted" style="margin-top:0">Administradores sempre têm acesso. Marque quem mais pode ver os resultados, escrever o parecer e mandar o teste aos candidatos (ex.: psicólogo, recrutadores), seja qual for o tipo de acesso da pessoa.</p><div id="taL"><div class="sk" style="height:80px"></div></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="taOk">Salvar</button>`,
+    onMount: async m => {
+      const el = $('#taL', m.el);
+      try {
+        const us = (usersCache_() || await usersBuscar_()).filter(u => u.perfil !== 'ADMIN' && u.ativo);
+        const ids = (await api('testeAcesso', {}, { silent: true })).ids || [];
+        if (!$('#taL', m.el)) return;
+        el.innerHTML = us.length ? chipPicker('tac', us.map(u => u.id), ids.join(', ')) : '<span class="muted">Nenhum usuário sem perfil de administrador.</span>';
+        bindPickers(el);
+        $$('[data-picker=tac] .chip', el).forEach(c => { const u = us.find(x => x.id === c.dataset.v); c.textContent = u ? u.nome + (u.cargo ? ' · ' + u.cargo : '') : c.dataset.v; });
+      } catch (e) { el.innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+      $('#taOk', m.el).onclick = ev => run(ev.currentTarget, async () => { await api('setTesteAcesso', { ids: splitMulti(pickVal(el, 'tac')) }); m.close(); toast('Acesso salvo. A pessoa vê os Testes ao entrar de novo ou atualizar a página.'); });
+    }
+  });
+}
+function openTesteQR(codigo, titulo) {
+  const url = testeUrl_(codigo);
+  modal({
+    title: 'QR Code do teste', icon: 'grid',
+    body: `<p class="muted" style="margin-top:0">O candidato aponta a câmera do celular e faz os testes ali mesmo.</p><div id="qrBox" style="display:grid;place-items:center;min-height:270px"><div class="spin"></div></div>`,
+    foot: `<button class="btn" data-close>Fechar</button><button class="btn primary" id="qrBaixar">${ic('download')} Baixar imagem</button>`,
+    onMount: async m => {
+      try {
+        await qrCarregar_();
+        const cv = qrCanvas_(url, 320); cv.style.cssText = 'width:260px;height:260px;border-radius:12px;image-rendering:pixelated';
+        $('#qrBox', m.el).innerHTML = ''; $('#qrBox', m.el).appendChild(cv);
+        $('#qrBaixar', m.el).onclick = () => { const a = document.createElement('a'); a.href = qrCartaz_(url, (titulo ? titulo + ' · ' : '') + 'Etapa de avaliação').toDataURL('image/png'); a.download = 'qrcode_testes.png'; a.click(); };
+      } catch (e) { $('#qrBox', m.el).innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+    }
+  });
+}
+function openTesteLink(done) {
+  modal({
+    title: 'Mandar teste ao candidato', icon: 'share',
+    body: `<p class="muted" style="margin-top:0">Escolha quais testes vão no link. Pode ser um só ou todos juntos — o candidato faz um de cada vez e o resultado aparece aqui.</p>
+      <div class="tr-esc">${TESTE_ORDEM.map(t => `<label class="tr-op"><input type="checkbox" value="${t}" checked><span>${TESTE_INFO[t].icone}</span><div><b>${TESTE_INFO[t].nome}</b><small>${TESTE_INFO[t].desc} · ~${TESTE_INFO[t].min} min</small></div></label>`).join('')}</div>
+      <div class="field" style="margin-top:12px"><label>Vaga / observação (opcional)</label><input class="input" id="tlT" placeholder="Ex.: Operador de caixa · Eusébio"></div>
+      <div id="tlRes"></div>`,
+    foot: `<button class="btn" data-close>Fechar</button><button class="btn primary" id="tlOk">${ic('link')} Gerar link</button>`,
+    onMount: m => {
+      $('#tlOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const testes = $$('.tr-esc input:checked', m.el).map(x => x.value);
+        if (!testes.length) throw new Error('Escolha ao menos um teste.');
+        const j = await api('testeLinkCriar', { titulo: $('#tlT', m.el).value.trim(), testes });
+        testesSet_({ links: j.links });
+        const l = j.link, url = testeUrl_(l.codigo);
+        $('#tlRes', m.el).innerHTML = `<div class="card mt" style="border-color:var(--accent)"><b>${ic('check')} Link pronto · ${l.testes.map(t => TESTE_INFO[t].icone).join(' ')}</b><div class="mono" style="font-size:12.5px;word-break:break-all;margin:8px 0">${h(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="tlWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="tlCp">${ic('copy')} Copiar link</button><button class="btn" id="tlQr">${ic('grid')} QR Code</button></div></div>`;
+        $('#tlWa', m.el).onclick = () => compartilharTeste_(l.codigo, l.titulo);
+        $('#tlCp', m.el).onclick = () => copiar_(url, 'Link copiado');
+        $('#tlQr', m.el).onclick = () => openTesteQR(l.codigo, l.titulo);
+        if (done) done();
+      });
+    }
+  });
+}
+function openTesteLinks(done) {
+  const L = (testesCache_() || {}).links || [];
+  modal({
+    title: 'Links de testes', icon: 'link', wide: true,
+    body: L.length ? `<div class="alist">${L.map(l => `<div class="aitem" style="align-items:center"><div style="flex:1;min-width:0"><b>${h(l.titulo || 'Link sem vaga')}</b> ${l.ativo ? '' : '<span class="badge">desativado</span>'}<span>${(l.testes || []).map(t => TESTE_INFO[t] ? TESTE_INFO[t].icone + ' ' + TESTE_INFO[t].curto : t).join(' · ')}<br>${h(l.criadoPor)} · ${new Date(l.em).toLocaleDateString('pt-BR')}</span></div>
+      ${l.ativo ? `<button class="btn sm" data-wa="${h(l.codigo)}" title="WhatsApp">${ic('share')}</button><button class="btn sm" data-cl="${h(l.codigo)}" title="Copiar link">${ic('copy')}</button><button class="btn sm" data-qr="${h(l.codigo)}" title="QR Code">${ic('grid')}</button><button class="btn sm ghost" data-off="${h(l.codigo)}" title="Desativar">${ic('x')}</button>` : ''}</div>`).join('')}</div>` : '<p class="muted">Nenhum link criado ainda.</p>',
+    foot: `<button class="btn" data-close>Fechar</button>`,
+    onMount: m => {
+      $$('[data-wa]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.wa); compartilharTeste_(l.codigo, l.titulo); });
+      $$('[data-cl]', m.el).forEach(b => b.onclick = () => copiar_(testeUrl_(b.dataset.cl), 'Link copiado'));
+      $$('[data-qr]', m.el).forEach(b => b.onclick = () => { const l = L.find(x => x.codigo === b.dataset.qr); openTesteQR(l.codigo, l.titulo); });
+      $$('[data-off]', m.el).forEach(b => b.onclick = async () => { if (!await confirmBox('Desativar este link? Quem abrir depois não consegue mais responder.', 'Desativar', true)) return; const j = await api('testeLinkDesativar', { codigo: b.dataset.off }); testesSet_({ links: j.links }); m.close(); openTesteLinks(done); if (done) done(); });
     }
   });
 }
@@ -1591,6 +2023,7 @@ function updateShell() {
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
     ${navItem('/contratacoes', ic('userplus'), 'Contratações', nC ? `<span class="cnt">${nC}</span>` : '')}
     ${podeFichas() ? navItem('/fichas', ic('file'), 'Fichas', fichasNovas() ? `<span class="cnt hot">${fichasNovas()}</span>` : '<span class="new">novo</span>') : ''}
+    ${podeTestes() ? navItem('/testes', ic('check'), 'Testes', testesNovos() ? `<span class="cnt hot">${testesNovos()}</span>` : '<span class="new">novo</span>') : ''}
     ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
@@ -2382,6 +2815,7 @@ function route(keep) {
     else if (page === 'pesquisa' && podePesq()) pgPesq();
     else if (page === 'tabela' && podePesq()) pgTabela();
     else if (page === 'fichas' && podeFichas()) pgFichas();
+    else if (page === 'testes' && podeTestes()) pgTestes();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();

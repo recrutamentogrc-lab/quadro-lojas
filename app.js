@@ -1089,7 +1089,7 @@ function jogoLoja_(M, st, salvar, xpAdd, onFim) {
 // ---- página pública do candidato (?teste=CODIGO)
 async function renderTeste(codigo) {
   document.documentElement.dataset.theme = 'light';
-  document.title = 'Vem ser GRC · Etapa de avaliação';
+  document.title = 'Vem ser GRC · Fase de testes';
   $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo…</div></div></div>`;
   let info = null, erro = '', recs = [];
   try { const j = await sendRaw_('testeInfo', { codigo }); if (j && j.ok) { info = j.link; recs = j.recrutadores || []; } else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; }
@@ -1105,12 +1105,25 @@ async function renderTeste(codigo) {
     <footer class="fx-rodape"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo-sm')}<span>© ${new Date().getFullYear()} Grupo R Center · Indo além por você</span></div></footer>
   </div>`;
   const M = $('#txM');
-  const xp = () => { const e = $('#txXp'); if (e) e.innerHTML = st.ini ? `⭐ <b>${st.xp}</b> XP` : 'Etapa de avaliação'; };
+  const xp = () => { const e = $('#txXp'); if (e) e.innerHTML = st.ini ? `⭐ <b>${st.xp}</b> XP` : '🎯 Fase de testes'; };
   xp();
   if (!info) { M.innerHTML = `<div class="fx-card tx-card"><div class="fx-card-h"><h2>Link indisponível</h2></div><div class="badge b-bad" style="display:flex;padding:10px 12px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p></div>`; return; }
   // 1) identificação
   const telaIni = () => {
-    M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Etapa de <b>avaliação</b></h1><p class="fx-plus">${testes.length} ${testes.length > 1 ? 'DESAFIOS' : 'DESAFIO'} · CERCA DE ${testes.reduce((a, t) => a + TESTE_INFO[t].min, 0)} MINUTOS</p><p>Não existe resposta certa ou errada: responda com sinceridade, do jeito que você realmente é.</p></div></section>
+    const n = testes.length, min = testes.reduce((a, t) => a + TESTE_INFO[t].min, 0), um = n === 1;
+    M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Fase de <b>${um ? 'teste' : 'testes'}</b></h1><p class="fx-plus">${n} ${um ? 'DESAFIO' : 'DESAFIOS'} · CERCA DE ${min} MINUTOS</p><p>Parabéns! Você avançou no processo seletivo do Grupo R Center. 🎉</p></div></section>
+      <div class="tx-boas">
+        <h2>Parabéns por chegar até aqui! 💙🧡</h2>
+        <p>Ficamos felizes em informar que você avançou para a <b>etapa de ${um ? 'teste' : 'testes'}</b> do nosso processo seletivo${info.titulo ? ` para a vaga de <b>${h(info.titulo)}</b>` : ''}. Isso mostra que o seu perfil chamou a nossa atenção, e agora queremos conhecer você ainda melhor.</p>
+        <p>${um ? 'O teste a seguir é' : `Os ${n} testes a seguir são`} uma ferramenta de apoio para o nosso time de Recursos Humanos. Não existe resposta certa ou errada nas perguntas sobre o seu jeito de ser: o mais importante é responder com sinceridade, do jeito que você realmente é no dia a dia.</p>
+        <div class="tx-dicas">
+          <div><i>⏱️</i><span><b>Reserve cerca de ${min} minutos</b>${um ? '' : 'Você pode fazer um teste de cada vez e voltar depois pelo mesmo link.'}</span></div>
+          <div><i>🤫</i><span><b>Escolha um lugar tranquilo</b>Sem pressa e sem interrupções, para se concentrar.</span></div>
+          <div><i>📶</i><span><b>Use uma boa conexão</b>Internet estável no celular ou no computador.</span></div>
+          <div><i>🙋</i><span><b>Responda sozinho(a)</b>Queremos conhecer você, não outra pessoa.</span></div>
+        </div>
+        <p class="tx-ass">Desejamos boa sorte! <b>Equipe de Recursos Humanos · Grupo R Center</b></p>
+      </div>
       <form class="fx-card tx-card" id="txF">
         <div class="fx-card-h"><h2>Antes de começar</h2><p>Precisamos identificar você.</p></div>
         ${info.titulo ? `<div class="fx-vaga"><span>Vaga</span><b>${h(info.titulo)}</b></div>` : ''}
@@ -1201,7 +1214,7 @@ function testesCandidatos_(L) {
   return Object.values(m).sort((a, b) => a.em < b.em ? 1 : -1);
 }
 function compartilharTeste_(c, titulo) {
-  const url = testeUrl_(c), txt = `Olá! Esta é a etapa de avaliação do seu processo seletivo${titulo ? ' (' + titulo + ')' : ''} no ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}. Leva poucos minutos e não tem resposta certa ou errada: ${url}`;
+  const url = testeUrl_(c), txt = `Olá! Parabéns, você avançou para a *fase de testes* do processo seletivo${titulo ? ' (' + titulo + ')' : ''} do ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}! 🎉\n\nReserve alguns minutos em um lugar tranquilo e acesse o link abaixo para fazer os seus testes:\n${url}\n\nBoa sorte! 💙🧡`;
   window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
 }
 const dtHr_ = s => { const d = new Date(s); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };

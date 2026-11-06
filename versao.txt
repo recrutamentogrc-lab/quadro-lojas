@@ -1,1 +1,1 @@
-versao: Desafio da Loja virou jogo de tabuleiro com som 2026-11-06
+versao: fase de testes - boas-vindas e previa do link 2026-11-06

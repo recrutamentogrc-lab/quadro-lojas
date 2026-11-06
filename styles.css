@@ -915,3 +915,15 @@ body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
   .jg-acao .btn{width:100%}
   .jg-tr b{font-size:15px}
 }
+
+.tx-boas{background:#fff;border-radius:20px;padding:22px;margin-top:16px;border:1px solid #e6eaf3;box-shadow:0 10px 30px rgba(10,13,124,.08)}
+.tx-boas h2{margin:0 0 10px;color:var(--fx-azul);font-size:22px;font-weight:800}
+.tx-boas p{margin:0 0 10px;color:#334155;font-size:15px;line-height:1.6}
+.tx-dicas{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}
+.tx-dicas>div{display:flex;gap:10px;align-items:flex-start;background:#f4f6fb;border-radius:14px;padding:12px}
+.tx-dicas i{font-style:normal;font-size:22px}
+.tx-dicas span{font-size:13px;color:var(--fx-mu);line-height:1.4}
+.tx-dicas b{display:block;color:var(--fx-tx);font-size:14px}
+.tx-ass{font-size:14px!important;margin:6px 0 0!important}
+.tx-ass b{display:block;color:var(--fx-lar)}
+@media (max-width:600px){.tx-dicas{grid-template-columns:1fr}}

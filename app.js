@@ -954,7 +954,7 @@ const SOM = (() => {
   return {
     get mudo() { return mudo; },
     alternar() { mudo = !mudo; try { localStorage.setItem('grc_som', mudo ? '0' : '1'); } catch (e) {} if (master) master.gain.value = mudo ? 0 : 1; return mudo; },
-    musica(on) { if (on) { if (musT || !ini()) return; musT = setInterval(tick, 150); } else { clearInterval(musT); musT = null; } },
+    musica(on) { if (on) { ini(); } else { clearInterval(musT); musT = null; } },
     dado() { for (let i = 0; i < 8; i++) tom(200 + Math.random() * 400, .04, 'square', .05, i * .07); },
     passo() { seq([392, 523], 'triangle', .1, .08); },
     clique() { tom(660, .05, 'square', .06); },

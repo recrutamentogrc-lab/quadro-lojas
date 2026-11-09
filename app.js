@@ -614,17 +614,21 @@ async function pgFichas() {
       <button class="btn" id="fiQrG" title="QR Code aberto para qualquer vaga e qualquer pessoa">${ic('grid')} QR Code geral</button>
       <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
     </div>
-    ${lista.length ? `<div class="fi-grid">${lista.map(x => `
-      <div class="card fi-card${x.visto ? '' : ' nova'}">
-        <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}${x.visto ? '' : ' · <span class="badge b-acc">nova</span>'}</div></div>
-          <button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button></div>
-        <div class="fi-campos">
+    ${lista.length ? `<div class="card fi-lista">${lista.map(x => `
+      <details class="fi-row${x.visto ? '' : ' nova'}"${S.fiAberta === x.id ? ' open' : ''} data-fid="${h(x.id)}">
+        <summary>
+          <span class="fi-r-n"><b class="fi-nome">${h(x.nome)}</b>${x.visto ? '' : '<span class="badge b-acc">nova</span>'}<small>${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</small></span>
+          <span class="fi-r-d"><small>CPF</small>${h(cpfFmt(x.cpf))}</span>
+          <span class="fi-r-d fi-r-nasc"><small>Nascimento</small>${h(dataBR(x.nasc))}</span>
+          <span class="fi-r-a"><button class="btn primary sm" data-cpall="${h(x.id)}" title="Copiar dados">${ic('copy')}<span class="fi-r-l"> Copiar</span></button><button class="btn sm" data-cpfar="${h(x.id)}" title="Copiar com fardamento">${ic('copy')}<span class="fi-r-l"> + farda</span></button><button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button><i class="fi-r-ch">${ic('chevron')}</i></span>
+        </summary>
+        <div class="fi-campos fi-det">
           ${[['Nome completo', x.nome], ['Nome da mãe', x.mae], ['CPF', cpfFmt(x.cpf)], ['Data de nascimento', dataBR(x.nasc)]].map(([l, val]) => `<div class="fi-c"><span>${l}</span><b>${h(val)}</b><button class="btn sm ghost icon" data-cp="${h(val)}" title="Copiar ${l.toLowerCase()}">${ic('copy')}</button></div>`).join('')}
           <div class="fi-c"><span>Fardamento</span><b>Blusa ${h(x.blusa)} · Calça ${h(x.calca)} · Bota ${h(x.bota)}</b></div>
           ${x.tel ? `<div class="fi-c"><span>WhatsApp</span><b><a href="https://wa.me/55${h(String(x.tel).replace(/^55(?=\d{10,11}$)/, ''))}" target="_blank" rel="noopener" style="color:var(--accent)">${h(telFmt(x.tel))}</a></b></div>` : ''}
+          <div class="fi-acts fi-mob"><button class="btn sm" data-cpfar="${h(x.id)}">${ic('copy')} Copiar com fardamento</button><button class="btn sm ghost" data-del="${h(x.id)}" style="color:var(--bad)">${ic('trash')} Apagar</button></div>
         </div>
-        <div class="fi-acts"><button class="btn primary sm" data-cpall="${h(x.id)}">${ic('copy')} Copiar dados</button><button class="btn sm" data-cpfar="${h(x.id)}">${ic('copy')} Copiar com fardamento</button></div>
-      </div>`).join('')}</div>`
+      </details>`).join('')}</div>`
       : `<div class="card empty" style="text-align:center;padding:30px"><b>${(c.fichas || []).length ? 'Nenhuma ficha encontrada' : 'Nenhuma ficha recebida ainda'}</b><p class="muted">Clique em <b>Mandar link ao candidato</b>, envie pelo WhatsApp e a ficha aparece aqui assim que ele preencher.</p></div>`}
     <div class="faint" style="font-size:12px;margin-top:10px"><span id="fiCont"></span> · As fichas ficam guardadas por 180 dias e depois são apagadas automaticamente (LGPD).</div>`;
     const qi = $('#fiQ'); qi.oninput = () => { f.q = qi.value; saveF(); draw(); const e2 = $('#fiQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); };
@@ -641,6 +645,8 @@ async function pgFichas() {
     $('#fiLinks').onclick = () => openFichaLinks(draw);
     if ($('#fiAc')) $('#fiAc').onclick = openFichaAcesso;
     $$('[data-cp]').forEach(b => b.onclick = () => copiar_(b.dataset.cp));
+    $$('.fi-row summary .btn').forEach(b => b.addEventListener('click', e => e.preventDefault()));
+    $$('.fi-row').forEach(d => d.ontoggle = () => { if (d.open) { S.fiAberta = d.dataset.fid; $$('.fi-row[open]').forEach(o => { if (o !== d) o.open = false; }); } else if (S.fiAberta === d.dataset.fid) S.fiAberta = null; });
     const por = id => (fichasCache_().fichas || []).find(x => x.id === id);
     $$('[data-cpall]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpall)), 'Dados copiados. É só colar no WhatsApp.'));
     $$('[data-cpfar]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpfar), true), 'Dados copiados. É só colar no WhatsApp.'));

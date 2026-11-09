@@ -1391,6 +1391,7 @@ async function renderAgenda(codigo) {
     const m = st.marcado;
     M.innerHTML = `<div class="fx-card tx-card ag-ok">
       <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>
+      ${info.foto ? `<img class="ag-ok-foto" src="${h(info.foto)}" alt="${h(m.rec)}">` : ''}
       <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h)} · Google Meet · com ${h(m.rec)}</small></div></div>
       <p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>
       <div class="tx-dicas">
@@ -1414,6 +1415,7 @@ async function renderAgenda(codigo) {
     if (sel.h && !(D.horarios.find(x => x.h === sel.h) || {}).livre) sel.h = null;
     const bt = x => `<button class="ag-h ${x.livre ? '' : 'off'} ${sel.h === x.h ? 'sel' : ''}" data-h="${x.h}" ${x.livre ? '' : 'disabled'}>${x.h}</button>`;
     M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Agende sua <b>entrevista</b></h1><p class="fx-plus">ONLINE · GOOGLE MEET · 20 MINUTOS</p><p>Escolha o melhor horário para conversar com <b>${h(info.rec)}</b>, do RH do Grupo R Center.</p></div></section>
+      <div class="ag-quem">${info.foto ? `<img src="${h(info.foto)}" alt="${h(info.rec)}">` : `<span class="ag-ini">${h(info.rec.split(' ').map(x => x[0]).slice(0, 2).join(''))}</span>`}<div><small>Você vai conversar com</small><b>${h(info.rec)}</b><span>Recrutamento e Seleção · Grupo R Center</span></div></div>
       <div class="fx-card tx-card ag-card">
         <div class="ag-passo"><i>1</i><b>Escolha o dia</b></div>
         <div class="ag-dias">${dias.map(d => { const n = d.horarios.filter(x => x.livre).length; return `<button class="ag-dia ${d.dia === sel.dia ? 'sel' : ''}" data-d="${d.dia}"><small>${rotDia(d.dia)}</small><b>${agDdMm_(d.dia)}</b><em>${n ? n + ' horário' + (n > 1 ? 's' : '') : 'lotado'}</em></button>`; }).join('')}</div>
@@ -1612,9 +1614,14 @@ function openAgendaLink() {
     title: 'Link da sua agenda', icon: 'share',
     body: `<p class="muted" style="margin-top:0">Este link é fixo e é só seu. O candidato vê os horários livres de hoje e do próximo dia útil e escolhe um. A marcação aparece aqui na hora, e os próximos candidatos não veem mais aquele horário.</p>
       <div class="card" style="border-color:var(--accent)"><div class="mono" style="font-size:12.5px;word-break:break-all;margin-bottom:10px">${h(url)}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="alWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="alCp">${ic('copy')} Copiar link</button><button class="btn" id="alQr">${ic('grid')} QR Code</button></div></div>`,
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="alWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="alCp">${ic('copy')} Copiar link</button><button class="btn" id="alQr">${ic('grid')} QR Code</button></div></div>
+      <div class="card mt ar-foto"><div id="alFt" class="ar-foto-img"><div class="spin"></div></div><div><b>Sua foto na página do candidato</b><p class="muted" style="margin:2px 0 8px;font-size:12.5px">O candidato vê quem vai entrevistá-lo.</p><label class="btn sm">${ic('camera')} Trocar foto<input type="file" accept="image/*" id="alFi" hidden></label> <button class="btn sm ghost" id="alFx">Remover</button></div></div>`,
     foot: `<button class="btn ghost" id="alNovo" style="margin-right:auto" title="O link antigo para de funcionar">${ic('refresh')} Gerar novo link</button><button class="btn" data-close>Fechar</button>`,
     onMount: m => {
+      const ft = f => { const el = $('#alFt', m.el); if (el) el.innerHTML = f ? `<img src="${h(f)}" alt="foto">` : `<span>${ic('users')}</span>`; };
+      sendRaw_('agendaInfo', { codigo: c }).then(j => ft(j && j.foto)).catch(() => ft(''));
+      $('#alFi', m.el).onchange = e => { const fl = e.target.files[0]; if (!fl) return; const rd = new FileReader(); rd.onload = () => { const im = new Image(); im.onload = async () => { const sz = 260, cv = document.createElement('canvas'), s0 = Math.min(im.width, im.height); cv.width = cv.height = sz; const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, sz, sz); g.drawImage(im, (im.width - s0) / 2, Math.max(0, (im.height - s0) / 2 - (im.height - s0) * 0.3), s0, s0, 0, 0, sz, sz); const d = cv.toDataURL('image/jpeg', 0.8); ft(d); try { await api('agendaFoto', { foto: d }); toast('Foto atualizada'); } catch (er) { toast(er.message, true); } }; im.src = rd.result; }; rd.readAsDataURL(fl); };
+      $('#alFx', m.el).onclick = async () => { try { const j = await api('agendaFoto', { foto: '' }); ft(j.foto); toast(j.foto ? 'Voltou a usar a foto do seu perfil' : 'Foto removida'); } catch (er) { toast(er.message, true); } };
       $('#alWa', m.el).onclick = () => compartilharAgenda_(S.agenda.meu.codigo);
       $('#alCp', m.el).onclick = () => copiar_(agendaUrl_(S.agenda.meu.codigo), 'Link copiado');
       $('#alQr', m.el).onclick = async () => { try { await qrCarregar_(); const a = document.createElement('a'); a.href = qrCartaz_(agendaUrl_(S.agenda.meu.codigo), 'Agende sua entrevista').toDataURL('image/png'); a.download = 'qrcode_agenda.png'; a.click(); } catch (e) { toast(e.message, true); } };

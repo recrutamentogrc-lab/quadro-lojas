@@ -118,9 +118,9 @@
     const CacheService = { getScriptCache: () => ({ get: () => null, put: () => {} }) };
     const parseJ_ = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
     const FB_PROJECT = 'demo';
-    const fsReq_ = (m, path, body) => { if (path === ':batchGet') return body.documents.map(nm => { const v = store()['D_/' + nm.split('/documents/')[1]]; return v ? { found: { fields: { json: v } } } : { missing: nm }; }); const v = store()['D_' + path]; return v ? { fields: { json: v } } : null; };
+    const fsReq_ = (m, path, body) => { if (path === ':batchGet') return body.documents.map(nm => { const v = store()['D_/' + nm.split('/documents/')[1]]; return v ? { found: { fields: { json: v } } } : { missing: nm }; }); const v = store()['D_' + path]; return v ? (typeof v === 'object' ? { fields: v } : { fields: { json: v } }) : null; };
     const fsVal_ = x => x;
-    const fsCommit_ = ops => { const s = store(); ops.forEach(o => { s['D_' + o.path] = o.data.json; }); grava(s); };
+    const fsCommit_ = ops => { const s = store(); ops.forEach(o => { if (o.del) delete s['D_' + o.path]; else s['D_' + o.path] = o.data.json != null ? o.data.json : o.data; }); grava(s); };
     const withLock_ = fn => fn(), notify_ = () => {}, readUsers_ = () => [{ ID: 'u1', NOME: 'Administrador', ATIVO: true }, { ID: 'u2', NOME: 'Luís Guilherme', ATIVO: true }], isAdmin_ = () => true, testePode_ = () => true, fichaPode_ = () => true;
     /* ---------------- AGENDA DE ENTREVISTAS (Google Meet, 20 min) ----------------
      * Cada recrutador tem um link fixo. O candidato escolhe um horário livre de hoje ou do próximo dia útil
@@ -184,7 +184,7 @@
       const hoje = agHoje_();
       const ds = agLerVarios_(l.rec, agDiasCand_());
       const dias = ds.map(d => { const dia = d.dia, livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_().map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
-      return { ok: true, rec: l.nome, hoje: hoje, dias: dias };
+      return { ok: true, rec: l.nome, foto: agFoto_(l.rec), hoje: hoje, dias: dias };
     }
     function agendaMarcar_(req) {
       const cache = CacheService.getScriptCache(), rk = 'ag_' + String(req.codigo || '').slice(0, 20), nt = Number(cache.get(rk) || 0);
@@ -258,13 +258,27 @@
       withLock_(() => { (req.dias || []).slice(0, 7).forEach(dia => { const d = agLer_(rec, String(dia)); let mud = false; for (const k in d.s) if (d.s[k] && d.s[k].visto === false) { d.s[k].visto = true; mud = true; } if (mud) agGravar_(d); }); });
       return {};
     }
+    // foto que o candidato vê na página de agendamento (Firestore /agendafoto/{rec}); sem ela, usa a foto do perfil
+    function agFoto_(rec) {
+      const r = agRec_(rec);
+      try { const doc = fsReq_('get', '/agendafoto/' + r); if (doc && doc.fields && doc.fields.foto) return fsVal_(doc.fields.foto); } catch (e) {}
+      try { const u = readUsers_().find(x => agRec_(x.ID) === r); const f = u ? String(u.FOTO || '') : ''; return /^(data:image|https:)/.test(f) ? f : ''; } catch (e) { return ''; }
+    }
+    function agendaFoto_(req, user) {
+      mustAgenda_(user);
+      const rec = agRec_(user.ID), f = String(req.foto || '');
+      if (f && (!/^data:image\/(jpeg|png|webp);base64,/.test(f) || f.length > 300000)) throw new Error('Imagem inválida ou muito grande.');
+      if (f) fsCommit_([{ path: '/agendafoto/' + rec, data: { foto: f, em: Date.now() } }]);
+      else fsCommit_([{ path: '/agendafoto/' + rec, del: true }]);
+      return { foto: agFoto_(rec) };
+    }
     function agendaNovoLink_(req, user) {
       mustAgenda_(user);
       const rec = agRec_(user.ID);
       withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
       return { meu: agMeuLink_(user) };
     }
-    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_ };
+    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_ };
   })();
   window.GRC_MOCK = {
     call: async function (action, p) {
@@ -318,7 +332,7 @@
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'agendaInfo': return AGM.agendaInfo_(p);
         case 'agendaMarcar': return AGM.agendaMarcar_(p);
-        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
+        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [

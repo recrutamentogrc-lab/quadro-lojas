@@ -1475,19 +1475,24 @@ async function pgAgenda() {
   const v = $('#view'), f = getF('agenda'), hojeL = new Date().toLocaleDateString('sv-SE');
   if (!f.dia || f.dia < agSomaF_(hojeL, -60)) f.dia = hojeL;
   const rt = S.rt;
-  let carregando = false;
+  let seq = 0, prefOk = false;
+  if (!S.agenda || S.agenda.rec !== f.rec || (S.agenda.dias[0] || {}).dia !== agSegunda_(f.dia)) { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; }
   const buscar = async (silent) => {
-    if (carregando) return; carregando = true;
+    const meuSeq = ++seq, sem = agSegunda_(f.dia), recPed = f.rec || '';
     try {
-      const j = await api('agendaList', { rec: f.rec || '', de: agSegunda_(f.dia), n: 7 }, { silent: true });
+      const j = await api('agendaList', { rec: recPed, de: sem, n: 7 }, { silent: true });
       if (rt !== S.rt) return;
+      agCacheGrava_(j);
+      if (meuSeq !== seq || (recPed && j.rec !== f.rec) || agSegunda_(f.dia) !== sem) return;
+      if (S.agPend > 0) return; // há gravação em andamento: mantém o que já está na tela
       S.agenda = j; f.rec = j.rec; saveF();
       if (!$('.overlay')) draw(); updateShell();
+      if (!prefOk && isAdmin() && j.recs.length > 1) { prefOk = true; (async () => { for (const r of j.recs) { if (r.rec === j.rec || rt !== S.rt) continue; try { agCacheGrava_(await api('agendaList', { rec: r.rec, de: sem, n: 7 }, { silent: true })); } catch (e) {} } })(); }
       const novos = (j.dias || []).filter(d => d.dia === f.dia && Object.values(d.s || {}).some(o => o && o.visto === false));
       if (novos.length && j.rec === j.meu.rec) { api('agendaVisto', { dias: novos.map(d => d.dia) }, { silent: true }).catch(() => {}); setTimeout(() => { novos.forEach(d => Object.values(d.s || {}).forEach(o => { if (o) o.visto = true; })); updateShell(); }, 4000); }
-    } catch (e) { if (!silent) { if (!S.agenda) v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; else toast(e.message, true); } }
-    finally { carregando = false; }
+    } catch (e) { if (!silent && meuSeq === seq) { if (!S.agenda) v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; else toast(e.message, true); } }
   };
+  S.agBuscar = buscar;
   const draw = () => {
     const A = S.agenda;
     if (!A || agSegunda_(f.dia) !== (A.dias[0] || {}).dia || (f.rec && A.rec !== f.rec)) { v.innerHTML = `<div class="sk" style="height:360px"></div>`; return; }
@@ -1506,7 +1511,6 @@ async function pgAgenda() {
     const ini = agSegunda_(f.dia);
     v.innerHTML = `
     <div class="toolbar">
-      ${A.recs.length > 1 ? `<select class="input" id="arRec">${A.recs.map(r => `<option value="${h(r.rec)}" ${r.rec === A.rec ? 'selected' : ''}>${h(r.nome)}${r.rec === A.meu.rec ? ' (eu)' : ''}</option>`).join('')}</select>` : ''}
       <button class="btn icon" id="arAnt" title="Semana anterior">${ic('chevl')}</button>
       <b class="ar-sem">${agDdMm_(ini)} a ${agDdMm_(agSomaF_(ini, 4))}</b>
       <button class="btn icon" id="arProx" title="Próxima semana" style="transform:scaleX(-1)">${ic('chevl')}</button>
@@ -1515,6 +1519,7 @@ async function pgAgenda() {
       <span class="spacer"></span>
       ${meu ? `<button class="btn primary" id="arLink">${ic('share')} Mandar link ao candidato</button>` : `<span class="badge">Agenda de ${h((A.recs.find(r => r.rec === A.rec) || {}).nome || '')}</span>`}
     </div>
+    ${A.recs.length > 1 ? `<div class="ar-recs"><span>${ic('users')} Ver agenda de:</span>${A.recs.map(r => `<button class="ar-rec ${r.rec === A.rec ? 'sel' : ''}" data-rec="${h(r.rec)}">${r.rec === A.meu.rec ? 'Minha agenda' : h(r.nome.split(' - ')[0])}</button>`).join('')}</div>` : ''}
     <div class="ar-week">${semana.map(d => { const n = qtd(d); return `<button class="ar-day ${d.dia === D.dia ? 'sel' : ''} ${d.dia === hoje ? 'hoje' : ''} ${fim(d) ? 'fech' : ''}" data-d="${d.dia}"><small>${AG_SEM_[agDt_(d.dia).getDay()].replace('-feira', '')}${d.dia === hoje ? ' · hoje' : ''}</small><b>${agDdMm_(d.dia)}</b><em>${d.feriado ? '🎉 ' + h(d.feriado) : d.fechado ? '🔒 fechado' : n ? n + ' entrevista' + (n > 1 ? 's' : '') : 'livre'}</em>${(A.candDias || []).includes(d.dia) && meu ? '<i title="O candidato pode escolher este dia pelo link">link</i>' : ''}</button>`; }).join('')}</div>
     <div class="card ar-diac">
       <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + A.horarios.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
@@ -1522,22 +1527,35 @@ async function pgAgenda() {
       <div class="ar-cols"><div><div class="ar-turno">☀️ Manhã</div>${A.horarios.filter(x => x < '12:00').map(slot).join('')}</div><div><div class="ar-turno">🌤️ Tarde</div>${A.horarios.filter(x => x >= '13:00').map(slot).join('')}</div></div>
     </div>
     <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. O convite do Google Meet continua sendo enviado pela ATS.</div>`;
-    const ir = d => { f.dia = d; saveF(); draw(); if (agSegunda_(d) !== (S.agenda.dias[0] || {}).dia) buscar(); };
-    if ($('#arRec')) $('#arRec').onchange = e => { f.rec = e.target.value; saveF(); draw(); buscar(); };
+    const troca = () => { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; draw(); buscar(); };
+    const ir = d => { const mudou = agSegunda_(d) !== (S.agenda.dias[0] || {}).dia; f.dia = d; saveF(); if (mudou) troca(); else draw(); };
+    $$('.ar-rec').forEach(b => b.onclick = () => { if (b.dataset.rec === S.agenda.rec) return; f.rec = b.dataset.rec; saveF(); troca(); });
     $('#arAnt').onclick = () => ir(agSomaF_(agSegunda_(f.dia), -7));
     $('#arProx').onclick = () => ir(agSomaF_(agSegunda_(f.dia), 7));
     $('#arHoje').onclick = () => ir(new Date().toLocaleDateString('sv-SE'));
     $('#arRef').onclick = e => run(e.currentTarget, () => buscar());
     $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
     if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
-    if ($('#arFech')) $('#arFech').onclick = e => run(e.currentTarget, async () => { const j = await api('agendaSalvar', { rec: A.rec, dia: D.dia, fechado: !D.fechado }); agTroca_(j.dia); draw(); toast(j.dia.fechado ? 'Dia fechado para agendamentos' : 'Dia aberto para agendamentos'); });
+    if ($('#arFech')) $('#arFech').onclick = () => { const fe = !D.fechado; agSalvar_({ rec: A.rec, dia: D.dia, fechado: fe }, d => { d.fechado = fe; }, draw); toast(fe ? 'Dia fechado para agendamentos' : 'Dia aberto para agendamentos'); };
     $$('.ar-sl').forEach(b => b.onclick = () => { const hh = b.dataset.h, o = D.s[hh]; if (o && o.st !== 'cancelado') openAgendaItem(A.rec, D, hh, draw); else if (!fim(D)) openAgendaNovo(A.rec, D, hh, draw); });
   };
   draw();
   await buscar();
-  const iv = setInterval(() => { if (rt !== S.rt || !document.body.contains(v)) return clearInterval(iv); if (!$('.overlay') && document.visibilityState === 'visible') buscar(true); }, 60000);
+  const iv = setInterval(() => { if (rt !== S.rt || !document.body.contains(v)) return clearInterval(iv); if (!$('.overlay') && document.visibilityState === 'visible') buscar(true); }, 15000);
 }
-function agTroca_(d) { const A = S.agenda; if (!A) return; A.dias = A.dias.map(x => x.dia === d.dia ? d : x); }
+function agTroca_(d) { const A = S.agenda; if (!A) return; A.dias = A.dias.map(x => x.dia === d.dia ? d : x); agCacheGrava_(A); }
+// cache da agenda no aparelho (abre na hora e atualiza em segundo plano)
+function agCache_(rec, sem) { const c = ls.get('grc_agenda_c', {}) || {}; const k = Object.keys(c).find(x => x === (rec || '') + '|' + sem) || (!rec ? Object.keys(c).find(x => x.endsWith('|' + sem) && c[x].rec === c[x].meu.rec) : null); return k ? c[k] : null; }
+function agCacheGrava_(j) { if (!j || !j.dias || !j.dias.length) return; const c = ls.get('grc_agenda_c', {}) || {}; c[j.rec + '|' + j.dias[0].dia] = j; const ks = Object.keys(c); if (ks.length > 16) ks.slice(0, ks.length - 16).forEach(k => delete c[k]); ls.set('grc_agenda_c', c); }
+// gravação instantânea: muda na tela na hora e manda para o servidor em segundo plano
+function agSalvar_(payload, mut, done) {
+  const A = S.agenda, D = A && A.dias.find(x => x.dia === payload.dia); if (!D) return;
+  const novo = JSON.parse(JSON.stringify(D)); mut(novo); agTroca_(novo); done();
+  S.agPend = (S.agPend || 0) + 1;
+  api('agendaSalvar', payload, { silent: true }).then(j => { S.agPend--; if (S.agenda && S.agenda.rec === payload.rec) { agTroca_(j.dia); if (!S.agPend && !$('.overlay')) done(); } })
+    .catch(e => { S.agPend--; toast('Não foi possível salvar na agenda: ' + e.message, true); if (S.agBuscar) S.agBuscar(); });
+}
+const agItem_ = (atual, o) => Object.assign({}, atual || {}, o, { nome: String(o.nome != null ? o.nome : (atual || {}).nome || '').trim().toUpperCase(), tel: String(o.tel != null ? o.tel : (atual || {}).tel || '').replace(/\D/g, ''), origem: (atual || {}).origem || 'rh', em: (atual || {}).em || new Date().toISOString(), visto: true, alt: (S.user || {}).nome || '' });
 function openAgendaNovo(rec, D, hh, done) {
   modal({
     title: `${hh} · ${agDdMm_(D.dia)}`, icon: 'calendar',
@@ -1554,8 +1572,7 @@ function openAgendaNovo(rec, D, hh, done) {
       $('#anOk', m.el).onclick = e => run(e.currentTarget, async () => {
         const item = modo === 'b' ? { st: 'bloqueado', motivo: $('#anMo', m.el).value } : { nome: $('#anN', m.el).value, tel: $('#anT', m.el).value, email: $('#anE', m.el).value, vaga: $('#anV', m.el).value, st: 'marcado' };
         if (modo === 'm' && !item.nome.trim()) throw new Error('Informe o nome do candidato.');
-        const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item });
-        agTroca_(j.dia); m.close(); done(); toast(modo === 'b' ? 'Horário bloqueado' : 'Entrevista marcada');
+        m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item }, d => { d.s[hh] = item.st === 'bloqueado' ? { st: 'bloqueado', motivo: item.motivo.trim(), em: new Date().toISOString() } : agItem_(null, item); }, done); toast(modo === 'b' ? 'Horário bloqueado' : 'Entrevista marcada');
       });
     }
   });
@@ -1564,7 +1581,7 @@ function openAgendaItem(rec, D, hh, done) {
   const o = D.s[hh];
   if (o.st === 'bloqueado') {
     modal({ title: `${hh} · ${agDdMm_(D.dia)}`, icon: 'calendar', body: `<p style="margin:0">🔒 Horário bloqueado${o.motivo ? ': <b>' + h(o.motivo) + '</b>' : ''}.</p>`, foot: `<button class="btn" data-close>Fechar</button><button class="btn primary" id="aiLib">Liberar horário</button>`,
-      onMount: m => { $('#aiLib', m.el).onclick = e => run(e.currentTarget, async () => { const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item: null }); agTroca_(j.dia); m.close(); done(); toast('Horário liberado'); }); } });
+      onMount: m => { $('#aiLib', m.el).onclick = () => { m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item: null }, d => { delete d.s[hh]; }, done); toast('Horário liberado'); }; } });
     return;
   }
   const quando = `${agExt_(D.dia)} às ${hh}`;
@@ -1584,8 +1601,8 @@ function openAgendaItem(rec, D, hh, done) {
       $$('[data-st]', m.el).forEach(b => b.onclick = () => { st = b.dataset.st; $$('[data-st]', m.el).forEach(x => x.classList.toggle('primary', x === b)); });
       if ($('#aiCpE', m.el)) $('#aiCpE', m.el).onclick = () => copiar_(o.email, 'E-mail copiado');
       $('#aiCp', m.el).onclick = () => copiar_(convite, 'Dados copiados para criar o convite');
-      $('#aiOk', m.el).onclick = e => run(e.currentTarget, async () => { const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item: { st, obs: $('#aiObs', m.el).value } }); agTroca_(j.dia); m.close(); done(); toast('Salvo'); });
-      $('#aiCan', m.el).onclick = async () => { if (!await confirmBox(`Cancelar a entrevista de <b>${h(o.nome)}</b> e liberar o horário das ${hh}?`, 'Cancelar entrevista', true)) return; const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item: { st: 'cancelado' } }); agTroca_(j.dia); m.close(); done(); toast('Entrevista cancelada. O horário voltou a ficar livre.'); };
+      $('#aiOk', m.el).onclick = () => { const item = { st, obs: $('#aiObs', m.el).value }; m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item }, d => { d.s[hh] = agItem_(d.s[hh], item); }, done); toast('Salvo'); };
+      $('#aiCan', m.el).onclick = async () => { if (!await confirmBox(`Cancelar a entrevista de <b>${h(o.nome)}</b> e liberar o horário das ${hh}?`, 'Cancelar entrevista', true)) return; m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item: { st: 'cancelado' } }, d => { d.s[hh] = agItem_(d.s[hh], { st: 'cancelado' }); }, done); toast('Entrevista cancelada. O horário voltou a ficar livre.'); };
     }
   });
 }

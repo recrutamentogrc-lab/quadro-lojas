@@ -1,1 +1,1 @@
-versao: fichas em lista compacta 2026-11-09
+versao: agenda instantanea e ver agenda de outros 2026-11-09

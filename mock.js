@@ -117,10 +117,11 @@
     const PropertiesService = { getScriptProperties: () => ({ getProperty: k => store()['P_' + k] || null, setProperty: (k, v) => { const s = store(); s['P_' + k] = v; grava(s); } }) };
     const CacheService = { getScriptCache: () => ({ get: () => null, put: () => {} }) };
     const parseJ_ = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
-    const fsReq_ = (m, path) => { const v = store()['D_' + path]; return v ? { fields: { json: v } } : null; };
+    const FB_PROJECT = 'demo';
+    const fsReq_ = (m, path, body) => { if (path === ':batchGet') return body.documents.map(nm => { const v = store()['D_/' + nm.split('/documents/')[1]]; return v ? { found: { fields: { json: v } } } : { missing: nm }; }); const v = store()['D_' + path]; return v ? { fields: { json: v } } : null; };
     const fsVal_ = x => x;
     const fsCommit_ = ops => { const s = store(); ops.forEach(o => { s['D_' + o.path] = o.data.json; }); grava(s); };
-    const withLock_ = fn => fn(), notify_ = () => {}, isAdmin_ = () => true, testePode_ = () => true, fichaPode_ = () => true;
+    const withLock_ = fn => fn(), notify_ = () => {}, readUsers_ = () => [{ ID: 'u1', NOME: 'Administrador', ATIVO: true }, { ID: 'u2', NOME: 'Luís Guilherme', ATIVO: true }], isAdmin_ = () => true, testePode_ = () => true, fichaPode_ = () => true;
     /* ---------------- AGENDA DE ENTREVISTAS (Google Meet, 20 min) ----------------
      * Cada recrutador tem um link fixo. O candidato escolhe um horário livre de hoje ou do próximo dia útil
      * (08h às 12h e 13h às 17h). Marcações no Firestore: /agenda/{recrutador}_{AAAAMMDD} (só o servidor lê). */
@@ -153,6 +154,24 @@
       try { const doc = fsReq_('get', '/agenda/' + agRec_(rec) + '_' + dia.replace(/-/g, '')); if (doc && doc.fields && doc.fields.json) return JSON.parse(fsVal_(doc.fields.json)); } catch (e) {}
       return { rec: agRec_(rec), dia: dia, s: {}, fechado: false };
     }
+    // lê vários dias de uma vez (uma única chamada ao Firestore)
+    function agLerVarios_(rec, dias) {
+      const r = agRec_(rec), base = 'projects/' + FB_PROJECT + '/databases/(default)/documents/agenda/';
+      const nomes = dias.map(d => base + r + '_' + d.replace(/-/g, ''));
+      const out = {};
+      try {
+        const j = fsReq_('post', ':batchGet', { documents: nomes }) || [];
+        (Array.isArray(j) ? j : []).forEach(x => { if (x.found && x.found.fields && x.found.fields.json) { try { const d = JSON.parse(fsVal_(x.found.fields.json)); out[d.dia] = d; } catch (e) {} } });
+      } catch (e) { dias.forEach(d => { out[d] = agLer_(rec, d); }); }
+      return dias.map(d => out[d] || { rec: r, dia: d, s: {}, fechado: false });
+    }
+    function agRecs_() {
+      const c = CacheService.getScriptCache(), k = 'ag_recs', v = c.get(k);
+      if (v) return JSON.parse(v);
+      const L = readUsers_().filter(u => String(u.ATIVO).toUpperCase() !== 'FALSE' && agPode_(u)).map(u => ({ rec: agRec_(u.ID), nome: String(u.NOME || '') })).sort((a, b) => a.nome.localeCompare(b.nome));
+      c.put(k, JSON.stringify(L), 600);
+      return L;
+    }
     function agGravar_(d) { fsCommit_([{ path: '/agenda/' + agRec_(d.rec) + '_' + d.dia.replace(/-/g, ''), data: { json: JSON.stringify(d), em: Date.now() } }]); }
     function agLivres_(d, hoje) {
       const agora = agAgoraMin_();
@@ -163,7 +182,8 @@
       const l = agLinksLer_().find(x => x.codigo === String(req.codigo || ''));
       if (!l || !l.ativo) return { ok: false, error: 'Este link de agendamento não está mais ativo. Peça um novo link ao RH.' };
       const hoje = agHoje_();
-      const dias = agDiasCand_().map(dia => { const d = agLer_(l.rec, dia), livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_().map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
+      const ds = agLerVarios_(l.rec, agDiasCand_());
+      const dias = ds.map(d => { const dia = d.dia, livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_().map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
       return { ok: true, rec: l.nome, hoje: hoje, dias: dias };
     }
     function agendaMarcar_(req) {
@@ -182,7 +202,7 @@
       return withLock_(() => {
         const hoje = agHoje_();
         // o mesmo candidato não marca duas vezes
-        for (const x of agDiasCand_()) { const dx = agLer_(l.rec, x); for (const k in dx.s) { const o = dx.s[k]; if (o && o.st === 'marcado' && o.tel === m.tel) return { ok: false, error: 'Você já tem uma entrevista marcada para ' + x.split('-').reverse().slice(0, 2).join('/') + ' às ' + k + '.' }; } }
+        for (const dx of agLerVarios_(l.rec, agDiasCand_())) { const x = dx.dia; for (const k in dx.s) { const o = dx.s[k]; if (o && o.st === 'marcado' && o.tel === m.tel) return { ok: false, error: 'Você já tem uma entrevista marcada para ' + x.split('-').reverse().slice(0, 2).join('/') + ' às ' + k + '.' }; } }
         const d = agLer_(l.rec, dia);
         if (agLivres_(d, hoje).indexOf(hh) < 0) return { ok: false, ocupado: true, error: 'Esse horário acabou de ser preenchido. Escolha outro, por favor.' };
         d.s[hh] = Object.assign(m, { st: 'marcado', origem: 'candidato', em: new Date().toISOString(), visto: false });
@@ -205,8 +225,11 @@
       if (rec !== meu.rec && !isAdmin_(user)) rec = meu.rec;
       const de = /^\d{4}-\d{2}-\d{2}$/.test(String(req.de || '')) ? req.de : agHoje_();
       const n = Math.max(1, Math.min(7, Number(req.n) || 1)), dias = [];
-      for (let i = 0; i < n; i++) { const x = agLer_(rec, agSoma_(de, i)); x.feriado = agFeriado_(x.dia); dias.push(x); }
-      return { rec: rec, meu: meu, recs: isAdmin_(user) ? links.map(x => ({ rec: x.rec, nome: x.nome })) : [{ rec: meu.rec, nome: meu.nome }], dias: dias, hoje: agHoje_(), candDias: agDiasCand_(), horarios: agHorarios_() };
+      const lista = []; for (let i = 0; i < n; i++) lista.push(agSoma_(de, i));
+      agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); dias.push(x); });
+      let recs = [{ rec: meu.rec, nome: meu.nome }];
+      if (isAdmin_(user)) { try { recs = agRecs_(); } catch (e) { recs = links.map(x => ({ rec: x.rec, nome: x.nome })); } if (!recs.some(x => x.rec === meu.rec)) recs.unshift({ rec: meu.rec, nome: meu.nome }); }
+      return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), candDias: agDiasCand_(), horarios: agHorarios_() };
     }
     function agDoUser_(req, user) { mustAgenda_(user); const meu = agMeuLink_(user); const rec = agRec_(req.rec || meu.rec); if (rec !== meu.rec && !isAdmin_(user)) throw new Error('Você só pode alterar a sua agenda.'); return rec; }
     function agendaSalvar_(req, user) {

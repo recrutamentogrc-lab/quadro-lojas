@@ -1194,3 +1194,9 @@ body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
 .ar-mv-ok span{color:var(--muted);text-decoration:line-through}
 .ar-mv-ok i{font-style:normal;color:var(--accent)}
 .ar-mv-ok b{color:var(--accent);font-size:17px}
+.ar-meet{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:color-mix(in srgb,var(--accent) 8%,var(--surface2));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border));border-radius:12px;padding:8px 10px;font-size:13.5px}
+.ar-meet a:not(.btn){color:var(--accent);font-weight:700;word-break:break-all;flex:1;min-width:0}
+.ag-meet{display:flex;flex-direction:column;gap:8px;background:#f0f7ff;border:1px solid #cfe3ff;border-radius:16px;padding:14px;margin:0 0 14px;text-align:center}
+.ag-meet small{font-weight:800;color:var(--fx-azul);font-size:13px}
+.ag-meet>a:not(.btn){color:var(--fx-azul);font-weight:800;font-size:16px;word-break:break-all}
+.ag-meet span{font-size:12.5px;color:var(--fx-mu)}

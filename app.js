@@ -1393,7 +1393,7 @@ async function renderAgenda(codigo) {
       <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>
       ${info.foto ? `<img class="ag-ok-foto" src="${h(info.foto)}" alt="${h(m.rec)}">` : ''}
       <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h)} · Google Meet · com ${h(m.rec)}</small></div></div>
-      <p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>
+      ${m.meet ? `<div class="ag-meet"><small>🎥 Link da sua entrevista (Google Meet)</small><a href="${h(m.meet)}" target="_blank" rel="noopener">${h(m.meet.replace('https://', ''))}</a><a class="btn primary block fx-btn" href="${h(m.meet)}" target="_blank" rel="noopener">Entrar na entrevista</a><span>Guarde este link. Ele também foi enviado para o seu e-mail <b>${h(m.email)}</b>.</span></div>` : `<p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>`}
       <div class="tx-dicas">
         <div><i>⏰</i><span><b>Entre 5 minutos antes</b>Teste a câmera e o áudio com antecedência.</span></div>
         <div><i>🎧</i><span><b>Lugar tranquilo</b>De preferência com fone de ouvido e boa iluminação.</span></div>
@@ -1454,7 +1454,7 @@ async function renderAgenda(codigo) {
           if (j && j.ocupado) { await carregar(); sel.h = null; tela(); toast(j.error, true); return; }
           throw new Error((j && j.error) || 'Não foi possível agendar.');
         }
-        st.marcado = { dia: j.dia, h: j.h, rec: j.rec, email: d.email }; salvar(); telaOk();
+        st.marcado = { dia: j.dia, h: j.h, rec: j.rec, email: d.email, meet: j.meet || '' }; salvar(); telaOk();
       } catch (e2) { b.disabled = false; b.textContent = 'Confirmar agendamento ✔'; falha(e2.message); }
     };
   };
@@ -1528,7 +1528,7 @@ async function pgAgenda() {
         ${!D.feriado && ![0, 6].includes(agDt_(D.dia).getDay()) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
       <div class="ar-cols"><div><div class="ar-turno">☀️ Manhã</div>${A.horarios.filter(x => x < '12:00').map(slot).join('')}</div><div><div class="ar-turno">🌤️ Tarde</div>${A.horarios.filter(x => x >= '13:00').map(slot).join('')}</div></div>
     </div>
-    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. O convite do Google Meet continua sendo enviado pela ATS.</div>`;
+    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
     const troca = () => { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; draw(); buscar(); };
     const ir = d => { const mudou = agSegunda_(d) !== (S.agenda.dias[0] || {}).dia; f.dia = d; saveF(); if (mudou) troca(); else draw(); };
     $$('.ar-rec').forEach(b => b.onclick = () => { if (b.dataset.rec === S.agenda.rec) return; f.rec = b.dataset.rec; saveF(); troca(); });
@@ -1550,12 +1550,39 @@ function agTroca_(d) { const A = S.agenda; if (!A) return; A.dias = A.dias.map(x
 function agCache_(rec, sem) { const c = ls.get('grc_agenda_c', {}) || {}; const k = Object.keys(c).find(x => x === (rec || '') + '|' + sem) || (!rec ? Object.keys(c).find(x => x.endsWith('|' + sem) && c[x].rec === c[x].meu.rec) : null); return k ? c[k] : null; }
 function agCacheGrava_(j) { if (!j || !j.dias || !j.dias.length) return; const c = ls.get('grc_agenda_c', {}) || {}; c[j.rec + '|' + j.dias[0].dia] = j; const ks = Object.keys(c); if (ks.length > 16) ks.slice(0, ks.length - 16).forEach(k => delete c[k]); ls.set('grc_agenda_c', c); }
 // gravação instantânea: muda na tela na hora e manda para o servidor em segundo plano
-function agSalvar_(payload, mut, done) {
+function agSalvar_(payload, mut, done, ok, falha) {
   const A = S.agenda, D = A && A.dias.find(x => x.dia === payload.dia); if (!D) return;
   const novo = JSON.parse(JSON.stringify(D)); mut(novo); agTroca_(novo); done();
   S.agPend = (S.agPend || 0) + 1;
-  api('agendaSalvar', payload, { silent: true }).then(j => { S.agPend--; if (S.agenda && S.agenda.rec === payload.rec) { agTroca_(j.dia); if (!S.agPend && !$('.overlay')) done(); } })
-    .catch(e => { S.agPend--; toast('Não foi possível salvar na agenda: ' + e.message, true); if (S.agBuscar) S.agBuscar(); });
+  api('agendaSalvar', payload, { silent: true }).then(j => { S.agPend--; if (S.agenda && S.agenda.rec === payload.rec) { agTroca_(j.dia); if (!S.agPend) done(); } if (ok) ok(j); })
+    .catch(e => { S.agPend--; toast('Não foi possível salvar na agenda: ' + e.message, true); if (falha) falha(e); if (S.agBuscar) S.agBuscar(); });
+}
+// mensagem de confirmação com o link do Meet (para copiar ou mandar no WhatsApp)
+function agMsgConfirma_(rec, o, dia, hh) {
+  const recNome = (((S.agenda.recs || []).find(r => r.rec === rec) || S.agenda.meu || {}).nome || (S.user || {}).nome || '').split(' - ')[0];
+  const prim = s => String(s || '').split(' ')[0].toLowerCase().replace(/^./, c => c.toUpperCase());
+  return `Olá, ${prim(o.nome)}! Aqui é ${recNome}, do RH do Grupo R Center.\n\nSua entrevista online está *confirmada* para ${agExt_(dia)}, às ${hh} (duração de cerca de 20 minutos).\n\n🎥 Link da videochamada (Google Meet):\n${o.meet || '(gerando o link...)'}\n\nRecomendamos entrar alguns minutos antes, em um lugar tranquilo e com boa conexão.${o.email ? ' O convite também foi enviado para o seu e-mail.' : ''}\n\nAté breve!`;
+}
+function openAgendaConfirma(rec, dia, hh, esperar) {
+  const pega = () => { const D = (S.agenda.dias || []).find(x => x.dia === dia); return D && D.s[hh]; };
+  modal({
+    title: 'Entrevista confirmada', icon: 'check',
+    body: `<div id="acTop"></div><p class="muted" style="margin:10px 0 8px">Mensagem pronta para mandar ao candidato:</p><textarea class="input" id="acMsg" rows="11"></textarea>`,
+    foot: `<button class="btn" id="acCp">${ic('copy')} Copiar mensagem</button><button class="btn primary" id="acWa">${ic('share')} Mandar no WhatsApp</button>`,
+    onMount: m => {
+      const desenha = (gerando, erro) => {
+        const o = pega(); if (!o || !$('#acTop', m.el)) return;
+        $('#acTop', m.el).innerHTML = `<div class="ar-meet">${o.meet ? `<span>🎥</span><a href="${h(o.meet)}" target="_blank" rel="noopener">${h(o.meet.replace('https://', ''))}</a><button class="btn sm" id="acCpL">${ic('copy')} Copiar link</button>` : gerando ? '<span class="spin" style="width:16px;height:16px;border-width:2px"></span><span>Gerando o link do Google Meet…</span>' : `<span>⚠️</span><span>${h(erro || o.meetErro || 'Link do Meet não gerado.')}</span>`}</div>`;
+        $('#acMsg', m.el).value = agMsgConfirma_(rec, o, dia, hh);
+        if ($('#acCpL', m.el)) $('#acCpL', m.el).onclick = () => copiar_(o.meet, 'Link copiado');
+        $('#acWa', m.el).style.display = o.tel ? '' : 'none';
+      };
+      desenha(!!esperar);
+      if (esperar) esperar.then(() => desenha(false), e => desenha(false, e && e.message));
+      $('#acCp', m.el).onclick = () => copiar_($('#acMsg', m.el).value, 'Mensagem copiada');
+      $('#acWa', m.el).onclick = () => { const o = pega(); const t = String((o || {}).tel || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, ''); window.open('https://wa.me/55' + t + '?text=' + encodeURIComponent($('#acMsg', m.el).value), '_blank'); };
+    }
+  });
 }
 const agItem_ = (atual, o) => Object.assign({}, atual || {}, o, { nome: String(o.nome != null ? o.nome : (atual || {}).nome || '').trim().toUpperCase(), tel: String(o.tel != null ? o.tel : (atual || {}).tel || '').replace(/\D/g, ''), origem: (atual || {}).origem || 'rh', em: (atual || {}).em || new Date().toISOString(), visto: true, alt: (S.user || {}).nome || '' });
 function openAgendaNovo(rec, D, hh, done) {
@@ -1574,7 +1601,10 @@ function openAgendaNovo(rec, D, hh, done) {
       $('#anOk', m.el).onclick = e => run(e.currentTarget, async () => {
         const item = modo === 'b' ? { st: 'bloqueado', motivo: $('#anMo', m.el).value } : { nome: $('#anN', m.el).value, tel: $('#anT', m.el).value, email: $('#anE', m.el).value, vaga: $('#anV', m.el).value, st: 'marcado' };
         if (modo === 'm' && !item.nome.trim()) throw new Error('Informe o nome do candidato.');
-        m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item }, d => { d.s[hh] = item.st === 'bloqueado' ? { st: 'bloqueado', motivo: item.motivo.trim(), em: new Date().toISOString() } : agItem_(null, item); }, done); toast(modo === 'b' ? 'Horário bloqueado' : 'Entrevista marcada');
+        m.close();
+        let res, rej; const esp = new Promise((a, b) => { res = a; rej = b; });
+        agSalvar_({ rec, dia: D.dia, h: hh, item }, d => { d.s[hh] = item.st === 'bloqueado' ? { st: 'bloqueado', motivo: item.motivo.trim(), em: new Date().toISOString() } : agItem_(null, item); }, done, res, rej);
+        if (modo === 'b') toast('Horário bloqueado'); else openAgendaConfirma(rec, D.dia, hh, esp);
       });
     }
   });
@@ -1594,17 +1624,21 @@ function openAgendaItem(rec, D, hh, done) {
       ${o.vaga ? `<div>💼 ${h(o.vaga)}</div>` : ''}
       ${o.email ? `<div>✉️ <a href="mailto:${h(o.email)}">${h(o.email)}</a> <button class="btn sm ghost" id="aiCpE" title="Copiar e-mail">${ic('copy')}</button></div>` : ''}
       ${o.tel ? `<div>📱 <a target="_blank" rel="noopener" href="https://wa.me/55${h(o.tel)}">${h(telFmt(o.tel))}</a></div>` : ''}
+      <div class="ar-meet" id="aiMeet">${o.meet ? `<span>🎥</span><a href="${h(o.meet)}" target="_blank" rel="noopener">${h(o.meet.replace('https://', ''))}</a><button class="btn sm" id="aiCpL">${ic('copy')} Copiar</button><a class="btn sm primary" href="${h(o.meet)}" target="_blank" rel="noopener">Entrar</a>` : `<span>🎥</span><span class="faint">${o.meetErro ? 'Não foi possível gerar o link: ' + h(o.meetErro) : 'Sem link do Google Meet'}</span><button class="btn sm primary" id="aiGer">Gerar link do Meet</button>`}</div>
       ${o.remarcado ? `<div class="faint" style="font-size:12px">🔁 Remarcada (antes: ${h(o.remarcado.split(' ')[0].split('-').reverse().join('/'))} às ${h(o.remarcado.split(' ')[1])})</div>` : ''}
       <div class="faint" style="font-size:12px">${o.origem === 'candidato' ? 'Escolhido pelo candidato no link' : 'Marcado pelo RH'} · ${dtHr_(o.em)}${o.alt ? ' · última alteração: ' + h(o.alt) : ''}</div></div>
       <div class="field" style="margin-top:12px"><label>Situação</label><div class="ar-sts">${['marcado', 'realizada', 'faltou'].map(s => `<button class="btn sm ${o.st === s ? 'primary' : ''}" data-st="${s}">${AG_ST_[s][0]}</button>`).join('')}</div></div>
       <div class="field"><label>Observações da entrevista</label><textarea class="input" id="aiObs" rows="3" placeholder="Anotações sobre o candidato...">${h(o.obs || '')}</textarea></div>`,
-    foot: `<button class="btn ghost" id="aiCan" style="margin-right:auto;color:var(--bad)">${ic('x')} Cancelar e liberar horário</button><button class="btn" id="aiMv">${ic('swap')} Remarcar</button><button class="btn" id="aiCp">${ic('copy')} Copiar dados</button><button class="btn primary" id="aiOk">Salvar</button>`,
+    foot: `<button class="btn ghost" id="aiCan" style="margin-right:auto;color:var(--bad)">${ic('x')} Cancelar e liberar horário</button><button class="btn" id="aiMsg">${ic('share')} Mensagem</button><button class="btn" id="aiMv">${ic('swap')} Remarcar</button><button class="btn" id="aiCp">${ic('copy')} Copiar dados</button><button class="btn primary" id="aiOk">Salvar</button>`,
     onMount: m => {
       let st = o.st;
       $$('[data-st]', m.el).forEach(b => b.onclick = () => { st = b.dataset.st; $$('[data-st]', m.el).forEach(x => x.classList.toggle('primary', x === b)); });
       if ($('#aiCpE', m.el)) $('#aiCpE', m.el).onclick = () => copiar_(o.email, 'E-mail copiado');
       $('#aiCp', m.el).onclick = () => copiar_(convite, 'Dados copiados para criar o convite');
       $('#aiMv', m.el).onclick = () => { m.close(); openAgendaMover(rec, D, hh, done); };
+      $('#aiMsg', m.el).onclick = () => { m.close(); openAgendaConfirma(rec, D.dia, hh); };
+      if ($('#aiCpL', m.el)) $('#aiCpL', m.el).onclick = () => copiar_(o.meet, 'Link do Meet copiado');
+      if ($('#aiGer', m.el)) $('#aiGer', m.el).onclick = e => run(e.currentTarget, async () => { const j = await api('agendaMeet', { rec, dia: D.dia, h: hh }); agTroca_(j.dia); m.close(); done(); openAgendaConfirma(rec, D.dia, hh); });
       $('#aiOk', m.el).onclick = () => { const item = { st, obs: $('#aiObs', m.el).value }; m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item }, d => { d.s[hh] = agItem_(d.s[hh], item); }, done); toast('Salvo'); };
       $('#aiCan', m.el).onclick = async () => { if (!await confirmBox(`Cancelar a entrevista de <b>${h(o.nome)}</b> e liberar o horário das ${hh}?`, 'Cancelar entrevista', true)) return; m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item: { st: 'cancelado' } }, d => { d.s[hh] = agItem_(d.s[hh], { st: 'cancelado' }); }, done); toast('Entrevista cancelada. O horário voltou a ficar livre.'); };
     }
@@ -1660,21 +1694,21 @@ function agMover_(rec, de, para, item, done) {
   done();
   S.agPend = (S.agPend || 0) + 1;
   api('agendaMover', { rec, de, para }, { silent: true })
-    .then(j => { S.agPend--; if (S.agenda && S.agenda.rec === rec) { (j.dias || []).forEach(d => { if (loc(d.dia)) agTroca_(d); }); if (!S.agPend && !$('.overlay')) done(); } })
+    .then(j => { S.agPend--; if (S.agenda && S.agenda.rec === rec) { (j.dias || []).forEach(d => { if (loc(d.dia)) agTroca_(d); }); if (!S.agPend) done(); } })
     .catch(e => { S.agPend--; toast('Não foi possível remarcar: ' + e.message, true); if (S.agBuscar) S.agBuscar(); });
 }
 function openAgendaAviso(rec, o, de, para) {
   const recNome = ((S.agenda.recs || []).find(r => r.rec === rec) || S.agenda.meu || {}).nome || (S.user || {}).nome || '';
   const prim = s => String(s || '').split(' ')[0].toLowerCase().replace(/^./, c => c.toUpperCase());
   const quando = agExt_(para.dia);
-  const msg = `Olá, ${prim(o.nome)}! Aqui é ${recNome.split(' - ')[0]}, do RH do Grupo R Center.\n\nPrecisamos ajustar o horário da sua entrevista online. Ela foi *remarcada para ${quando}, às ${para.h}* (duração de cerca de 20 minutos, pelo Google Meet).\n\nO convite atualizado com o link será enviado para o seu e-mail${o.email ? ' (' + o.email + ')' : ''}. Caso não possa comparecer nesse horário, por favor, nos avise por aqui.\n\nObrigado pela compreensão!`;
+  const msg = `Olá, ${prim(o.nome)}! Aqui é ${recNome.split(' - ')[0]}, do RH do Grupo R Center.\n\nPrecisamos ajustar o horário da sua entrevista online. Ela foi *remarcada para ${quando}, às ${para.h}* (duração de cerca de 20 minutos, pelo Google Meet).\n\n${o.meet ? '🎥 O link da videochamada continua o mesmo:\n' + o.meet + '\n\n' : ''}${o.email ? 'O convite atualizado também foi enviado para o seu e-mail (' + o.email + '). ' : ''}Caso não possa comparecer nesse horário, por favor, nos avise por aqui.\n\nObrigado pela compreensão!`;
   const dados = `Entrevista online · ${o.nome}\nNova data: ${para.dia.split('-').reverse().join('/')} às ${para.h} (20 min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
   modal({
     title: 'Entrevista remarcada', icon: 'check',
     body: `<div class="ar-mv-ok"><span>${h(agDdMm_(de.dia))} · ${de.h}</span><i>➜</i><b>${h(agDdMm_(para.dia))} · ${para.h}</b></div>
       <p class="muted" style="margin:10px 0 8px">Avise o candidato sobre a mudança. A mensagem abaixo já está pronta:</p>
       <textarea class="input" id="avMsg" rows="8">${h(msg)}</textarea>
-      <p class="faint" style="font-size:12px;margin:8px 0 0">Lembre de atualizar também o convite do Google Meet na ATS. Use <b>Copiar dados</b>.</p>`,
+      <p class="faint" style="font-size:12px;margin:8px 0 0">${o.evId ? 'O evento na Google Agenda já foi atualizado e o candidato recebe o aviso por e-mail.' : 'Esta entrevista não tem evento no Google Meet; atualize o convite manualmente, se houver.'}</p>`,
     foot: `<button class="btn" id="avCp">${ic('copy')} Copiar dados</button><button class="btn" id="avCm">${ic('copy')} Copiar mensagem</button>${o.tel ? `<button class="btn primary" id="avWa">${ic('share')} Avisar pelo WhatsApp</button>` : `<button class="btn primary" data-close>Fechar</button>`}`,
     onMount: m => {
       $('#avCp', m.el).onclick = () => copiar_(dados, 'Dados copiados para atualizar o convite');

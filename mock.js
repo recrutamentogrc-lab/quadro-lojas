@@ -118,6 +118,7 @@
     const CacheService = { getScriptCache: () => ({ get: () => null, put: () => {} }) };
     const parseJ_ = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
     const FB_PROJECT = 'demo';
+    const ScriptApp = { getOAuthToken: () => 'demo' }, UrlFetchApp = { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ id: 'ev' + Date.now(), hangoutLink: 'https://meet.google.com/abc-defg-hij' }) }) };
     const fsReq_ = (m, path, body) => { if (path === ':batchGet') return body.documents.map(nm => { const v = store()['D_/' + nm.split('/documents/')[1]]; return v ? { found: { fields: { json: v } } } : { missing: nm }; }); const v = store()['D_' + path]; return v ? (typeof v === 'object' ? { fields: v } : { fields: { json: v } }) : null; };
     const fsVal_ = x => x;
     const fsCommit_ = ops => { const s = store(); ops.forEach(o => { if (o.del) delete s['D_' + o.path]; else s['D_' + o.path] = o.data.json != null ? o.data.json : o.data; }); grava(s); };
@@ -206,9 +207,10 @@
         const d = agLer_(l.rec, dia);
         if (agLivres_(d, hoje).indexOf(hh) < 0) return { ok: false, ocupado: true, error: 'Esse horário acabou de ser preenchido. Escolha outro, por favor.' };
         d.s[hh] = Object.assign(m, { st: 'marcado', origem: 'candidato', em: new Date().toISOString(), visto: false });
+        try { const mt = agMeetCriar_(l.rec, dia, hh, d.s[hh]); d.s[hh].meet = mt.meet; d.s[hh].evId = mt.evId; } catch (e) { d.s[hh].meetErro = String(e.message || e).slice(0, 200); }
         agGravar_(d);
         try { notify_('ADMIN', { NOME: m.nome, ID: '' }, 'AGENDA', 'Nova entrevista agendada', m.nome + ' · ' + dia.split('-').reverse().join('/') + ' às ' + hh + ' · ' + l.nome, '#/agenda'); } catch (e) {}
-        return { ok: true, dia: dia, h: hh, rec: l.nome };
+        return { ok: true, dia: dia, h: hh, rec: l.nome, meet: d.s[hh].meet || '' };
       });
     }
     // com login
@@ -243,10 +245,13 @@
           const o = req.item, t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
           if (o === null) delete d.s[hh];
           else if (o) {
-            const atual = d.s[hh] || {};
+            const atual = d.s[hh] || {}, eraNovo = !atual.st || atual.st === 'cancelado' || atual.st === 'bloqueado';
             if (o.st === 'bloqueado') d.s[hh] = { st: 'bloqueado', motivo: t(o.motivo, 80), por: String(user.NOME || ''), em: new Date().toISOString() };
             else d.s[hh] = Object.assign({}, atual, { nome: t(o.nome != null ? o.nome : atual.nome, 90).toUpperCase(), tel: String(o.tel != null ? o.tel : atual.tel || '').replace(/\D/g, '').slice(0, 13), email: t(o.email != null ? o.email : atual.email, 100).toLowerCase(), vaga: t(o.vaga != null ? o.vaga : atual.vaga, 80), obs: t(o.obs != null ? o.obs : atual.obs, 600), st: ['marcado', 'realizada', 'faltou', 'cancelado'].indexOf(o.st) >= 0 ? o.st : (atual.st || 'marcado'), origem: atual.origem || 'rh', em: atual.em || new Date().toISOString(), visto: true, alt: String(user.NOME || '') });
             if (d.s[hh].st !== 'bloqueado' && !d.s[hh].nome) throw new Error('Informe o nome do candidato.');
+            const it = d.s[hh];
+            if (it.st === 'cancelado' && atual.evId) { agMeetCancelar_(atual); delete it.evId; delete it.meet; }
+            else if (it.st === 'marcado' && (eraNovo || !it.meet) && !it.evId) { try { const mt = agMeetCriar_(rec, dia, hh, it); it.meet = mt.meet; it.evId = mt.evId; delete it.meetErro; } catch (e) { it.meetErro = String(e.message || e).slice(0, 200); } }
           }
         }
         agGravar_(d); d.feriado = agFeriado_(d.dia);
@@ -287,6 +292,7 @@
         if (alvo && alvo.st !== 'cancelado') throw new Error('O novo horário já está ocupado. Escolha outro.');
         const hist = (o.hist || []).concat([{ de: de.dia + ' ' + de.h, para: para.dia + ' ' + para.h, por: String(user.NOME || ''), em: new Date().toISOString() }]).slice(-10);
         delete d1.s[de.h];
+        agMeetMover_(o, para.dia, para.h);
         d2.s[para.h] = Object.assign({}, o, { st: 'marcado', visto: true, alt: String(user.NOME || ''), remarcado: de.dia + ' ' + de.h, hist: hist });
         if (mesmo) agGravar_(d1);
         else fsCommit_([d1, d2].map(d => ({ path: '/agenda/' + agRec_(d.rec) + '_' + d.dia.replace(/-/g, ''), data: { json: JSON.stringify(d), em: Date.now() } })));
@@ -295,13 +301,47 @@
         return { dias: out };
       });
     }
+    // ---- Google Meet: cria o evento na agenda do Google (de quem implantou o script) com link de vídeo
+    function agCalReq_(method, path, body) {
+      const opt = { method: method, contentType: 'application/json', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } };
+      if (body) opt.payload = JSON.stringify(body);
+      const r = UrlFetchApp.fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events' + path, opt), c = r.getResponseCode();
+      if (c === 404 || c === 410) return null;
+      if (c >= 300) throw new Error('Google Agenda ' + c + ': ' + r.getContentText().slice(0, 200));
+      const t = r.getContentText(); return t ? JSON.parse(t) : {};
+    }
+    function agRecUser_(rec) { try { return readUsers_().find(u => agRec_(u.ID) === agRec_(rec)) || null; } catch (e) { return null; } }
+    function agHoras_(dia, hh) { const ini = dia + 'T' + hh + ':00-03:00', p = hh.split(':'), m = Number(p[0]) * 60 + Number(p[1]) + 20; return { start: { dateTime: ini, timeZone: AG_TZ_ }, end: { dateTime: dia + 'T' + ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2) + ':00-03:00', timeZone: AG_TZ_ } }; }
+    function agMeetCriar_(rec, dia, hh, o) {
+      const u = agRecUser_(rec), nomeRec = u ? String(u.NOME || '') : '', emailRec = u ? String(u.EMAIL || '').trim() : '';
+      const at = []; if (o.email) at.push({ email: o.email, displayName: o.nome }); if (emailRec && /@/.test(emailRec)) at.push({ email: emailRec, displayName: nomeRec });
+      const ev = Object.assign({ summary: 'Entrevista online · ' + o.nome + ' · Grupo R Center', description: 'Entrevista online do processo seletivo do Grupo R Center' + (o.vaga ? ' (' + o.vaga + ')' : '') + (nomeRec ? '\nEntrevistador(a): ' + nomeRec : '') + '\nDuração: cerca de 20 minutos.', attendees: at, conferenceData: { createRequest: { requestId: Utilities.getUuid(), conferenceSolutionKey: { type: 'hangoutsMeet' } } }, guestsCanModify: false }, agHoras_(dia, hh));
+      const r = agCalReq_('post', '?conferenceDataVersion=1&sendUpdates=' + (at.length ? 'all' : 'none'), ev);
+      const meet = r.hangoutLink || (((r.conferenceData || {}).entryPoints || []).find(e => e.entryPointType === 'video') || {}).uri || '';
+      return { evId: r.id, meet: meet };
+    }
+    function agMeetMover_(o, dia, hh) { if (o && o.evId) try { agCalReq_('patch', '/' + encodeURIComponent(o.evId) + '?sendUpdates=all', agHoras_(dia, hh)); } catch (e) {} }
+    function agMeetCancelar_(o) { if (o && o.evId) try { agCalReq_('delete', '/' + encodeURIComponent(o.evId) + '?sendUpdates=all'); } catch (e) {} }
+    // gera o link para uma entrevista que ainda não tem
+    function agendaMeet_(req, user) {
+      const rec = agDoUser_(req, user), dia = String(req.dia || ''), hh = String(req.h || '');
+      return withLock_(() => {
+        const d = agLer_(rec, dia), o = d.s[hh];
+        if (!o || o.st === 'bloqueado' || o.st === 'cancelado') throw new Error('Entrevista não encontrada.');
+        if (!o.meet) { const m = agMeetCriar_(rec, dia, hh, o); o.meet = m.meet; o.evId = m.evId; agGravar_(d); }
+        d.feriado = agFeriado_(d.dia);
+        return { dia: d };
+      });
+    }
+    // rode uma vez no editor para autorizar o acesso à Google Agenda
+    function agMeetAutorizar() { const r = agCalReq_('get', '?maxResults=1'); Logger.log('Google Agenda autorizada: ' + (r ? 'ok' : '-')); }
     function agendaNovoLink_(req, user) {
       mustAgenda_(user);
       const rec = agRec_(user.ID);
       withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
       return { meu: agMeuLink_(user) };
     }
-    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_ };
+    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
   })();
   window.GRC_MOCK = {
     call: async function (action, p) {
@@ -355,7 +395,7 @@
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'agendaInfo': return AGM.agendaInfo_(p);
         case 'agendaMarcar': return AGM.agendaMarcar_(p);
-        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
+        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [

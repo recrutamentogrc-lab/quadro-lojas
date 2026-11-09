@@ -341,6 +341,7 @@ function init() {
   applyFavicon();
   if (QS.get('ficha')) { renderFicha(QS.get('ficha')); refreshPublicCfg(); }
   else if (QS.get('teste')) { renderTeste(QS.get('teste')); refreshPublicCfg(); }
+  else if (QS.get('agenda')) { renderAgenda(QS.get('agenda')); refreshPublicCfg(); }
   else if (S.token) {
     const cache = DEMO ? null : ls.get('grc_data', null);
     if (cache && cache.data && cache.data.user) {
@@ -1350,6 +1351,255 @@ async function renderTeste(codigo) {
   if (st.ini) telaLista(); else telaIni();
 }
 
+/* ---------------- AGENDA DE ENTREVISTAS: página pública do candidato (?agenda=CODIGO) ---------------- */
+const AG_SEM_ = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+const agDt_ = d => new Date(d + 'T12:00:00');
+const agDdMm_ = d => d.slice(8, 10) + '/' + d.slice(5, 7);
+const agExt_ = d => { const x = agDt_(d); return AG_SEM_[x.getDay()] + ', ' + x.getDate() + ' de ' + ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][x.getMonth()]; };
+const agFim_ = hh => { const [a, b] = hh.split(':').map(Number), m = a * 60 + b + 20; return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
+function agGcal_(dia, hh, rec) {
+  const s = dia.replace(/-/g, '') + 'T' + hh.replace(':', '') + '00', e = dia.replace(/-/g, '') + 'T' + agFim_(hh).replace(':', '') + '00';
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent('Entrevista online · Grupo R Center') + '&dates=' + s + '/' + e + '&ctz=America/Fortaleza&details=' + encodeURIComponent('Entrevista por Google Meet com ' + rec + ' (RH do Grupo R Center). O link chega no seu e-mail.');
+}
+async function renderAgenda(codigo) {
+  document.documentElement.dataset.theme = 'light';
+  document.title = 'Vem ser GRC · Agende sua entrevista';
+  $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo…</div></div></div>`;
+  const RC = 'https://www.rcentersupermercado.com.br/img/', img = (f, alt, cls) => `<img src="${RC}grupo/${f}" alt="${h(alt)}" class="${cls || ''}" onerror="this.style.display='none'">`;
+  const LK = 'grc_agenda_' + codigo;
+  let st = {}; try { st = JSON.parse(localStorage.getItem(LK) || '{}'); } catch (e) {}
+  const salvar = () => { try { localStorage.setItem(LK, JSON.stringify(st)); } catch (e) {} };
+  let info = null, erro = '';
+  const carregar = async () => { try { const j = await sendRaw_('agendaInfo', { codigo }); if (j && j.ok) { info = j; erro = ''; } else erro = (j && j.error) || 'Link inválido.'; } catch (e) { erro = e.message; } };
+  await carregar();
+  $('#root').innerHTML = `<div class="fx tx ag">
+    <header class="fx-top"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo')}<span class="tx-xp">📅 Entrevista online</span></div></header>
+    <div class="fx-wrap"><div class="tx-main" id="agM"></div></div>
+    <footer class="fx-rodape"><div class="fx-wrap">${img('grupo-r-center-branco.webp', 'Grupo R Center', 'fx-logo-sm')}<span>© ${new Date().getFullYear()} Grupo R Center · Indo além por você</span></div></footer>
+  </div>`;
+  const M = $('#agM');
+  if (!info) { M.innerHTML = `<div class="fx-card tx-card"><div class="fx-card-h"><h2>Link indisponível</h2></div><div class="badge b-bad" style="display:flex;padding:10px 12px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p></div>`; return; }
+  const rotDia = d => d === info.hoje ? 'Hoje' : AG_SEM_[agDt_(d).getDay()].replace('-feira', '').replace(/^./, c => c.toUpperCase());
+  // confirmação já feita neste aparelho
+  const telaOk = () => {
+    const m = st.marcado;
+    M.innerHTML = `<div class="fx-card tx-card ag-ok">
+      <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>
+      <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h)} · Google Meet · com ${h(m.rec)}</small></div></div>
+      <p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>
+      <div class="tx-dicas">
+        <div><i>⏰</i><span><b>Entre 5 minutos antes</b>Teste a câmera e o áudio com antecedência.</span></div>
+        <div><i>🎧</i><span><b>Lugar tranquilo</b>De preferência com fone de ouvido e boa iluminação.</span></div>
+        <div><i>📶</i><span><b>Boa conexão</b>Internet estável no celular ou no computador.</span></div>
+        <div><i>🙂</i><span><b>Seja você</b>Queremos conhecer a sua história e o seu jeito.</span></div>
+      </div>
+      <a class="btn block fx-btn" style="margin-top:6px" target="_blank" rel="noopener" href="${agGcal_(m.dia, m.h, m.rec)}">📆 Adicionar à minha agenda</a>
+      <p class="muted" style="font-size:13px;margin:14px 0 0">Precisa remarcar? Fale com o RH pelo mesmo contato que enviou este link.</p>
+      <button class="ag-outro" id="agOutro">Agendar para outra pessoa</button></div>`;
+    $('#agOutro').onclick = () => { delete st.marcado; salvar(); tela(); };
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  let sel = { dia: null, h: null };
+  const tela = () => {
+    if (st.marcado && st.marcado.dia >= info.hoje) return telaOk();
+    const dias = info.dias;
+    if (!sel.dia || !dias.find(d => d.dia === sel.dia)) sel.dia = (dias.find(d => d.horarios.some(x => x.livre)) || dias[0]).dia;
+    const D = dias.find(d => d.dia === sel.dia), livres = D.horarios.filter(x => x.livre).length;
+    if (sel.h && !(D.horarios.find(x => x.h === sel.h) || {}).livre) sel.h = null;
+    const bt = x => `<button class="ag-h ${x.livre ? '' : 'off'} ${sel.h === x.h ? 'sel' : ''}" data-h="${x.h}" ${x.livre ? '' : 'disabled'}>${x.h}</button>`;
+    M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Agende sua <b>entrevista</b></h1><p class="fx-plus">ONLINE · GOOGLE MEET · 20 MINUTOS</p><p>Escolha o melhor horário para conversar com <b>${h(info.rec)}</b>, do RH do Grupo R Center.</p></div></section>
+      <div class="fx-card tx-card ag-card">
+        <div class="ag-passo"><i>1</i><b>Escolha o dia</b></div>
+        <div class="ag-dias">${dias.map(d => { const n = d.horarios.filter(x => x.livre).length; return `<button class="ag-dia ${d.dia === sel.dia ? 'sel' : ''}" data-d="${d.dia}"><small>${rotDia(d.dia)}</small><b>${agDdMm_(d.dia)}</b><em>${n ? n + ' horário' + (n > 1 ? 's' : '') : 'lotado'}</em></button>`; }).join('')}</div>
+        <div class="ag-passo"><i>2</i><b>Escolha o horário</b><span>${livres ? livres + ' livre' + (livres > 1 ? 's' : '') : ''}</span></div>
+        ${livres ? `<div class="ag-turno">☀️ Manhã</div><div class="ag-hs">${D.horarios.filter(x => x.h < '12:00').map(bt).join('')}</div><div class="ag-turno">🌤️ Tarde</div><div class="ag-hs">${D.horarios.filter(x => x.h >= '13:00').map(bt).join('')}</div>`
+        : `<div class="ag-vazio">Não há mais horários livres neste dia.${dias.length > 1 ? ' Escolha o outro dia acima.' : ''}</div>`}
+        <form id="agF" class="${sel.h ? '' : 'hidden'}">
+          <div class="ag-passo"><i>3</i><b>Seus dados</b></div>
+          <div class="ag-resumo">📅 <b>${h(agExt_(sel.dia).replace(/^./, c => c.toUpperCase()))}</b> às <b>${sel.h || ''}</b></div>
+          <div class="field"><label>Nome completo</label><input class="input" name="nome" required autocomplete="name" value="${h(st.nome || '')}" placeholder="Como está no documento"></div>
+          <div class="row2"><div class="field"><label>WhatsApp</label><input class="input" name="tel" required inputmode="tel" value="${h(st.tel || '')}" placeholder="(85) 90000-0000"></div>
+          <div class="field"><label>E-mail <small class="muted">(o convite chega aqui)</small></label><input class="input" name="email" type="email" required autocomplete="email" value="${h(st.email || '')}" placeholder="seuemail@gmail.com"></div></div>
+          <div class="field"><label>Vaga de interesse (opcional)</label><input class="input" name="vaga" maxlength="80" value="${h(st.vaga || '')}" placeholder="Ex.: Operador de caixa"></div>
+          <div id="agErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
+          <button class="btn primary block fx-btn" type="submit">Confirmar agendamento ✔</button>
+        </form>
+        ${sel.h ? '' : '<p class="tx-dica" style="margin:14px 0 0">💡 Toque em um horário livre para continuar.</p>'}
+      </div>`;
+    $$('.ag-dia', M).forEach(b => b.onclick = () => { sel = { dia: b.dataset.d, h: null }; tela(); });
+    $$('.ag-h:not(.off)', M).forEach(b => b.onclick = () => { sel.h = b.dataset.h; tela(); const f = $('#agF'); if (f) setTimeout(() => f.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); });
+    const f = $('#agF');
+    f.tel.oninput = () => { f.tel.value = telFmt(f.tel.value.replace(/\D/g, '').slice(0, 11)); };
+    f.onsubmit = async e => {
+      e.preventDefault();
+      const err = $('#agErr'), falha = m => { err.textContent = m; err.classList.remove('hidden'); };
+      err.classList.add('hidden');
+      const d = { nome: f.nome.value.trim(), tel: f.tel.value.replace(/\D/g, ''), email: f.email.value.trim(), vaga: f.vaga.value.trim(), dia: sel.dia, h: sel.h };
+      if (d.nome.split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
+      if (d.tel.length < 10) return falha('Informe um WhatsApp válido com DDD.');
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) return falha('Informe um e-mail válido. O convite da entrevista será enviado para ele.');
+      Object.assign(st, { nome: d.nome, tel: d.tel, email: d.email, vaga: d.vaga }); salvar();
+      const b = $('button[type=submit]', f); b.disabled = true; b.innerHTML = '<span class="spin" style="width:16px;height:16px;border-width:2px"></span>';
+      try {
+        const j = await sendRaw_('agendaMarcar', { codigo, data: d });
+        if (!j || !j.ok) {
+          if (j && j.ocupado) { await carregar(); sel.h = null; tela(); toast(j.error, true); return; }
+          throw new Error((j && j.error) || 'Não foi possível agendar.');
+        }
+        st.marcado = { dia: j.dia, h: j.h, rec: j.rec, email: d.email }; salvar(); telaOk();
+      } catch (e2) { b.disabled = false; b.textContent = 'Confirmar agendamento ✔'; falha(e2.message); }
+    };
+  };
+  tela();
+}
+
+/* ---------------- AGENDA DE ENTREVISTAS: tela do RH ---------------- */
+const podeAgenda = () => !!(S.user && (isAdmin() || S.user.podeAgenda));
+const agendaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/agenda.html?agenda=' + c; };
+const agendaNovos = () => ((S.agenda && S.agenda.dias) || []).reduce((n, d) => n + Object.values(d.s || {}).filter(o => o && o.visto === false && o.st === 'marcado').length, 0);
+function compartilharAgenda_(c) {
+  const txt = `Olá! Para agendar a sua entrevista online com o RH do ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}, escolha o melhor horário pelo link abaixo.\n\nA entrevista dura cerca de 20 minutos e será pelo Google Meet. O convite com o link será enviado para o seu e-mail.\n\n${agendaUrl_(c)}`;
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+const AG_ST_ = { marcado: ['Marcada', 'b-info'], realizada: ['Realizada', 'b-ok'], faltou: ['Faltou', 'b-bad'], cancelado: ['Cancelada', ''], bloqueado: ['Bloqueado', ''] };
+const agSegunda_ = d => { const x = agDt_(d), w = x.getDay(); x.setDate(x.getDate() - (w === 0 ? 6 : w - 1)); return x.toLocaleDateString('sv-SE'); };
+const agSomaF_ = (d, n) => { const x = agDt_(d); x.setDate(x.getDate() + n); return x.toLocaleDateString('sv-SE'); };
+async function pgAgenda() {
+  setTitle('Agenda de entrevistas', 'Google Meet · 20 minutos · 08h às 12h e 13h às 17h');
+  const v = $('#view'), f = getF('agenda'), hojeL = new Date().toLocaleDateString('sv-SE');
+  if (!f.dia || f.dia < agSomaF_(hojeL, -60)) f.dia = hojeL;
+  const rt = S.rt;
+  let carregando = false;
+  const buscar = async (silent) => {
+    if (carregando) return; carregando = true;
+    try {
+      const j = await api('agendaList', { rec: f.rec || '', de: agSegunda_(f.dia), n: 7 }, { silent: true });
+      if (rt !== S.rt) return;
+      S.agenda = j; f.rec = j.rec; saveF();
+      if (!$('.overlay')) draw(); updateShell();
+      const novos = (j.dias || []).filter(d => d.dia === f.dia && Object.values(d.s || {}).some(o => o && o.visto === false));
+      if (novos.length && j.rec === j.meu.rec) { api('agendaVisto', { dias: novos.map(d => d.dia) }, { silent: true }).catch(() => {}); setTimeout(() => { novos.forEach(d => Object.values(d.s || {}).forEach(o => { if (o) o.visto = true; })); updateShell(); }, 4000); }
+    } catch (e) { if (!silent) { if (!S.agenda) v.innerHTML = `<div class="card muted">${h(e.message)}</div>`; else toast(e.message, true); } }
+    finally { carregando = false; }
+  };
+  const draw = () => {
+    const A = S.agenda;
+    if (!A || agSegunda_(f.dia) !== (A.dias[0] || {}).dia || (f.rec && A.rec !== f.rec)) { v.innerHTML = `<div class="sk" style="height:360px"></div>`; return; }
+    const hoje = A.hoje, semana = A.dias.slice(0, 5), D = A.dias.find(d => d.dia === f.dia) || semana[0], meu = A.rec === A.meu.rec;
+    const agoraMin = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
+    const passado = hh => D.dia < hoje || (D.dia === hoje && Number(hh.slice(0, 2)) * 60 + Number(hh.slice(3)) + 20 <= agoraMin);
+    const qtd = d => Object.values(d.s || {}).filter(o => o && o.st !== 'bloqueado' && o.st !== 'cancelado').length;
+    const fim = d => d.fechado || d.feriado || [0, 6].includes(agDt_(d.dia).getDay());
+    const slot = hh => {
+      const o = D.s[hh], pas = passado(hh);
+      if (!o || o.st === 'cancelado') return `<button class="ar-sl livre ${pas || fim(D) ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span>${fim(D) ? '—' : pas ? '' : 'Livre'}</span>${o ? `<em class="faint">cancelada: ${h(o.nome)}</em>` : ''}</button>`;
+      if (o.st === 'bloqueado') return `<button class="ar-sl bloq" data-h="${hh}"><b>${hh}</b><span>🔒 Bloqueado${o.motivo ? ' · ' + h(o.motivo) : ''}</span></button>`;
+      const [lb, cl] = AG_ST_[o.st] || AG_ST_.marcado;
+      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? ' · ' + h(o.email) : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.origem === 'candidato' ? '<span class="badge" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
+    };
+    const ini = agSegunda_(f.dia);
+    v.innerHTML = `
+    <div class="toolbar">
+      ${A.recs.length > 1 ? `<select class="input" id="arRec">${A.recs.map(r => `<option value="${h(r.rec)}" ${r.rec === A.rec ? 'selected' : ''}>${h(r.nome)}${r.rec === A.meu.rec ? ' (eu)' : ''}</option>`).join('')}</select>` : ''}
+      <button class="btn icon" id="arAnt" title="Semana anterior">${ic('chevl')}</button>
+      <b class="ar-sem">${agDdMm_(ini)} a ${agDdMm_(agSomaF_(ini, 4))}</b>
+      <button class="btn icon" id="arProx" title="Próxima semana" style="transform:scaleX(-1)">${ic('chevl')}</button>
+      <button class="btn" id="arHoje">Hoje</button>
+      <button class="btn icon ghost" id="arRef" title="Atualizar">${ic('refresh')}</button>
+      <span class="spacer"></span>
+      ${meu ? `<button class="btn primary" id="arLink">${ic('share')} Mandar link ao candidato</button>` : `<span class="badge">Agenda de ${h((A.recs.find(r => r.rec === A.rec) || {}).nome || '')}</span>`}
+    </div>
+    <div class="ar-week">${semana.map(d => { const n = qtd(d); return `<button class="ar-day ${d.dia === D.dia ? 'sel' : ''} ${d.dia === hoje ? 'hoje' : ''} ${fim(d) ? 'fech' : ''}" data-d="${d.dia}"><small>${AG_SEM_[agDt_(d.dia).getDay()].replace('-feira', '')}${d.dia === hoje ? ' · hoje' : ''}</small><b>${agDdMm_(d.dia)}</b><em>${d.feriado ? '🎉 ' + h(d.feriado) : d.fechado ? '🔒 fechado' : n ? n + ' entrevista' + (n > 1 ? 's' : '') : 'livre'}</em>${(A.candDias || []).includes(d.dia) && meu ? '<i title="O candidato pode escolher este dia pelo link">link</i>' : ''}</button>`; }).join('')}</div>
+    <div class="card ar-diac">
+      <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + A.horarios.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
+        ${!D.feriado && ![0, 6].includes(agDt_(D.dia).getDay()) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
+      <div class="ar-cols"><div><div class="ar-turno">☀️ Manhã</div>${A.horarios.filter(x => x < '12:00').map(slot).join('')}</div><div><div class="ar-turno">🌤️ Tarde</div>${A.horarios.filter(x => x >= '13:00').map(slot).join('')}</div></div>
+    </div>
+    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. O convite do Google Meet continua sendo enviado pela ATS.</div>`;
+    const ir = d => { f.dia = d; saveF(); draw(); if (agSegunda_(d) !== (S.agenda.dias[0] || {}).dia) buscar(); };
+    if ($('#arRec')) $('#arRec').onchange = e => { f.rec = e.target.value; saveF(); draw(); buscar(); };
+    $('#arAnt').onclick = () => ir(agSomaF_(agSegunda_(f.dia), -7));
+    $('#arProx').onclick = () => ir(agSomaF_(agSegunda_(f.dia), 7));
+    $('#arHoje').onclick = () => ir(new Date().toLocaleDateString('sv-SE'));
+    $('#arRef').onclick = e => run(e.currentTarget, () => buscar());
+    $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
+    if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
+    if ($('#arFech')) $('#arFech').onclick = e => run(e.currentTarget, async () => { const j = await api('agendaSalvar', { rec: A.rec, dia: D.dia, fechado: !D.fechado }); agTroca_(j.dia); draw(); toast(j.dia.fechado ? 'Dia fechado para agendamentos' : 'Dia aberto para agendamentos'); });
+    $$('.ar-sl').forEach(b => b.onclick = () => { const hh = b.dataset.h, o = D.s[hh]; if (o && o.st !== 'cancelado') openAgendaItem(A.rec, D, hh, draw); else if (!fim(D)) openAgendaNovo(A.rec, D, hh, draw); });
+  };
+  draw();
+  await buscar();
+  const iv = setInterval(() => { if (rt !== S.rt || !document.body.contains(v)) return clearInterval(iv); if (!$('.overlay') && document.visibilityState === 'visible') buscar(true); }, 60000);
+}
+function agTroca_(d) { const A = S.agenda; if (!A) return; A.dias = A.dias.map(x => x.dia === d.dia ? d : x); }
+function openAgendaNovo(rec, D, hh, done) {
+  modal({
+    title: `${hh} · ${agDdMm_(D.dia)}`, icon: 'calendar',
+    body: `<div class="ar-tabs"><button class="ar-tab active" data-t="m">Marcar entrevista</button><button class="ar-tab" data-t="b">Bloquear horário</button></div>
+      <div id="anM"><div class="field"><label>Nome do candidato</label><input class="input" id="anN" placeholder="Nome completo"></div>
+      <div class="row2"><div class="field"><label>WhatsApp</label><input class="input" id="anT" inputmode="tel"></div><div class="field"><label>E-mail</label><input class="input" id="anE" type="email"></div></div>
+      <div class="field"><label>Vaga</label><input class="input" id="anV" placeholder="Ex.: Repositor · Eusébio"></div></div>
+      <div id="anB" class="hidden"><div class="field"><label>Motivo (opcional)</label><input class="input" id="anMo" placeholder="Ex.: reunião, treinamento"></div><p class="muted" style="margin:0;font-size:13px">O horário some do link do candidato.</p></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="anOk">${ic('check')} Salvar</button>`,
+    onMount: m => {
+      let modo = 'm';
+      $$('.ar-tab', m.el).forEach(t => t.onclick = () => { modo = t.dataset.t; $$('.ar-tab', m.el).forEach(x => x.classList.toggle('active', x === t)); $('#anM', m.el).classList.toggle('hidden', modo !== 'm'); $('#anB', m.el).classList.toggle('hidden', modo !== 'b'); });
+      $('#anT', m.el).oninput = e => { e.target.value = telFmt(e.target.value.replace(/\D/g, '').slice(0, 11)); };
+      $('#anOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const item = modo === 'b' ? { st: 'bloqueado', motivo: $('#anMo', m.el).value } : { nome: $('#anN', m.el).value, tel: $('#anT', m.el).value, email: $('#anE', m.el).value, vaga: $('#anV', m.el).value, st: 'marcado' };
+        if (modo === 'm' && !item.nome.trim()) throw new Error('Informe o nome do candidato.');
+        const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item });
+        agTroca_(j.dia); m.close(); done(); toast(modo === 'b' ? 'Horário bloqueado' : 'Entrevista marcada');
+      });
+    }
+  });
+}
+function openAgendaItem(rec, D, hh, done) {
+  const o = D.s[hh];
+  if (o.st === 'bloqueado') {
+    modal({ title: `${hh} · ${agDdMm_(D.dia)}`, icon: 'calendar', body: `<p style="margin:0">🔒 Horário bloqueado${o.motivo ? ': <b>' + h(o.motivo) + '</b>' : ''}.</p>`, foot: `<button class="btn" data-close>Fechar</button><button class="btn primary" id="aiLib">Liberar horário</button>`,
+      onMount: m => { $('#aiLib', m.el).onclick = e => run(e.currentTarget, async () => { const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item: null }); agTroca_(j.dia); m.close(); done(); toast('Horário liberado'); }); } });
+    return;
+  }
+  const quando = `${agExt_(D.dia)} às ${hh}`;
+  const convite = `Entrevista online · ${o.nome}\nData: ${D.dia.split('-').reverse().join('/')} às ${hh} (20 min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
+  modal({
+    title: o.nome, icon: 'calendar',
+    body: `<div class="ar-info"><div>📅 <b>${h(quando.replace(/^./, c => c.toUpperCase()))}</b> · 20 min · Google Meet</div>
+      ${o.vaga ? `<div>💼 ${h(o.vaga)}</div>` : ''}
+      ${o.email ? `<div>✉️ <a href="mailto:${h(o.email)}">${h(o.email)}</a> <button class="btn sm ghost" id="aiCpE" title="Copiar e-mail">${ic('copy')}</button></div>` : ''}
+      ${o.tel ? `<div>📱 <a target="_blank" rel="noopener" href="https://wa.me/55${h(o.tel)}">${h(telFmt(o.tel))}</a></div>` : ''}
+      <div class="faint" style="font-size:12px">${o.origem === 'candidato' ? 'Escolhido pelo candidato no link' : 'Marcado pelo RH'} · ${dtHr_(o.em)}${o.alt ? ' · última alteração: ' + h(o.alt) : ''}</div></div>
+      <div class="field" style="margin-top:12px"><label>Situação</label><div class="ar-sts">${['marcado', 'realizada', 'faltou'].map(s => `<button class="btn sm ${o.st === s ? 'primary' : ''}" data-st="${s}">${AG_ST_[s][0]}</button>`).join('')}</div></div>
+      <div class="field"><label>Observações da entrevista</label><textarea class="input" id="aiObs" rows="3" placeholder="Anotações sobre o candidato...">${h(o.obs || '')}</textarea></div>`,
+    foot: `<button class="btn ghost" id="aiCan" style="margin-right:auto;color:var(--bad)">${ic('x')} Cancelar e liberar horário</button><button class="btn" id="aiCp">${ic('copy')} Copiar dados</button><button class="btn primary" id="aiOk">Salvar</button>`,
+    onMount: m => {
+      let st = o.st;
+      $$('[data-st]', m.el).forEach(b => b.onclick = () => { st = b.dataset.st; $$('[data-st]', m.el).forEach(x => x.classList.toggle('primary', x === b)); });
+      if ($('#aiCpE', m.el)) $('#aiCpE', m.el).onclick = () => copiar_(o.email, 'E-mail copiado');
+      $('#aiCp', m.el).onclick = () => copiar_(convite, 'Dados copiados para criar o convite');
+      $('#aiOk', m.el).onclick = e => run(e.currentTarget, async () => { const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item: { st, obs: $('#aiObs', m.el).value } }); agTroca_(j.dia); m.close(); done(); toast('Salvo'); });
+      $('#aiCan', m.el).onclick = async () => { if (!await confirmBox(`Cancelar a entrevista de <b>${h(o.nome)}</b> e liberar o horário das ${hh}?`, 'Cancelar entrevista', true)) return; const j = await api('agendaSalvar', { rec, dia: D.dia, h: hh, item: { st: 'cancelado' } }); agTroca_(j.dia); m.close(); done(); toast('Entrevista cancelada. O horário voltou a ficar livre.'); };
+    }
+  });
+}
+function openAgendaLink() {
+  const A = S.agenda, c = A.meu.codigo, url = agendaUrl_(c);
+  modal({
+    title: 'Link da sua agenda', icon: 'share',
+    body: `<p class="muted" style="margin-top:0">Este link é fixo e é só seu. O candidato vê os horários livres de hoje e do próximo dia útil e escolhe um. A marcação aparece aqui na hora, e os próximos candidatos não veem mais aquele horário.</p>
+      <div class="card" style="border-color:var(--accent)"><div class="mono" style="font-size:12.5px;word-break:break-all;margin-bottom:10px">${h(url)}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="alWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="alCp">${ic('copy')} Copiar link</button><button class="btn" id="alQr">${ic('grid')} QR Code</button></div></div>`,
+    foot: `<button class="btn ghost" id="alNovo" style="margin-right:auto" title="O link antigo para de funcionar">${ic('refresh')} Gerar novo link</button><button class="btn" data-close>Fechar</button>`,
+    onMount: m => {
+      $('#alWa', m.el).onclick = () => compartilharAgenda_(S.agenda.meu.codigo);
+      $('#alCp', m.el).onclick = () => copiar_(agendaUrl_(S.agenda.meu.codigo), 'Link copiado');
+      $('#alQr', m.el).onclick = async () => { try { await qrCarregar_(); const a = document.createElement('a'); a.href = qrCartaz_(agendaUrl_(S.agenda.meu.codigo), 'Agende sua entrevista').toDataURL('image/png'); a.download = 'qrcode_agenda.png'; a.click(); } catch (e) { toast(e.message, true); } };
+      $('#alNovo', m.el).onclick = async () => { if (!await confirmBox('Gerar um novo link? O link antigo para de funcionar (as entrevistas já marcadas continuam na agenda).', 'Gerar novo link', true)) return; const j = await api('agendaNovoLink', {}); S.agenda.meu = j.meu; m.close(); openAgendaLink(); toast('Novo link gerado'); };
+    }
+  });
+}
+
 /* ---------------- RH: resultados dos testes ---------------- */
 const podeTestes = () => !!(S.user && (isAdmin() || S.user.podeTestes));
 const testeUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/teste.html?teste=' + c; };
@@ -2346,6 +2596,7 @@ function updateShell() {
     ${navItem('/vagas', ic('briefcase'), 'Vagas', `<span class="cnt hot">${S.tot.vagas}</span><span class="badge-mini"></span>`)}
     ${navItem('/contratacoes', ic('userplus'), 'Contratações', nC ? `<span class="cnt">${nC}</span>` : '')}
     ${podeFichas() ? navItem('/fichas', ic('file'), 'Fichas', fichasNovas() ? `<span class="cnt hot">${fichasNovas()}</span>` : '<span class="new">novo</span>') : ''}
+    ${podeAgenda() ? navItem('/agenda', ic('calendar'), 'Agenda', agendaNovos() ? `<span class="cnt hot">${agendaNovos()}</span>` : '<span class="new">novo</span>') : ''}
     ${podeTestes() ? navItem('/testes', ic('check'), 'Testes', testesNovos() ? `<span class="cnt hot">${testesNovos()}</span>` : '<span class="new">novo</span>') : ''}
     ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
@@ -3139,6 +3390,7 @@ function route(keep) {
     else if (page === 'tabela' && podePesq()) pgTabela();
     else if (page === 'fichas' && podeFichas()) pgFichas();
     else if (page === 'testes' && podeTestes()) pgTestes();
+    else if (page === 'agenda' && podeAgenda()) pgAgenda();
     else if (page === 'aprovacoes' && isAdmin()) pgAprov();
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();

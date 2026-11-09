@@ -108,6 +108,141 @@
   ];
   const nf = () => ({ items: clone(notifs), unread: notifs.filter(n => n.nova).length, pendentes: sols.filter(x => x.status === 'PENDENTE').length });
   const GATE = { saveRow: 1, abrirVaga: 1, preencherVaga: 1, addPosicao: 1, removerPosicao: 1, addContratacao: 1, saveContratacao: 1, alocar: 1, desligar: 1, marcarDesligadoContr: 1 };
+  // agenda de entrevistas (demo): mesma lógica do servidor, guardada no navegador
+  const AGM = (() => {
+    const store = () => { try { return JSON.parse(localStorage.getItem('demo_ag') || '{}'); } catch (e) { return {}; } };
+    const grava = s => localStorage.setItem('demo_ag', JSON.stringify(s));
+    const p2 = n => ('0' + n).slice(-2);
+    const Utilities = { formatDate: (d, tz, f) => { const x = new Date(d); return f === 'yyyy-MM-dd' ? x.getFullYear() + '-' + p2(x.getMonth() + 1) + '-' + p2(x.getDate()) : p2(x.getHours()) + ':' + p2(x.getMinutes()); }, getUuid: () => 'demoag' + Math.random().toString(36).slice(2, 12) };
+    const PropertiesService = { getScriptProperties: () => ({ getProperty: k => store()['P_' + k] || null, setProperty: (k, v) => { const s = store(); s['P_' + k] = v; grava(s); } }) };
+    const CacheService = { getScriptCache: () => ({ get: () => null, put: () => {} }) };
+    const parseJ_ = (s, d) => { try { return s ? JSON.parse(s) : d; } catch (e) { return d; } };
+    const fsReq_ = (m, path) => { const v = store()['D_' + path]; return v ? { fields: { json: v } } : null; };
+    const fsVal_ = x => x;
+    const fsCommit_ = ops => { const s = store(); ops.forEach(o => { s['D_' + o.path] = o.data.json; }); grava(s); };
+    const withLock_ = fn => fn(), notify_ = () => {}, isAdmin_ = () => true, testePode_ = () => true, fichaPode_ = () => true;
+    /* ---------------- AGENDA DE ENTREVISTAS (Google Meet, 20 min) ----------------
+     * Cada recrutador tem um link fixo. O candidato escolhe um horário livre de hoje ou do próximo dia útil
+     * (08h às 12h e 13h às 17h). Marcações no Firestore: /agenda/{recrutador}_{AAAAMMDD} (só o servidor lê). */
+    const AG_TZ_ = 'America/Fortaleza';
+    function agHorarios_() { const out = []; [[8, 12], [13, 17]].forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += 20) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; }
+    function agPode_(u) { return !!u && (isAdmin_(u) || testePode_(u) || fichaPode_(u)); }
+    function mustAgenda_(u) { if (!agPode_(u)) throw new Error('Sem permissão para a agenda de entrevistas.'); }
+    function agLinksLer_() { return parseJ_(PropertiesService.getScriptProperties().getProperty('AGENDALINKS'), []); }
+    function agLinksGravar_(L) { PropertiesService.getScriptProperties().setProperty('AGENDALINKS', JSON.stringify((L || []).slice(0, 40))); }
+    function agRec_(id) { return String(id || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 40); }
+    function agHoje_() { return Utilities.formatDate(new Date(), AG_TZ_, 'yyyy-MM-dd'); }
+    function agAgoraMin_() { const s = Utilities.formatDate(new Date(), AG_TZ_, 'HH:mm').split(':'); return Number(s[0]) * 60 + Number(s[1]); }
+    function agDiaSem_(dia) { return new Date(dia + 'T12:00:00Z').getUTCDay(); }
+    function agSoma_(dia, n) { const d = new Date(dia + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+    // feriados nacionais, do Ceará e de Fortaleza (os móveis são calculados pela Páscoa)
+    function agFeriados_(ano) {
+      const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), hh = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - hh - k) % 7, m = Math.floor((a + 11 * hh + 22 * l) / 451);
+      const mes = Math.floor((hh + l - 7 * m + 114) / 31), dia = ((hh + l - 7 * m + 114) % 31) + 1;
+      const pascoa = ano + '-' + ('0' + mes).slice(-2) + '-' + ('0' + dia).slice(-2);
+      const F = {}; [['01-01', 'Confraternização Universal'], ['03-19', 'Dia de São José (CE)'], ['03-25', 'Data Magna do Ceará'], ['04-21', 'Tiradentes'], ['05-01', 'Dia do Trabalho'], ['08-15', 'Nossa Senhora da Assunção (Fortaleza)'], ['09-07', 'Independência do Brasil'], ['10-12', 'Nossa Senhora Aparecida'], ['11-02', 'Finados'], ['11-15', 'Proclamação da República'], ['11-20', 'Dia da Consciência Negra'], ['12-25', 'Natal']].forEach(([md, n]) => { F[ano + '-' + md] = n; });
+      F[agSoma_(pascoa, -48)] = 'Carnaval'; F[agSoma_(pascoa, -47)] = 'Carnaval'; F[agSoma_(pascoa, -2)] = 'Sexta-feira Santa'; F[agSoma_(pascoa, 60)] = 'Corpus Christi';
+      return F;
+    }
+    function agFeriado_(dia) { return agFeriados_(Number(dia.slice(0, 4)))[dia] || ''; }
+    function agUtil_(dia) { const w = agDiaSem_(dia); return w !== 0 && w !== 6 && !agFeriado_(dia); }
+    function agProxUtil_(dia) { let d = agSoma_(dia, 1); while (!agUtil_(d)) d = agSoma_(d, 1); return d; }
+    // dias que o candidato pode escolher: hoje (se dia útil) e o próximo dia útil (sexta → segunda; pula feriados)
+    function agDiasCand_() { const h = agHoje_(); const L = []; if (agUtil_(h)) L.push(h); L.push(agProxUtil_(h)); return L; }
+    function agLer_(rec, dia) {
+      try { const doc = fsReq_('get', '/agenda/' + agRec_(rec) + '_' + dia.replace(/-/g, '')); if (doc && doc.fields && doc.fields.json) return JSON.parse(fsVal_(doc.fields.json)); } catch (e) {}
+      return { rec: agRec_(rec), dia: dia, s: {}, fechado: false };
+    }
+    function agGravar_(d) { fsCommit_([{ path: '/agenda/' + agRec_(d.rec) + '_' + d.dia.replace(/-/g, ''), data: { json: JSON.stringify(d), em: Date.now() } }]); }
+    function agLivres_(d, hoje) {
+      const agora = agAgoraMin_();
+      return agHorarios_().filter(hh => { if (d.fechado || !agUtil_(d.dia)) return false; const o = d.s[hh]; if (o && o.st !== 'cancelado') return false; if (d.dia === hoje) { const p = hh.split(':'); if (Number(p[0]) * 60 + Number(p[1]) < agora + 30) return false; } return true; });
+    }
+    // público (candidato)
+    function agendaInfo_(req) {
+      const l = agLinksLer_().find(x => x.codigo === String(req.codigo || ''));
+      if (!l || !l.ativo) return { ok: false, error: 'Este link de agendamento não está mais ativo. Peça um novo link ao RH.' };
+      const hoje = agHoje_();
+      const dias = agDiasCand_().map(dia => { const d = agLer_(l.rec, dia), livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_().map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
+      return { ok: true, rec: l.nome, hoje: hoje, dias: dias };
+    }
+    function agendaMarcar_(req) {
+      const cache = CacheService.getScriptCache(), rk = 'ag_' + String(req.codigo || '').slice(0, 20), nt = Number(cache.get(rk) || 0);
+      if (nt >= 60) return { ok: false, error: 'Muitas tentativas em pouco tempo. Tente de novo em alguns minutos.' };
+      cache.put(rk, String(nt + 1), 600);
+      const l = agLinksLer_().find(x => x.codigo === String(req.codigo || ''));
+      if (!l || !l.ativo) return { ok: false, error: 'Este link de agendamento não está mais ativo. Peça um novo link ao RH.' };
+      const d0 = req.data || {}, t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+      const m = { nome: t(d0.nome, 90).toUpperCase(), tel: String(d0.tel || '').replace(/\D/g, '').slice(0, 13), email: t(d0.email, 100).toLowerCase(), vaga: t(d0.vaga, 80) };
+      const dia = String(d0.dia || ''), hh = String(d0.h || '');
+      if (m.nome.split(' ').length < 2) return { ok: false, error: 'Informe o seu nome completo.' };
+      if (m.tel.length < 10) return { ok: false, error: 'Informe um WhatsApp válido com DDD.' };
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m.email)) return { ok: false, error: 'Informe um e-mail válido. O convite da entrevista será enviado para ele.' };
+      if (agDiasCand_().indexOf(dia) < 0 || agHorarios_().indexOf(hh) < 0) return { ok: false, error: 'Horário inválido. Atualize a página e escolha de novo.' };
+      return withLock_(() => {
+        const hoje = agHoje_();
+        // o mesmo candidato não marca duas vezes
+        for (const x of agDiasCand_()) { const dx = agLer_(l.rec, x); for (const k in dx.s) { const o = dx.s[k]; if (o && o.st === 'marcado' && o.tel === m.tel) return { ok: false, error: 'Você já tem uma entrevista marcada para ' + x.split('-').reverse().slice(0, 2).join('/') + ' às ' + k + '.' }; } }
+        const d = agLer_(l.rec, dia);
+        if (agLivres_(d, hoje).indexOf(hh) < 0) return { ok: false, ocupado: true, error: 'Esse horário acabou de ser preenchido. Escolha outro, por favor.' };
+        d.s[hh] = Object.assign(m, { st: 'marcado', origem: 'candidato', em: new Date().toISOString(), visto: false });
+        agGravar_(d);
+        try { notify_('ADMIN', { NOME: m.nome, ID: '' }, 'AGENDA', 'Nova entrevista agendada', m.nome + ' · ' + dia.split('-').reverse().join('/') + ' às ' + hh + ' · ' + l.nome, '#/agenda'); } catch (e) {}
+        return { ok: true, dia: dia, h: hh, rec: l.nome };
+      });
+    }
+    // com login
+    function agMeuLink_(user) {
+      const rec = agRec_(user.ID);
+      let l = agLinksLer_().find(x => x.rec === rec && x.ativo);
+      if (!l) withLock_(() => { const L = agLinksLer_(); l = L.find(x => x.rec === rec && x.ativo); if (!l) { l = { codigo: Utilities.getUuid().replace(/-/g, '').slice(0, 14), rec: rec, nome: String(user.NOME || ''), em: new Date().toISOString(), ativo: true }; L.unshift(l); agLinksGravar_(L); } });
+      return l;
+    }
+    function agendaList_(req, user) {
+      mustAgenda_(user);
+      const meu = agMeuLink_(user), links = agLinksLer_().filter(x => x.ativo);
+      let rec = agRec_(req.rec || meu.rec);
+      if (rec !== meu.rec && !isAdmin_(user)) rec = meu.rec;
+      const de = /^\d{4}-\d{2}-\d{2}$/.test(String(req.de || '')) ? req.de : agHoje_();
+      const n = Math.max(1, Math.min(7, Number(req.n) || 1)), dias = [];
+      for (let i = 0; i < n; i++) { const x = agLer_(rec, agSoma_(de, i)); x.feriado = agFeriado_(x.dia); dias.push(x); }
+      return { rec: rec, meu: meu, recs: isAdmin_(user) ? links.map(x => ({ rec: x.rec, nome: x.nome })) : [{ rec: meu.rec, nome: meu.nome }], dias: dias, hoje: agHoje_(), candDias: agDiasCand_(), horarios: agHorarios_() };
+    }
+    function agDoUser_(req, user) { mustAgenda_(user); const meu = agMeuLink_(user); const rec = agRec_(req.rec || meu.rec); if (rec !== meu.rec && !isAdmin_(user)) throw new Error('Você só pode alterar a sua agenda.'); return rec; }
+    function agendaSalvar_(req, user) {
+      const rec = agDoUser_(req, user), dia = String(req.dia || ''), hh = String(req.h || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) throw new Error('Dia inválido.');
+      return withLock_(() => {
+        const d = agLer_(rec, dia);
+        if (req.fechado != null) d.fechado = !!req.fechado;
+        if (hh) {
+          if (agHorarios_().indexOf(hh) < 0) throw new Error('Horário inválido.');
+          const o = req.item, t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
+          if (o === null) delete d.s[hh];
+          else if (o) {
+            const atual = d.s[hh] || {};
+            if (o.st === 'bloqueado') d.s[hh] = { st: 'bloqueado', motivo: t(o.motivo, 80), por: String(user.NOME || ''), em: new Date().toISOString() };
+            else d.s[hh] = Object.assign({}, atual, { nome: t(o.nome != null ? o.nome : atual.nome, 90).toUpperCase(), tel: String(o.tel != null ? o.tel : atual.tel || '').replace(/\D/g, '').slice(0, 13), email: t(o.email != null ? o.email : atual.email, 100).toLowerCase(), vaga: t(o.vaga != null ? o.vaga : atual.vaga, 80), obs: t(o.obs != null ? o.obs : atual.obs, 600), st: ['marcado', 'realizada', 'faltou', 'cancelado'].indexOf(o.st) >= 0 ? o.st : (atual.st || 'marcado'), origem: atual.origem || 'rh', em: atual.em || new Date().toISOString(), visto: true, alt: String(user.NOME || '') });
+            if (d.s[hh].st !== 'bloqueado' && !d.s[hh].nome) throw new Error('Informe o nome do candidato.');
+          }
+        }
+        agGravar_(d); d.feriado = agFeriado_(d.dia);
+        return { dia: d };
+      });
+    }
+    function agendaVisto_(req, user) {
+      const rec = agDoUser_(req, user);
+      withLock_(() => { (req.dias || []).slice(0, 7).forEach(dia => { const d = agLer_(rec, String(dia)); let mud = false; for (const k in d.s) if (d.s[k] && d.s[k].visto === false) { d.s[k].visto = true; mud = true; } if (mud) agGravar_(d); }); });
+      return {};
+    }
+    function agendaNovoLink_(req, user) {
+      mustAgenda_(user);
+      const rec = agRec_(user.ID);
+      withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
+      return { meu: agMeuLink_(user) };
+    }
+    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_ };
+  })();
   window.GRC_MOCK = {
     call: async function (action, p) {
       await new Promise(r => setTimeout(r, 250));
@@ -158,6 +293,9 @@
         case 'fichaLinkCriar': { window.__fl = window.__fl || []; const l = { codigo: 'demo' + Date.now().toString(36), titulo: p.titulo, geral: !!p.geral, criadoPor: me.nome, em: new Date().toISOString(), ativo: true }; window.__fl.unshift(l); return { ok: true, link: l, links: clone(window.__fl) }; }
         case 'fichaLinkDesativar': (window.__fl || []).forEach(l => { if (l.codigo === p.codigo) l.ativo = false; }); return { ok: true, links: clone(window.__fl || []) };
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
+        case 'agendaInfo': return AGM.agendaInfo_(p);
+        case 'agendaMarcar': return AGM.agendaMarcar_(p);
+        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [

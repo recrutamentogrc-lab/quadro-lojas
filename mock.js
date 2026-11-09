@@ -272,13 +272,36 @@
       else fsCommit_([{ path: '/agendafoto/' + rec, del: true }]);
       return { foto: agFoto_(rec) };
     }
+    // remarcar: move a entrevista para outro dia/horário (mesmo recrutador)
+    function agendaMover_(req, user) {
+      const rec = agDoUser_(req, user), de = req.de || {}, para = req.para || {};
+      const ok = x => /^\d{4}-\d{2}-\d{2}$/.test(String(x.dia || '')) && agHorarios_().indexOf(String(x.h || '')) >= 0;
+      if (!ok(de) || !ok(para)) throw new Error('Dia ou horário inválido.');
+      if (!agUtil_(para.dia)) throw new Error('O novo dia é fim de semana ou feriado.');
+      if (de.dia === para.dia && de.h === para.h) throw new Error('Escolha um horário diferente do atual.');
+      return withLock_(() => {
+        const d1 = agLer_(rec, de.dia), mesmo = de.dia === para.dia, d2 = mesmo ? d1 : agLer_(rec, para.dia);
+        const o = d1.s[de.h];
+        if (!o || o.st === 'bloqueado' || o.st === 'cancelado') throw new Error('Entrevista não encontrada. Atualize a agenda.');
+        const alvo = d2.s[para.h];
+        if (alvo && alvo.st !== 'cancelado') throw new Error('O novo horário já está ocupado. Escolha outro.');
+        const hist = (o.hist || []).concat([{ de: de.dia + ' ' + de.h, para: para.dia + ' ' + para.h, por: String(user.NOME || ''), em: new Date().toISOString() }]).slice(-10);
+        delete d1.s[de.h];
+        d2.s[para.h] = Object.assign({}, o, { st: 'marcado', visto: true, alt: String(user.NOME || ''), remarcado: de.dia + ' ' + de.h, hist: hist });
+        if (mesmo) agGravar_(d1);
+        else fsCommit_([d1, d2].map(d => ({ path: '/agenda/' + agRec_(d.rec) + '_' + d.dia.replace(/-/g, ''), data: { json: JSON.stringify(d), em: Date.now() } })));
+        const out = mesmo ? [d1] : [d1, d2];
+        out.forEach(d => { d.feriado = agFeriado_(d.dia); });
+        return { dias: out };
+      });
+    }
     function agendaNovoLink_(req, user) {
       mustAgenda_(user);
       const rec = agRec_(user.ID);
       withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
       return { meu: agMeuLink_(user) };
     }
-    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_ };
+    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_ };
   })();
   window.GRC_MOCK = {
     call: async function (action, p) {
@@ -332,7 +355,7 @@
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'agendaInfo': return AGM.agendaInfo_(p);
         case 'agendaMarcar': return AGM.agendaMarcar_(p);
-        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
+        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [

@@ -1182,3 +1182,15 @@ body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
 .ar-foto{display:flex;gap:14px;align-items:center}
 .ar-foto-img{width:72px;height:72px;border-radius:50%;overflow:hidden;flex:none;display:grid;place-items:center;background:var(--surface2);border:2px solid var(--accent)}
 .ar-foto-img img{width:100%;height:100%;object-fit:cover}
+.ar-mv-at{display:flex;flex-direction:column;background:var(--surface2);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.ar-mv-at span{font-size:12.5px;color:var(--muted)}
+.ar-mv-hs{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px}
+.ar-mv-h{background:var(--surface);border:1.5px solid var(--border);border-radius:9px;padding:7px 2px;font:inherit;font-weight:700;font-size:13px;color:var(--text);cursor:pointer}
+.ar-mv-h:disabled{opacity:.35;text-decoration:line-through;cursor:not-allowed}
+.ar-mv-h.atual{border-style:dashed;opacity:.6;text-decoration:none}
+.ar-mv-h.sel{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (hover:hover){.ar-mv-h:not(:disabled):not(.sel):hover{border-color:var(--accent)}}
+.ar-mv-ok{display:flex;align-items:center;justify-content:center;gap:12px;background:var(--surface2);border-radius:12px;padding:12px;font-size:15px}
+.ar-mv-ok span{color:var(--muted);text-decoration:line-through}
+.ar-mv-ok i{font-style:normal;color:var(--accent)}
+.ar-mv-ok b{color:var(--accent);font-size:17px}

@@ -1508,7 +1508,7 @@ async function pgAgenda() {
       if (!o || o.st === 'cancelado') return `<button class="ar-sl livre ${pas || fim(D) ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span>${fim(D) ? '—' : pas ? '' : 'Livre'}</span>${o ? `<em class="faint">cancelada: ${h(o.nome)}</em>` : ''}</button>`;
       if (o.st === 'bloqueado') return `<button class="ar-sl bloq" data-h="${hh}"><b>${hh}</b><span>🔒 Bloqueado${o.motivo ? ' · ' + h(o.motivo) : ''}</span></button>`;
       const [lb, cl] = AG_ST_[o.st] || AG_ST_.marcado;
-      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? ' · ' + h(o.email) : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.origem === 'candidato' ? '<span class="badge" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
+      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? ' · ' + h(o.email) : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.remarcado ? '<span class="badge b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
     };
     const ini = agSegunda_(f.dia);
     v.innerHTML = `
@@ -1594,17 +1594,92 @@ function openAgendaItem(rec, D, hh, done) {
       ${o.vaga ? `<div>💼 ${h(o.vaga)}</div>` : ''}
       ${o.email ? `<div>✉️ <a href="mailto:${h(o.email)}">${h(o.email)}</a> <button class="btn sm ghost" id="aiCpE" title="Copiar e-mail">${ic('copy')}</button></div>` : ''}
       ${o.tel ? `<div>📱 <a target="_blank" rel="noopener" href="https://wa.me/55${h(o.tel)}">${h(telFmt(o.tel))}</a></div>` : ''}
+      ${o.remarcado ? `<div class="faint" style="font-size:12px">🔁 Remarcada (antes: ${h(o.remarcado.split(' ')[0].split('-').reverse().join('/'))} às ${h(o.remarcado.split(' ')[1])})</div>` : ''}
       <div class="faint" style="font-size:12px">${o.origem === 'candidato' ? 'Escolhido pelo candidato no link' : 'Marcado pelo RH'} · ${dtHr_(o.em)}${o.alt ? ' · última alteração: ' + h(o.alt) : ''}</div></div>
       <div class="field" style="margin-top:12px"><label>Situação</label><div class="ar-sts">${['marcado', 'realizada', 'faltou'].map(s => `<button class="btn sm ${o.st === s ? 'primary' : ''}" data-st="${s}">${AG_ST_[s][0]}</button>`).join('')}</div></div>
       <div class="field"><label>Observações da entrevista</label><textarea class="input" id="aiObs" rows="3" placeholder="Anotações sobre o candidato...">${h(o.obs || '')}</textarea></div>`,
-    foot: `<button class="btn ghost" id="aiCan" style="margin-right:auto;color:var(--bad)">${ic('x')} Cancelar e liberar horário</button><button class="btn" id="aiCp">${ic('copy')} Copiar dados</button><button class="btn primary" id="aiOk">Salvar</button>`,
+    foot: `<button class="btn ghost" id="aiCan" style="margin-right:auto;color:var(--bad)">${ic('x')} Cancelar e liberar horário</button><button class="btn" id="aiMv">${ic('swap')} Remarcar</button><button class="btn" id="aiCp">${ic('copy')} Copiar dados</button><button class="btn primary" id="aiOk">Salvar</button>`,
     onMount: m => {
       let st = o.st;
       $$('[data-st]', m.el).forEach(b => b.onclick = () => { st = b.dataset.st; $$('[data-st]', m.el).forEach(x => x.classList.toggle('primary', x === b)); });
       if ($('#aiCpE', m.el)) $('#aiCpE', m.el).onclick = () => copiar_(o.email, 'E-mail copiado');
       $('#aiCp', m.el).onclick = () => copiar_(convite, 'Dados copiados para criar o convite');
+      $('#aiMv', m.el).onclick = () => { m.close(); openAgendaMover(rec, D, hh, done); };
       $('#aiOk', m.el).onclick = () => { const item = { st, obs: $('#aiObs', m.el).value }; m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item }, d => { d.s[hh] = agItem_(d.s[hh], item); }, done); toast('Salvo'); };
       $('#aiCan', m.el).onclick = async () => { if (!await confirmBox(`Cancelar a entrevista de <b>${h(o.nome)}</b> e liberar o horário das ${hh}?`, 'Cancelar entrevista', true)) return; m.close(); agSalvar_({ rec, dia: D.dia, h: hh, item: { st: 'cancelado' } }, d => { d.s[hh] = agItem_(d.s[hh], { st: 'cancelado' }); }, done); toast('Entrevista cancelada. O horário voltou a ficar livre.'); };
+    }
+  });
+}
+// remarcar entrevista: escolhe novo dia e horário e avisa o candidato
+function openAgendaMover(rec, D, hh, done) {
+  const o = D.s[hh], H = (S.agenda && S.agenda.horarios) || [];
+  modal({
+    title: 'Remarcar entrevista', icon: 'swap',
+    body: `<div class="ar-mv-at"><b>${h(o.nome)}</b><span>Atual: ${h(agExt_(D.dia))} às ${hh}</span></div>
+      <div class="field"><label>Novo dia</label><input type="date" class="input" id="amD" value="${D.dia}"></div>
+      <div id="amH"></div>`,
+    foot: `<button class="btn" data-close>Voltar</button><button class="btn primary" id="amOk" disabled>${ic('check')} Remarcar</button>`,
+    onMount: m => {
+      let sel = null, doc = null, dd = D.dia, seqM = 0;
+      const agoraMin = () => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); };
+      const desenha = () => {
+        const el = $('#amH', m.el); if (!el) return;
+        if (!doc) { el.innerHTML = '<div class="sk" style="height:140px"></div>'; return; }
+        const hoje = new Date().toLocaleDateString('sv-SE'), w = agDt_(dd).getDay();
+        if (dd < hoje) { el.innerHTML = '<div class="ag-vazio">Escolha uma data a partir de hoje.</div>'; return; }
+        if (doc.feriado || w === 0 || w === 6) { el.innerHTML = `<div class="ag-vazio">${doc.feriado ? '🎉 Feriado: ' + h(doc.feriado) : 'Fim de semana'}. Escolha outro dia.</div>`; return; }
+        const livre = x => (!doc.s[x] || doc.s[x].st === 'cancelado') && !(dd === D.dia && x === hh) && !(dd === hoje && Number(x.slice(0, 2)) * 60 + Number(x.slice(3)) <= agoraMin());
+        const bt = x => { const L = livre(x), oc = doc.s[x] && doc.s[x].st !== 'cancelado'; return `<button class="ar-mv-h ${sel === x ? 'sel' : ''} ${x === hh && dd === D.dia ? 'atual' : ''}" data-h="${x}" ${L ? '' : 'disabled'} title="${oc ? h(doc.s[x].st === 'bloqueado' ? 'Bloqueado' : doc.s[x].nome) : ''}">${x}</button>`; };
+        el.innerHTML = `<div class="ar-turno">☀️ Manhã</div><div class="ar-mv-hs">${H.filter(x => x < '12:00').map(bt).join('')}</div><div class="ar-turno" style="margin-top:8px">🌤️ Tarde</div><div class="ar-mv-hs">${H.filter(x => x >= '13:00').map(bt).join('')}</div>${doc.fechado ? '<p class="faint" style="font-size:12px;margin:8px 0 0">Este dia está fechado para o link do candidato, mas você pode remarcar nele.</p>' : ''}`;
+        $$('.ar-mv-h:not([disabled])', el).forEach(b => b.onclick = () => { sel = b.dataset.h; $('#amOk', m.el).disabled = false; desenha(); });
+      };
+      const carrega = async () => {
+        dd = $('#amD', m.el).value; sel = null; $('#amOk', m.el).disabled = true;
+        doc = (S.agenda.dias || []).find(x => x.dia === dd) || null; desenha();
+        if (!doc && /^\d{4}-\d{2}-\d{2}$/.test(dd)) {
+          const k = ++seqM;
+          try { const j = await api('agendaList', { rec, de: dd, n: 1 }, { silent: true }); if (k === seqM && $('#amH', m.el)) { doc = j.dias[0]; desenha(); } }
+          catch (e) { toast(e.message, true); }
+        }
+      };
+      $('#amD', m.el).onchange = carrega;
+      carrega();
+      $('#amOk', m.el).onclick = () => {
+        if (!sel) return;
+        const para = { dia: dd, h: sel }, de = { dia: D.dia, h: hh };
+        m.close(); agMover_(rec, de, para, o, done);
+        openAgendaAviso(rec, o, de, para);
+      };
+    }
+  });
+}
+function agMover_(rec, de, para, item, done) {
+  const loc = d => S.agenda && S.agenda.dias.find(x => x.dia === d);
+  const d1 = loc(de.dia); if (d1) { const n = JSON.parse(JSON.stringify(d1)); delete n.s[de.h]; agTroca_(n); }
+  const d2 = loc(para.dia); if (d2) { const n = JSON.parse(JSON.stringify(d2)); n.s[para.h] = Object.assign({}, item, { st: 'marcado', visto: true, remarcado: de.dia + ' ' + de.h }); agTroca_(n); }
+  done();
+  S.agPend = (S.agPend || 0) + 1;
+  api('agendaMover', { rec, de, para }, { silent: true })
+    .then(j => { S.agPend--; if (S.agenda && S.agenda.rec === rec) { (j.dias || []).forEach(d => { if (loc(d.dia)) agTroca_(d); }); if (!S.agPend && !$('.overlay')) done(); } })
+    .catch(e => { S.agPend--; toast('Não foi possível remarcar: ' + e.message, true); if (S.agBuscar) S.agBuscar(); });
+}
+function openAgendaAviso(rec, o, de, para) {
+  const recNome = ((S.agenda.recs || []).find(r => r.rec === rec) || S.agenda.meu || {}).nome || (S.user || {}).nome || '';
+  const prim = s => String(s || '').split(' ')[0].toLowerCase().replace(/^./, c => c.toUpperCase());
+  const quando = agExt_(para.dia);
+  const msg = `Olá, ${prim(o.nome)}! Aqui é ${recNome.split(' - ')[0]}, do RH do Grupo R Center.\n\nPrecisamos ajustar o horário da sua entrevista online. Ela foi *remarcada para ${quando}, às ${para.h}* (duração de cerca de 20 minutos, pelo Google Meet).\n\nO convite atualizado com o link será enviado para o seu e-mail${o.email ? ' (' + o.email + ')' : ''}. Caso não possa comparecer nesse horário, por favor, nos avise por aqui.\n\nObrigado pela compreensão!`;
+  const dados = `Entrevista online · ${o.nome}\nNova data: ${para.dia.split('-').reverse().join('/')} às ${para.h} (20 min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
+  modal({
+    title: 'Entrevista remarcada', icon: 'check',
+    body: `<div class="ar-mv-ok"><span>${h(agDdMm_(de.dia))} · ${de.h}</span><i>➜</i><b>${h(agDdMm_(para.dia))} · ${para.h}</b></div>
+      <p class="muted" style="margin:10px 0 8px">Avise o candidato sobre a mudança. A mensagem abaixo já está pronta:</p>
+      <textarea class="input" id="avMsg" rows="8">${h(msg)}</textarea>
+      <p class="faint" style="font-size:12px;margin:8px 0 0">Lembre de atualizar também o convite do Google Meet na ATS. Use <b>Copiar dados</b>.</p>`,
+    foot: `<button class="btn" id="avCp">${ic('copy')} Copiar dados</button><button class="btn" id="avCm">${ic('copy')} Copiar mensagem</button>${o.tel ? `<button class="btn primary" id="avWa">${ic('share')} Avisar pelo WhatsApp</button>` : `<button class="btn primary" data-close>Fechar</button>`}`,
+    onMount: m => {
+      $('#avCp', m.el).onclick = () => copiar_(dados, 'Dados copiados para atualizar o convite');
+      $('#avCm', m.el).onclick = () => copiar_($('#avMsg', m.el).value, 'Mensagem copiada');
+      if ($('#avWa', m.el)) $('#avWa', m.el).onclick = () => { const t = String(o.tel).replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, ''); window.open('https://wa.me/55' + t + '?text=' + encodeURIComponent($('#avMsg', m.el).value), '_blank'); };
     }
   });
 }

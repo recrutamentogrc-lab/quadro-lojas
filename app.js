@@ -1473,7 +1473,7 @@ const AG_ST_ = { marcado: ['Marcada', 'b-info'], realizada: ['Realizada', 'b-ok'
 const agSegunda_ = d => { const x = agDt_(d), w = x.getDay(); x.setDate(x.getDate() - (w === 0 ? 6 : w - 1)); return x.toLocaleDateString('sv-SE'); };
 const agSomaF_ = (d, n) => { const x = agDt_(d); x.setDate(x.getDate() + n); return x.toLocaleDateString('sv-SE'); };
 async function pgAgenda() {
-  setTitle('Agenda de entrevistas', 'Google Meet · 20 minutos · 08h às 12h e 13h às 17h');
+  setTitle('Agenda de entrevistas', 'Google Meet · 20 min · 8h–12h e 13h–17h');
   const v = $('#view'), f = getF('agenda'), hojeL = new Date().toLocaleDateString('sv-SE');
   if (!f.dia || f.dia < agSomaF_(hojeL, -60)) f.dia = hojeL;
   const rt = S.rt;
@@ -1508,7 +1508,7 @@ async function pgAgenda() {
       if (!o || o.st === 'cancelado') return `<button class="ar-sl livre ${pas || fim(D) ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span>${fim(D) ? '—' : pas ? '' : 'Livre'}</span>${o ? `<em class="faint">cancelada: ${h(o.nome)}</em>` : ''}</button>`;
       if (o.st === 'bloqueado') return `<button class="ar-sl bloq" data-h="${hh}"><b>${hh}</b><span>🔒 Bloqueado${o.motivo ? ' · ' + h(o.motivo) : ''}</span></button>`;
       const [lb, cl] = AG_ST_[o.st] || AG_ST_.marcado;
-      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? ' · ' + h(o.email) : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.remarcado ? '<span class="badge b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
+      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? `<span class="ar-em"> · ${h(o.email)}</span>` : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.remarcado ? '<span class="badge b-origem b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge b-origem" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
     };
     const ini = agSegunda_(f.dia);
     v.innerHTML = `

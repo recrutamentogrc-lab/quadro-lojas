@@ -600,6 +600,11 @@ async function pgFichas() {
     const recsAll = uniq([...(c.recrutadores || []), ...(c.fichas || []).map(x => x.recrutador).filter(Boolean)]);
     const lista = (c.fichas || []).filter(x => (!q || norm(x.nome + ' ' + x.mae + ' ' + (x.titulo || '') + ' ' + (x.recrutador || '')).includes(q) || (qd.length >= 3 && x.cpf.includes(qd)))
       && (!f.rec || (f.rec === '-' ? !x.recrutador : norm(x.recrutador) === norm(f.rec))) && (!f.de || dia(x) >= f.de) && (!f.ate || dia(x) <= f.ate));
+    // conferência interna (Escavador / SUB) — mesmo estilo do checklist das contratações
+    const ckOk = x => x.esc && x.sub;
+    const ckN = { esc: lista.filter(x => !x.esc).length, sub: lista.filter(x => !x.sub).length, ok: lista.filter(ckOk).length };
+    const listaV = lista.filter(x => !f.ck || (f.ck === 'ok' ? ckOk(x) : !x[f.ck]));
+    const ckQuem = (x, k) => x[k] ? `Visto${x[k + 'Por'] ? ' por ' + x[k + 'Por'] : ''} em ${new Date(x[k]).toLocaleDateString('pt-BR')}` : '';
     const ativos = (c.links || []).filter(l => l.ativo);
     v.innerHTML = `
     <div class="toolbar">
@@ -614,28 +619,31 @@ async function pgFichas() {
       <button class="btn" id="fiQrG" title="QR Code aberto para qualquer vaga e qualquer pessoa">${ic('grid')} QR Code geral</button>
       <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
     </div>
-    ${lista.length ? `<div class="card fi-lista">${lista.map(x => `
+    <div class="chips ck-chips fi-ck" id="fiCk"><span class="ck-chips-t">Conferência</span><span class="chip ${!f.ck ? 'on' : ''}" data-c="">Todas</span><span class="chip ${f.ck === 'esc' ? 'on' : ''}" data-c="esc">Falta Escavador <span class="n">${ckN.esc}</span></span><span class="chip ${f.ck === 'sub' ? 'on' : ''}" data-c="sub">Falta SUB <span class="n">${ckN.sub}</span></span><span class="chip ${f.ck === 'ok' ? 'on' : ''}" data-c="ok">${ic('check')} Concluídas <span class="n">${ckN.ok}</span></span></div>
+    ${listaV.length ? `<div class="card fi-lista">${listaV.map(x => `
       <details class="fi-row${x.visto ? '' : ' nova'}"${S.fiAberta === x.id ? ' open' : ''} data-fid="${h(x.id)}">
         <summary>
           <span class="fi-r-n"><b class="fi-nome">${h(x.nome)}</b>${x.visto ? '' : '<span class="badge b-acc">nova</span>'}<small>${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</small></span>
           <span class="fi-r-d"><small>CPF</small>${h(cpfFmt(x.cpf))}</span>
           <span class="fi-r-d fi-r-nasc"><small>Nascimento</small>${h(dataBR(x.nasc))}</span>
-          <span class="fi-r-a"><button class="btn primary sm" data-cpall="${h(x.id)}" title="Copiar dados">${ic('copy')}<span class="fi-r-l"> Copiar</span></button><button class="btn sm" data-cpfar="${h(x.id)}" title="Copiar com fardamento">${ic('copy')}<span class="fi-r-l"> + farda</span></button><button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button><i class="fi-r-ch">${ic('chevron')}</i></span>
+          <span class="fi-r-a"><button class="btn sm fi-ck-b${x.esc ? ' ok' : ''}" data-esc="${h(x.id)}" title="${x.esc ? h(ckQuem(x, 'esc')) + ' · clique para abrir de novo' : 'Abrir o Escavador pelo CPF (marca como visto)'}">${ic(x.esc ? 'check' : 'search')} Escavador</button><button class="btn sm fi-ck-b${x.sub ? ' ok' : ''}" data-sub="${h(x.id)}" title="${x.sub ? h(ckQuem(x, 'sub')) + ' · clique para desmarcar' : 'Marcar que o SUB foi visto'}">${x.sub ? ic('check') : ''} SUB</button><button class="btn primary sm" data-cpall="${h(x.id)}" title="Copiar dados">${ic('copy')}<span class="fi-r-l"> Copiar</span></button><button class="btn sm" data-cpfar="${h(x.id)}" title="Copiar com fardamento">${ic('copy')}<span class="fi-r-l"> + farda</span></button><button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button><i class="fi-r-ch">${ic('chevron')}</i></span>
         </summary>
         <div class="fi-campos fi-det">
           ${[['Nome completo', x.nome], ['Nome da mãe', x.mae], ['CPF', cpfFmt(x.cpf)], ['Data de nascimento', dataBR(x.nasc)]].map(([l, val]) => `<div class="fi-c"><span>${l}</span><b>${h(val)}</b><button class="btn sm ghost icon" data-cp="${h(val)}" title="Copiar ${l.toLowerCase()}">${ic('copy')}</button></div>`).join('')}
           <div class="fi-c"><span>Fardamento</span><b>Blusa ${h(x.blusa)} · Calça ${h(x.calca)} · Bota ${h(x.bota)}</b></div>
           ${x.tel ? `<div class="fi-c"><span>WhatsApp</span><b><a href="https://wa.me/55${h(String(x.tel).replace(/^55(?=\d{10,11}$)/, ''))}" target="_blank" rel="noopener" style="color:var(--accent)">${h(telFmt(x.tel))}</a></b></div>` : ''}
+          <div class="fi-c"><span>Conferência</span><b>${x.esc ? h(ckQuem(x, 'esc')) : 'Escavador não visto'} · ${x.sub ? 'SUB: ' + h(ckQuem(x, 'sub')).toLowerCase() : 'SUB não visto'}</b>${x.esc ? `<button class="btn sm ghost" data-escx="${h(x.id)}" title="Desmarcar Escavador">Desmarcar Escavador</button>` : ''}</div>
           <div class="fi-acts fi-mob"><button class="btn sm" data-cpfar="${h(x.id)}">${ic('copy')} Copiar com fardamento</button><button class="btn sm ghost" data-del="${h(x.id)}" style="color:var(--bad)">${ic('trash')} Apagar</button></div>
         </div>
       </details>`).join('')}</div>`
-      : `<div class="card empty" style="text-align:center;padding:30px"><b>${(c.fichas || []).length ? 'Nenhuma ficha encontrada' : 'Nenhuma ficha recebida ainda'}</b><p class="muted">Clique em <b>Mandar link ao candidato</b>, envie pelo WhatsApp e a ficha aparece aqui assim que ele preencher.</p></div>`}
+      : `<div class="card empty" style="text-align:center;padding:30px"><b>${(c.fichas || []).length ? (f.ck && lista.length ? 'Nenhuma ficha neste filtro de conferência' : 'Nenhuma ficha encontrada') : 'Nenhuma ficha recebida ainda'}</b><p class="muted">Clique em <b>Mandar link ao candidato</b>, envie pelo WhatsApp e a ficha aparece aqui assim que ele preencher.</p></div>`}
     <div class="faint" style="font-size:12px;margin-top:10px"><span id="fiCont"></span> · As fichas ficam guardadas por 180 dias e depois são apagadas automaticamente (LGPD).</div>`;
     const qi = $('#fiQ'); qi.oninput = () => { f.q = qi.value; saveF(); draw(); const e2 = $('#fiQ'); e2.focus(); e2.setSelectionRange(e2.value.length, e2.value.length); };
     [['fiRec', 'rec'], ['fiDe', 'de'], ['fiAte', 'ate']].forEach(([id, k]) => { $('#' + id).onchange = e => { f[k] = e.target.value; saveF(); draw(); }; });
     if ($('#fiLimpa')) $('#fiLimpa').onclick = () => { f.rec = ''; f.de = ''; f.ate = ''; saveF(); draw(); };
     if ($('#fiRecs')) $('#fiRecs').onclick = () => openFichaRecs(draw);
-    const cont = $('#fiCont'); if (cont) cont.textContent = lista.length + ' ficha(s)';
+    const cont = $('#fiCont'); if (cont) cont.textContent = listaV.length + ' ficha(s)';
+    $$('#fiCk .chip').forEach(ch => ch.onclick = () => { f.ck = ch.dataset.c; saveF(); draw(); });
     $('#fiNovo').onclick = () => openFichaLink(draw);
     $('#fiQrG').onclick = e => run(e.currentTarget, async () => {
       let g = ((fichasCache_() || {}).links || []).find(l => l.ativo && l.geral);
@@ -650,6 +658,20 @@ async function pgFichas() {
     const por = id => (fichasCache_().fichas || []).find(x => x.id === id);
     $$('[data-cpall]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpall)), 'Dados copiados. É só colar no WhatsApp.'));
     $$('[data-cpfar]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpfar), true), 'Dados copiados. É só colar no WhatsApp.'));
+    // marca Escavador / SUB (na tela na hora; servidor em segundo plano)
+    const marca = async (id, campo, valor) => {
+      const ant = fichasCache_().fichas;
+      fichasSet_({ fichas: ant.map(y => y.id === id ? Object.assign({}, y, { [campo]: valor ? new Date().toISOString() : '', [campo + 'Por']: valor ? (S.user && S.user.nome) || '' : '' }) : y) }); draw();
+      try { fichasSet_(await api('fichaChk', { id, campo, valor: !!valor }, { silent: true })); if (!$('.overlay')) draw(); }
+      catch (e) { fichasSet_({ fichas: ant }); draw(); toast('Não foi possível salvar a conferência: ' + e.message, true); }
+    };
+    $$('[data-esc]').forEach(b => b.onclick = () => {
+      const x = por(b.dataset.esc); if (!x) return;
+      window.open('https://www.escavador.com/busca?q=' + encodeURIComponent(String(x.cpf || '').replace(/\D/g, '')), '_blank', 'noopener');
+      if (!x.esc) marca(x.id, 'esc', true);
+    });
+    $$('[data-escx]').forEach(b => b.onclick = () => marca(b.dataset.escx, 'esc', false));
+    $$('[data-sub]').forEach(b => b.onclick = () => { const x = por(b.dataset.sub); if (x) marca(x.id, 'sub', !x.sub); });
     $$('[data-del]').forEach(b => b.onclick = async () => {
       const x = por(b.dataset.del); if (!x || !await confirmBox(`Apagar a ficha de <b>${h(x.nome)}</b>?`, 'Apagar', true)) return;
       fichasSet_({ fichas: fichasCache_().fichas.filter(y => y.id !== x.id) }); draw(); updateShell();

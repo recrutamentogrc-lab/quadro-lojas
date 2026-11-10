@@ -234,12 +234,21 @@
       return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), candDias: agDiasCand_(), horarios: agHorarios_() };
     }
     function agDoUser_(req, user) { mustAgenda_(user); const meu = agMeuLink_(user); const rec = agRec_(req.rec || meu.rec); if (rec !== meu.rec && !isAdmin_(user)) throw new Error('Você só pode alterar a sua agenda.'); return rec; }
+    function agTurno_(d, turno, bloq, user) {
+      agHorarios_().filter(x => turno === 'm' ? x < '12:00' : x >= '13:00').forEach(x => {
+        const o = d.s[x];
+        if (bloq) { if (!o || o.st === 'cancelado') d.s[x] = { st: 'bloqueado', motivo: turno === 'm' ? 'Manhã fechada' : 'Tarde fechada', turno: turno, por: String(user.NOME || ''), em: new Date().toISOString() }; }
+        else if (o && o.st === 'bloqueado') delete d.s[x];
+      });
+    }
     function agendaSalvar_(req, user) {
       const rec = agDoUser_(req, user), dia = String(req.dia || ''), hh = String(req.h || '');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) throw new Error('Dia inválido.');
       return withLock_(() => {
         const d = agLer_(rec, dia);
         if (req.fechado != null) d.fechado = !!req.fechado;
+        // fechar/abrir a manhã ou a tarde inteira (só mexe nos horários livres e nos bloqueados)
+        if (req.turno === 'm' || req.turno === 't') agTurno_(d, req.turno, !!req.bloq, user);
         if (hh) {
           if (agHorarios_().indexOf(hh) < 0) throw new Error('Horário inválido.');
           const o = req.item, t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);

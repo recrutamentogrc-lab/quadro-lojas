@@ -1510,6 +1510,12 @@ async function pgAgenda() {
       const [lb, cl] = AG_ST_[o.st] || AG_ST_.marcado;
       return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? `<span class="ar-em"> · ${h(o.email)}</span>` : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.remarcado ? '<span class="badge b-origem b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge b-origem" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
     };
+    const hsT = t => A.horarios.filter(x => t === 'm' ? x < '12:00' : x >= '13:00');
+    const turnoH = t => {
+      const hs = hsT(t), livres = hs.filter(x => (!D.s[x] || D.s[x].st === 'cancelado') && !passado(x)).length, bloq = hs.filter(x => D.s[x] && D.s[x].st === 'bloqueado').length;
+      const bt = fim(D) || D.dia < hoje ? '' : livres ? `<button class="btn sm ghost" data-turno="${t}" data-bloq="1">🔒 Fechar ${t === 'm' ? 'manhã' : 'tarde'}</button>` : bloq ? `<button class="btn sm ghost" data-turno="${t}" data-bloq="">${ic('check')} Abrir ${t === 'm' ? 'manhã' : 'tarde'}</button>` : '';
+      return `<div class="ar-turno"><span>${t === 'm' ? '☀️ Manhã' : '🌤️ Tarde'}</span>${bt}</div>`;
+    };
     const ini = agSegunda_(f.dia);
     v.innerHTML = `
     <div class="toolbar">
@@ -1526,7 +1532,7 @@ async function pgAgenda() {
     <div class="card ar-diac">
       <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + A.horarios.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
         ${!D.feriado && ![0, 6].includes(agDt_(D.dia).getDay()) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
-      <div class="ar-cols"><div><div class="ar-turno">☀️ Manhã</div>${A.horarios.filter(x => x < '12:00').map(slot).join('')}</div><div><div class="ar-turno">🌤️ Tarde</div>${A.horarios.filter(x => x >= '13:00').map(slot).join('')}</div></div>
+      <div class="ar-cols"><div>${turnoH('m')}${A.horarios.filter(x => x < '12:00').map(slot).join('')}</div><div>${turnoH('t')}${A.horarios.filter(x => x >= '13:00').map(slot).join('')}</div></div>
     </div>
     <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
     const troca = () => { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; draw(); buscar(); };
@@ -1538,6 +1544,12 @@ async function pgAgenda() {
     $('#arRef').onclick = e => run(e.currentTarget, () => buscar());
     $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
     if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
+    $$('[data-turno]', v).forEach(b => b.onclick = async () => {
+      const t = b.dataset.turno, bloq = !!b.dataset.bloq, nm = t === 'm' ? 'Manhã' : 'Tarde';
+      const go = () => { agSalvar_({ rec: A.rec, dia: D.dia, turno: t, bloq }, d => { hsT(t).forEach(x => { const o = d.s[x]; if (bloq) { if (!o || o.st === 'cancelado') d.s[x] = { st: 'bloqueado', motivo: nm + ' fechada', turno: t, em: new Date().toISOString() }; } else if (o && o.st === 'bloqueado') delete d.s[x]; }); }, draw); toast(bloq ? nm + ' fechada: o candidato não vê esses horários' : nm + ' aberta para agendamentos'); };
+      if (!bloq && hsT(t).some(x => D.s[x] && D.s[x].st === 'bloqueado' && D.s[x].turno !== t) && !await confirmBox(`Abrir a ${nm.toLowerCase()} libera também os horários que você bloqueou um por um. Continuar?`, 'Abrir ' + nm.toLowerCase())) return;
+      go();
+    });
     if ($('#arFech')) $('#arFech').onclick = () => { const fe = !D.fechado; agSalvar_({ rec: A.rec, dia: D.dia, fechado: fe }, d => { d.fechado = fe; }, draw); toast(fe ? 'Dia fechado para agendamentos' : 'Dia aberto para agendamentos'); };
     $$('.ar-sl').forEach(b => b.onclick = () => { const hh = b.dataset.h, o = D.s[hh]; if (o && o.st !== 'cancelado') openAgendaItem(A.rec, D, hh, draw); else if (!fim(D)) openAgendaNovo(A.rec, D, hh, draw); });
   };

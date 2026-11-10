@@ -1,1 +1,1 @@
-versao: ajuste de layout da agenda 2026-11-10
+versao: fechar manha ou tarde na agenda 2026-11-10

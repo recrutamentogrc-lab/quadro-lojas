@@ -127,7 +127,8 @@
      * Cada recrutador tem um link fixo. O candidato escolhe um horário livre de hoje ou do próximo dia útil
      * (08h às 12h e 13h às 17h). Marcações no Firestore: /agenda/{recrutador}_{AAAAMMDD} (só o servidor lê). */
     const AG_TZ_ = 'America/Fortaleza';
-    function agHorarios_() { const out = []; [[8, 12], [13, 17]].forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += 20) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; }
+    function agPasso_(dia) { return String(dia || '9999-12-31') >= '2026-11-12' ? 30 : 20; }
+    function agHorarios_(dia) { const out = [], passo = agPasso_(dia); [[8, 12], [13, 17]].forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += passo) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; }
     function agPode_(u) { return !!u && (isAdmin_(u) || testePode_(u) || fichaPode_(u)); }
     function mustAgenda_(u) { if (!agPode_(u)) throw new Error('Sem permissão para a agenda de entrevistas.'); }
     function agLinksLer_() { return parseJ_(PropertiesService.getScriptProperties().getProperty('AGENDALINKS'), []); }
@@ -176,7 +177,7 @@
     function agGravar_(d) { fsCommit_([{ path: '/agenda/' + agRec_(d.rec) + '_' + d.dia.replace(/-/g, ''), data: { json: JSON.stringify(d), em: Date.now() } }]); }
     function agLivres_(d, hoje) {
       const agora = agAgoraMin_();
-      return agHorarios_().filter(hh => { if (d.fechado || !agUtil_(d.dia)) return false; const o = d.s[hh]; if (o && o.st !== 'cancelado') return false; if (d.dia === hoje) { const p = hh.split(':'); if (Number(p[0]) * 60 + Number(p[1]) < agora + 30) return false; } return true; });
+      return agHorarios_(d.dia).filter(hh => { if (d.fechado || !agUtil_(d.dia)) return false; const o = d.s[hh]; if (o && o.st !== 'cancelado') return false; if (d.dia === hoje) { const p = hh.split(':'); if (Number(p[0]) * 60 + Number(p[1]) < agora + 30) return false; } return true; });
     }
     // público (candidato)
     function agendaInfo_(req) {
@@ -184,7 +185,7 @@
       if (!l || !l.ativo) return { ok: false, error: 'Este link de agendamento não está mais ativo. Peça um novo link ao RH.' };
       const hoje = agHoje_();
       const ds = agLerVarios_(l.rec, agDiasCand_());
-      const dias = ds.map(d => { const dia = d.dia, livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_().map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
+      const dias = ds.map(d => { const dia = d.dia, livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_(dia).map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
       return { ok: true, rec: l.nome, foto: agFoto_(l.rec), hoje: hoje, dias: dias };
     }
     function agendaMarcar_(req) {
@@ -199,7 +200,7 @@
       if (m.nome.split(' ').length < 2) return { ok: false, error: 'Informe o seu nome completo.' };
       if (m.tel.length < 10) return { ok: false, error: 'Informe um WhatsApp válido com DDD.' };
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m.email)) return { ok: false, error: 'Informe um e-mail válido. O convite da entrevista será enviado para ele.' };
-      if (agDiasCand_().indexOf(dia) < 0 || agHorarios_().indexOf(hh) < 0) return { ok: false, error: 'Horário inválido. Atualize a página e escolha de novo.' };
+      if (agDiasCand_().indexOf(dia) < 0 || agHorarios_(dia).indexOf(hh) < 0) return { ok: false, error: 'Horário inválido. Atualize a página e escolha de novo.' };
       return withLock_(() => {
         const hoje = agHoje_();
         // o mesmo candidato não marca duas vezes
@@ -220,6 +221,16 @@
       if (!l) withLock_(() => { const L = agLinksLer_(); l = L.find(x => x.rec === rec && x.ativo); if (!l) { l = { codigo: Utilities.getUuid().replace(/-/g, '').slice(0, 14), rec: rec, nome: String(user.NOME || ''), em: new Date().toISOString(), ativo: true }; L.unshift(l); agLinksGravar_(L); } });
       return l;
     }
+    function agendaRelatorio_(req, user) {
+      mustAgenda_(user);
+      const meu = agMeuLink_(user), ok = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+      const de = ok(req.de) ? req.de : agHoje_(), ate = ok(req.ate) && req.ate >= de ? req.ate : de, lista = [];
+      for (let i = 0; i < 93; i++) { const d = agSoma_(de, i); if (d > ate) break; lista.push(d); }
+      let recs; try { recs = agRecs_(); } catch (e) { recs = [{ rec: meu.rec, nome: meu.nome }]; }
+      if (!recs.some(x => x.rec === meu.rec)) recs.unshift({ rec: meu.rec, nome: meu.nome });
+      if (req.rec) recs = recs.filter(x => x.rec === agRec_(req.rec));
+      return { de, ate, hoje: agHoje_(), recs: recs.map(r => ({ rec: r.rec, nome: r.nome, dias: agLerVarios_(r.rec, lista).map(x => ({ dia: x.dia, s: x.s || {}, fechado: !!x.fechado })) })) };
+    }
     function agendaList_(req, user) {
       mustAgenda_(user);
       const meu = agMeuLink_(user), links = agLinksLer_().filter(x => x.ativo);
@@ -228,14 +239,14 @@
       const de = /^\d{4}-\d{2}-\d{2}$/.test(String(req.de || '')) ? req.de : agHoje_();
       const n = Math.max(1, Math.min(7, Number(req.n) || 1)), dias = [];
       const lista = []; for (let i = 0; i < n; i++) lista.push(agSoma_(de, i));
-      agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); dias.push(x); });
+      agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); x.horarios = agHorarios_(x.dia); dias.push(x); });
       let recs = [{ rec: meu.rec, nome: meu.nome }];
       if (isAdmin_(user)) { try { recs = agRecs_(); } catch (e) { recs = links.map(x => ({ rec: x.rec, nome: x.nome })); } if (!recs.some(x => x.rec === meu.rec)) recs.unshift({ rec: meu.rec, nome: meu.nome }); }
       return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), candDias: agDiasCand_(), horarios: agHorarios_() };
     }
     function agDoUser_(req, user) { mustAgenda_(user); const meu = agMeuLink_(user); const rec = agRec_(req.rec || meu.rec); if (rec !== meu.rec && !isAdmin_(user)) throw new Error('Você só pode alterar a sua agenda.'); return rec; }
     function agTurno_(d, turno, bloq, user) {
-      agHorarios_().filter(x => turno === 'm' ? x < '12:00' : x >= '13:00').forEach(x => {
+      agHorarios_(d.dia).filter(x => turno === 'm' ? x < '12:00' : x >= '13:00').forEach(x => {
         const o = d.s[x];
         if (bloq) { if (!o || o.st === 'cancelado') d.s[x] = { st: 'bloqueado', motivo: turno === 'm' ? 'Manhã fechada' : 'Tarde fechada', turno: turno, por: String(user.NOME || ''), em: new Date().toISOString() }; }
         else if (o && o.st === 'bloqueado') delete d.s[x];
@@ -350,7 +361,7 @@
       withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
       return { meu: agMeuLink_(user) };
     }
-    return { agendaInfo_, agendaMarcar_, agendaList_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
+    return { agendaInfo_, agendaMarcar_, agendaList_, agendaRelatorio_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
   })();
   window.GRC_MOCK = {
     call: async function (action, p) {
@@ -404,7 +415,7 @@
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'agendaInfo': return AGM.agendaInfo_(p);
         case 'agendaMarcar': return AGM.agendaMarcar_(p);
-        case 'agendaList': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
+        case 'agendaList': case 'agendaRelatorio': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [
@@ -420,7 +431,7 @@
         case 'testeApagar': window.__te = (window.__te || []).filter(x => !(p.ids || [p.id]).includes(x.id)); return { ok: true };
         case 'testeAcesso': return { ok: true, ids: window.__tac || [] };
         case 'setTesteAcesso': window.__tac = p.ids; return { ok: true, ids: p.ids };
-        case 'fichaChk': (window.__fi || []).forEach(x => { if (x.id === p.id) { x[p.campo] = p.valor ? new Date().toISOString() : ''; x[p.campo + 'Por'] = p.valor ? 'Administrador' : ''; } }); return { ok: true, fichas: clone(window.__fi || []) };
+        case 'fichaChk': (window.__fi || []).forEach(x => { if (x.id === p.id) { x[p.campo] = p.valor ? new Date().toISOString() : ''; x[p.campo + 'Por'] = p.valor ? 'Administrador' : ''; x[p.campo + 'Neg'] = !!(p.valor && p.neg); } }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'fichaApagar': window.__fi = (window.__fi || []).filter(x => x.id !== p.id); return { ok: true, fichas: clone(window.__fi) };
         case 'tsGet': return { ok: true, doc: window.__ts === undefined ? null : clone(window.__ts) };
         case 'tsImportar': window.__ts = { titulo: 'GRC GRUPO R CENTER — PLANO DE CARGOS, CARREIRAS E SALÁRIOS (PCCS) — 2026', niveis: { N1: 1.6, N2: 1.5, N3: 1.5, N4: 1.4, N5: 1.4, N6: 1.3, N7: 1.3, outros: 1.2 }, itens: [{ id: 'i1', t: 'bloco', nome: 'BLOCO 1 — CARGOS ADMINISTRATIVOS E TÉCNICOS (Trilha: Auxiliar → Gerente)' }, { id: 'i2', t: 'grupo', nome: '02 · GERÊNCIA' }, { id: 'i3', t: 'cargo', nome: 'Gerente de Loja', nivel: 'N2', cbo: '1412-05', ref: null, reaj: 0 }, { id: 'i4', t: 'grupo', nome: '03 · RECURSOS HUMANOS' }, { id: 'i5', t: 'cargo', nome: 'Assistente de RH', nivel: 'N6', cbo: '2521-20', ref: 1900, reaj: 0 }, { id: 'i6', t: 'cargo', nome: 'Analista de RH Sênior', nivel: 'N5', cbo: '2521-10', ref: null, reaj: 0 }, { id: 'i7', t: 'bloco', nome: 'BLOCO 2 — CARGOS OPERACIONAIS' }, { id: 'i8', t: 'grupo', nome: '07 · OPERACIONAL — FRENTE DE LOJA' }, { id: 'i9', t: 'cargo', nome: 'Operador(a) de Caixa', nivel: 'N9', cbo: '4211-25', ref: 1700, reaj: 0 }], colabs: [{ cargo: 'Gerente de Loja', nome: 'FULANO A', salario: 4800 }, { cargo: 'Gerente de Loja', nome: 'FULANO B', salario: 5500 }, { cargo: 'Analista de RH Sênior', nome: 'FULANO C', salario: 3500 }], prog: [['CRITÉRIOS DE PROGRESSÃO POR MÉRITO — GRC GRUPO R CENTER', '', '', ''], ['', 'NÍVEL DA TRILHA', 'SALÁRIO / CRESCIMENTO', 'REQUISITO PARA PROMOÇÃO'], ['', 'Auxiliar', 'R$ 1.750,00 (Nível de entrada da trilha)', 'Admissão direta ou promoção interna.'], ['', 'Politica Geral: As promoções ocorrerão mediante atendimento aos requisitos.', '', '']], reajustes: [], versao: 1 }; return { ok: true, doc: clone(window.__ts) };

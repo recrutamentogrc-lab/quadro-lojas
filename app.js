@@ -602,9 +602,13 @@ async function pgFichas() {
       && (!f.rec || (f.rec === '-' ? !x.recrutador : norm(x.recrutador) === norm(f.rec))) && (!f.de || dia(x) >= f.de) && (!f.ate || dia(x) <= f.ate));
     // conferência interna (Escavador / SUB) — mesmo estilo do checklist das contratações
     const ckOk = x => x.esc && x.sub;
-    const ckN = { esc: lista.filter(x => !x.esc).length, sub: lista.filter(x => !x.sub).length, ok: lista.filter(ckOk).length };
-    const listaV = lista.filter(x => !f.ck || (f.ck === 'ok' ? ckOk(x) : !x[f.ck]));
-    const ckQuem = (x, k) => x[k] ? `Visto${x[k + 'Por'] ? ' por ' + x[k + 'Por'] : ''} em ${new Date(x[k]).toLocaleDateString('pt-BR')}` : '';
+    const ckNeg = x => (x.esc && x.escNeg) || (x.sub && x.subNeg);
+    const ckN = { esc: lista.filter(x => !x.esc).length, sub: lista.filter(x => !x.sub).length, ok: lista.filter(ckOk).length, neg: lista.filter(ckNeg).length };
+    const listaV = lista.filter(x => !f.ck || (f.ck === 'ok' ? ckOk(x) : f.ck === 'neg' ? ckNeg(x) : !x[f.ck]));
+    const ckQuem = (x, k) => x[k] ? `${x[k + 'Neg'] ? 'Negativo' : 'OK'}${x[k + 'Por'] ? ' · ' + x[k + 'Por'] : ''} · ${new Date(x[k]).toLocaleDateString('pt-BR')}` : '';
+    const ckCls = (x, k) => !x[k] ? '' : x[k + 'Neg'] ? ' danger fi-neg-b' : ' ok';
+    const ckIc = (x, k, vazio) => !x[k] ? vazio : ic(x[k + 'Neg'] ? 'alert' : 'check');
+    const ckSeg = (x, k, nome) => `<span class="fi-seg"><em>${nome}</em><button class="${!x[k] ? 'on' : ''}" data-ckset="${h(x.id)}|${k}|0">Não visto</button><button class="${x[k] && !x[k + 'Neg'] ? 'on ok' : ''}" data-ckset="${h(x.id)}|${k}|1">OK</button><button class="${x[k] && x[k + 'Neg'] ? 'on neg' : ''}" data-ckset="${h(x.id)}|${k}|2">Negativo</button></span>`;
     const ativos = (c.links || []).filter(l => l.ativo);
     v.innerHTML = `
     <div class="toolbar">
@@ -619,20 +623,20 @@ async function pgFichas() {
       <button class="btn" id="fiQrG" title="QR Code aberto para qualquer vaga e qualquer pessoa">${ic('grid')} QR Code geral</button>
       <button class="btn primary" id="fiNovo">${ic('share')} Mandar link ao candidato</button>
     </div>
-    <div class="chips ck-chips fi-ck" id="fiCk"><span class="ck-chips-t">Conferência</span><span class="chip ${!f.ck ? 'on' : ''}" data-c="">Todas</span><span class="chip ${f.ck === 'esc' ? 'on' : ''}" data-c="esc">Falta Escavador <span class="n">${ckN.esc}</span></span><span class="chip ${f.ck === 'sub' ? 'on' : ''}" data-c="sub">Falta SUB <span class="n">${ckN.sub}</span></span><span class="chip ${f.ck === 'ok' ? 'on' : ''}" data-c="ok">${ic('check')} Concluídas <span class="n">${ckN.ok}</span></span></div>
+    <div class="chips ck-chips fi-ck" id="fiCk"><span class="ck-chips-t">Conferência</span><span class="chip ${!f.ck ? 'on' : ''}" data-c="">Todas</span><span class="chip ${f.ck === 'esc' ? 'on' : ''}" data-c="esc">Falta Escavador <span class="n">${ckN.esc}</span></span><span class="chip ${f.ck === 'sub' ? 'on' : ''}" data-c="sub">Falta SUB <span class="n">${ckN.sub}</span></span><span class="chip fi-chip-neg ${f.ck === 'neg' ? 'on' : ''}" data-c="neg">${ic('alert')} Negativos <span class="n">${ckN.neg}</span></span><span class="chip ${f.ck === 'ok' ? 'on' : ''}" data-c="ok">${ic('check')} Concluídas <span class="n">${ckN.ok}</span></span></div>
     ${listaV.length ? `<div class="card fi-lista">${listaV.map(x => `
-      <details class="fi-row${x.visto ? '' : ' nova'}"${S.fiAberta === x.id ? ' open' : ''} data-fid="${h(x.id)}">
+      <details class="fi-row${x.visto ? '' : ' nova'}${ckNeg(x) ? ' fi-neg' : ''}"${S.fiAberta === x.id ? ' open' : ''} data-fid="${h(x.id)}">
         <summary>
           <span class="fi-r-n"><b class="fi-nome">${h(x.nome)}</b>${x.visto ? '' : '<span class="badge b-acc">nova</span>'}<small>${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')} ${new Date(x.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</small></span>
           <span class="fi-r-d"><small>CPF</small>${h(cpfFmt(x.cpf))}</span>
           <span class="fi-r-d fi-r-nasc"><small>Nascimento</small>${h(dataBR(x.nasc))}</span>
-          <span class="fi-r-a"><button class="btn sm fi-ck-b${x.esc ? ' ok' : ''}" data-esc="${h(x.id)}" title="${x.esc ? h(ckQuem(x, 'esc')) + ' · clique para abrir de novo' : 'Abrir o Escavador pelo CPF (marca como visto)'}">${ic(x.esc ? 'check' : 'search')} Escavador</button><button class="btn sm fi-ck-b${x.sub ? ' ok' : ''}" data-sub="${h(x.id)}" title="${x.sub ? h(ckQuem(x, 'sub')) + ' · clique para desmarcar' : 'Marcar que o SUB foi visto'}">${x.sub ? ic('check') : ''} SUB</button><button class="btn primary sm" data-cpall="${h(x.id)}" title="Copiar dados">${ic('copy')}<span class="fi-r-l"> Copiar</span></button><button class="btn sm" data-cpfar="${h(x.id)}" title="Copiar com fardamento">${ic('copy')}<span class="fi-r-l"> + farda</span></button><button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button><i class="fi-r-ch">${ic('chevron')}</i></span>
+          <span class="fi-r-a"><button class="btn sm fi-ck-b${ckCls(x, 'esc')}" data-esc="${h(x.id)}" title="${x.esc ? h(ckQuem(x, 'esc')) + ' · clique para abrir de novo' : 'Abrir o Escavador pelo CPF (marca como visto)'}">${ckIc(x, 'esc', ic('search'))} Escavador</button><button class="btn sm fi-ck-b${ckCls(x, 'sub')}" data-sub="${h(x.id)}" title="${x.sub ? h(ckQuem(x, 'sub')) + ' · clique para mudar' : 'Marcar SUB como visto'} (clique: OK → Negativo → Não visto)">${ckIc(x, 'sub', '')} SUB</button><button class="btn primary sm" data-cpall="${h(x.id)}" title="Copiar dados">${ic('copy')}<span class="fi-r-l"> Copiar</span></button><button class="btn sm" data-cpfar="${h(x.id)}" title="Copiar com fardamento">${ic('copy')}<span class="fi-r-l"> + farda</span></button><button class="btn sm ghost icon" data-del="${h(x.id)}" title="Apagar ficha">${ic('trash')}</button><i class="fi-r-ch">${ic('chevron')}</i></span>
         </summary>
         <div class="fi-campos fi-det">
           ${[['Nome completo', x.nome], ['Nome da mãe', x.mae], ['CPF', cpfFmt(x.cpf)], ['Data de nascimento', dataBR(x.nasc)]].map(([l, val]) => `<div class="fi-c"><span>${l}</span><b>${h(val)}</b><button class="btn sm ghost icon" data-cp="${h(val)}" title="Copiar ${l.toLowerCase()}">${ic('copy')}</button></div>`).join('')}
           <div class="fi-c"><span>Fardamento</span><b>Blusa ${h(x.blusa)} · Calça ${h(x.calca)} · Bota ${h(x.bota)}</b></div>
           ${x.tel ? `<div class="fi-c"><span>WhatsApp</span><b><a href="https://wa.me/55${h(String(x.tel).replace(/^55(?=\d{10,11}$)/, ''))}" target="_blank" rel="noopener" style="color:var(--accent)">${h(telFmt(x.tel))}</a></b></div>` : ''}
-          <div class="fi-c"><span>Conferência</span><b>${x.esc ? h(ckQuem(x, 'esc')) : 'Escavador não visto'} · ${x.sub ? 'SUB: ' + h(ckQuem(x, 'sub')).toLowerCase() : 'SUB não visto'}</b>${x.esc ? `<button class="btn sm ghost" data-escx="${h(x.id)}" title="Desmarcar Escavador">Desmarcar Escavador</button>` : ''}</div>
+          <div class="fi-c fi-conf"><span>Conferência</span><div class="fi-segs">${ckSeg(x, 'esc', 'Escavador')}${ckSeg(x, 'sub', 'SUB')}</div>${x.esc || x.sub ? `<small class="faint">${x.esc ? 'Escavador: ' + h(ckQuem(x, 'esc')) : ''}${x.esc && x.sub ? ' · ' : ''}${x.sub ? 'SUB: ' + h(ckQuem(x, 'sub')) : ''}</small>` : ''}</div>
           <div class="fi-acts fi-mob"><button class="btn sm" data-cpfar="${h(x.id)}">${ic('copy')} Copiar com fardamento</button><button class="btn sm ghost" data-del="${h(x.id)}" style="color:var(--bad)">${ic('trash')} Apagar</button></div>
         </div>
       </details>`).join('')}</div>`
@@ -659,10 +663,10 @@ async function pgFichas() {
     $$('[data-cpall]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpall)), 'Dados copiados. É só colar no WhatsApp.'));
     $$('[data-cpfar]').forEach(b => b.onclick = () => copiar_(fichaTexto_(por(b.dataset.cpfar), true), 'Dados copiados. É só colar no WhatsApp.'));
     // marca Escavador / SUB (na tela na hora; servidor em segundo plano)
-    const marca = async (id, campo, valor) => {
+    const marca = async (id, campo, valor, neg) => {
       const ant = fichasCache_().fichas;
-      fichasSet_({ fichas: ant.map(y => y.id === id ? Object.assign({}, y, { [campo]: valor ? new Date().toISOString() : '', [campo + 'Por']: valor ? (S.user && S.user.nome) || '' : '' }) : y) }); draw();
-      try { fichasSet_(await api('fichaChk', { id, campo, valor: !!valor }, { silent: true })); if (!$('.overlay')) draw(); }
+      fichasSet_({ fichas: ant.map(y => y.id === id ? Object.assign({}, y, { [campo]: valor ? new Date().toISOString() : '', [campo + 'Por']: valor ? (S.user && S.user.nome) || '' : '', [campo + 'Neg']: !!(valor && neg) }) : y) }); draw();
+      try { fichasSet_(await api('fichaChk', { id, campo, valor: !!valor, neg: !!(valor && neg) }, { silent: true })); if (!$('.overlay')) draw(); }
       catch (e) { fichasSet_({ fichas: ant }); draw(); toast('Não foi possível salvar a conferência: ' + e.message, true); }
     };
     $$('[data-esc]').forEach(b => b.onclick = () => {
@@ -670,8 +674,8 @@ async function pgFichas() {
       window.open('https://www.escavador.com/busca?q=' + encodeURIComponent(String(x.cpf || '').replace(/\D/g, '')), '_blank', 'noopener');
       if (!x.esc) marca(x.id, 'esc', true);
     });
-    $$('[data-escx]').forEach(b => b.onclick = () => marca(b.dataset.escx, 'esc', false));
-    $$('[data-sub]').forEach(b => b.onclick = () => { const x = por(b.dataset.sub); if (x) marca(x.id, 'sub', !x.sub); });
+    $$('[data-sub]').forEach(b => b.onclick = () => { const x = por(b.dataset.sub); if (!x) return; if (!x.sub) marca(x.id, 'sub', true, false); else if (!x.subNeg) marca(x.id, 'sub', true, true); else marca(x.id, 'sub', false); });
+    $$('[data-ckset]').forEach(b => b.onclick = () => { const [id, k, v] = b.dataset.ckset.split('|'); marca(id, k, v !== '0', v === '2'); });
     $$('[data-del]').forEach(b => b.onclick = async () => {
       const x = por(b.dataset.del); if (!x || !await confirmBox(`Apagar a ficha de <b>${h(x.nome)}</b>?`, 'Apagar', true)) return;
       fichasSet_({ fichas: fichasCache_().fichas.filter(y => y.id !== x.id) }); draw(); updateShell();
@@ -1384,9 +1388,14 @@ const AG_SEM_ = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'qu
 const agDt_ = d => new Date(d + 'T12:00:00');
 const agDdMm_ = d => d.slice(8, 10) + '/' + d.slice(5, 7);
 const agExt_ = d => { const x = agDt_(d); return AG_SEM_[x.getDay()] + ', ' + x.getDate() + ' de ' + ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][x.getMonth()]; };
-const agFim_ = hh => { const [a, b] = hh.split(':').map(Number), m = a * 60 + b + 20; return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
+const AG_30_DESDE_ = '2026-11-12';
+const agPasso_ = dia => String(dia || '9999-12-31') >= AG_30_DESDE_ ? 30 : 20;
+const agHorariosF_ = dia => { const out = [], p = agPasso_(dia); [[8, 12], [13, 17]].forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += p) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; };
+// horários do dia + qualquer entrevista já marcada fora da grade (ex.: marcada no formato antigo de 20 min)
+const agHorariosDia_ = D => { const base = (D && D.horarios && D.horarios.length && typeof D.horarios[0] === 'string') ? D.horarios : agHorariosF_(D && D.dia); const extra = Object.keys((D && D.s) || {}).filter(x => base.indexOf(x) < 0 && D.s[x] && D.s[x].st !== 'cancelado' && D.s[x].st !== 'bloqueado'); return extra.length ? base.concat(extra).sort() : base; };
+const agFim_ = (hh, dia) => { const [a, b] = hh.split(':').map(Number), m = a * 60 + b + agPasso_(dia); return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
 function agGcal_(dia, hh, rec) {
-  const s = dia.replace(/-/g, '') + 'T' + hh.replace(':', '') + '00', e = dia.replace(/-/g, '') + 'T' + agFim_(hh).replace(':', '') + '00';
+  const s = dia.replace(/-/g, '') + 'T' + hh.replace(':', '') + '00', e = dia.replace(/-/g, '') + 'T' + agFim_(hh, dia).replace(':', '') + '00';
   return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent('Entrevista online · Grupo R Center') + '&dates=' + s + '/' + e + '&ctz=America/Fortaleza&details=' + encodeURIComponent('Entrevista por Google Meet com ' + rec + ' (RH do Grupo R Center). O link chega no seu e-mail.');
 }
 async function renderAgenda(codigo) {
@@ -1414,7 +1423,7 @@ async function renderAgenda(codigo) {
     M.innerHTML = `<div class="fx-card tx-card ag-ok">
       <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>
       ${info.foto ? `<img class="ag-ok-foto" src="${h(info.foto)}" alt="${h(m.rec)}">` : ''}
-      <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h)} · Google Meet · com ${h(m.rec)}</small></div></div>
+      <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h, m.dia)} · Google Meet · com ${h(m.rec)}</small></div></div>
       ${m.meet ? `<div class="ag-meet"><small>🎥 Link da sua entrevista (Google Meet)</small><a href="${h(m.meet)}" target="_blank" rel="noopener">${h(m.meet.replace('https://', ''))}</a><a class="btn primary block fx-btn" href="${h(m.meet)}" target="_blank" rel="noopener">Entrar na entrevista</a><span>Guarde este link. Ele também foi enviado para o seu e-mail <b>${h(m.email)}</b>.</span></div>` : `<p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>`}
       <div class="tx-dicas">
         <div><i>⏰</i><span><b>Entre 5 minutos antes</b>Teste a câmera e o áudio com antecedência.</span></div>
@@ -1436,7 +1445,7 @@ async function renderAgenda(codigo) {
     const D = dias.find(d => d.dia === sel.dia), livres = D.horarios.filter(x => x.livre).length;
     if (sel.h && !(D.horarios.find(x => x.h === sel.h) || {}).livre) sel.h = null;
     const bt = x => `<button class="ag-h ${x.livre ? '' : 'off'} ${sel.h === x.h ? 'sel' : ''}" data-h="${x.h}" ${x.livre ? '' : 'disabled'}>${x.h}</button>`;
-    M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Agende sua <b>entrevista</b></h1><p class="fx-plus">ONLINE · GOOGLE MEET · 20 MINUTOS</p><p>Escolha o melhor horário para conversar com <b>${h(info.rec)}</b>, do RH do Grupo R Center.</p></div></section>
+    M.innerHTML = `<section class="fx-hero tx-hero"><div class="fx-hero-txt"><small>#indoalemporvoce</small><h1>Agende sua <b>entrevista</b></h1><p class="fx-plus">ONLINE · GOOGLE MEET · ${agPasso_((dias.find(d => d.horarios.some(x => x.livre)) || dias[0] || {}).dia)} MINUTOS</p><p>Escolha o melhor horário para conversar com <b>${h(info.rec)}</b>, do RH do Grupo R Center.</p></div></section>
       <div class="ag-quem">${info.foto ? `<img src="${h(info.foto)}" alt="${h(info.rec)}">` : `<span class="ag-ini">${h(info.rec.split(' ').map(x => x[0]).slice(0, 2).join(''))}</span>`}<div><small>Você vai conversar com</small><b>${h(info.rec)}</b><span>Recrutamento e Seleção · Grupo R Center</span></div></div>
       <div class="fx-card tx-card ag-card">
         <div class="ag-passo"><i>1</i><b>Escolha o dia</b></div>
@@ -1488,14 +1497,14 @@ const podeAgenda = () => !!(S.user && (isAdmin() || S.user.podeAgenda));
 const agendaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/agenda.html?agenda=' + c; };
 const agendaNovos = () => ((S.agenda && S.agenda.dias) || []).reduce((n, d) => n + Object.values(d.s || {}).filter(o => o && o.visto === false && o.st === 'marcado').length, 0);
 function compartilharAgenda_(c) {
-  const txt = `Olá! Para agendar a sua entrevista online com o RH do ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}, escolha o melhor horário pelo link abaixo.\n\nA entrevista dura cerca de 20 minutos e será pelo Google Meet. O convite com o link será enviado para o seu e-mail.\n\n${agendaUrl_(c)}`;
+  const txt = `Olá! Para agendar a sua entrevista online com o RH do ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}, escolha o melhor horário pelo link abaixo.\n\nA entrevista dura cerca de ${agPasso_(new Date().toLocaleDateString('sv-SE'))} minutos e será pelo Google Meet. O convite com o link será enviado para o seu e-mail.\n\n${agendaUrl_(c)}`;
   window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
 }
 const AG_ST_ = { marcado: ['Marcada', 'b-info'], realizada: ['Realizada', 'b-ok'], faltou: ['Faltou', 'b-bad'], cancelado: ['Cancelada', ''], bloqueado: ['Bloqueado', ''] };
 const agSegunda_ = d => { const x = agDt_(d), w = x.getDay(); x.setDate(x.getDate() - (w === 0 ? 6 : w - 1)); return x.toLocaleDateString('sv-SE'); };
 const agSomaF_ = (d, n) => { const x = agDt_(d); x.setDate(x.getDate() + n); return x.toLocaleDateString('sv-SE'); };
 async function pgAgenda() {
-  setTitle('Agenda de entrevistas', 'Google Meet · 20 min · 8h–12h e 13h–17h');
+  setTitle('Agenda de entrevistas', `Google Meet · ${agPasso_(new Date().toLocaleDateString('sv-SE'))} min · 8h–12h e 13h–17h`);
   const v = $('#view'), f = getF('agenda'), hojeL = new Date().toLocaleDateString('sv-SE');
   if (!f.dia || f.dia < agSomaF_(hojeL, -60)) f.dia = hojeL;
   const rt = S.rt;
@@ -1532,7 +1541,8 @@ async function pgAgenda() {
       const [lb, cl] = AG_ST_[o.st] || AG_ST_.marcado;
       return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? `<span class="ar-em"> · ${h(o.email)}</span>` : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.remarcado ? '<span class="badge b-origem b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge b-origem" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
     };
-    const hsT = t => A.horarios.filter(x => t === 'm' ? x < '12:00' : x >= '13:00');
+    const HD = agHorariosDia_(D);
+    const hsT = t => HD.filter(x => t === 'm' ? x < '12:00' : x >= '13:00');
     const turnoH = t => {
       const hs = hsT(t), livres = hs.filter(x => (!D.s[x] || D.s[x].st === 'cancelado') && !passado(x)).length, bloq = hs.filter(x => D.s[x] && D.s[x].st === 'bloqueado').length;
       const bt = fim(D) || D.dia < hoje ? '' : livres ? `<button class="btn sm ghost" data-turno="${t}" data-bloq="1">🔒 Fechar ${t === 'm' ? 'manhã' : 'tarde'}</button>` : bloq ? `<button class="btn sm ghost" data-turno="${t}" data-bloq="">${ic('check')} Abrir ${t === 'm' ? 'manhã' : 'tarde'}</button>` : '';
@@ -1546,15 +1556,16 @@ async function pgAgenda() {
       <button class="btn icon" id="arProx" title="Próxima semana" style="transform:scaleX(-1)">${ic('chevl')}</button>
       <button class="btn" id="arHoje">Hoje</button>
       <button class="btn icon ghost" id="arRef" title="Atualizar">${ic('refresh')}</button>
+      <button class="btn" id="arRel" title="Relatório: marcadas, realizadas, faltas, canceladas · PDF e Excel">${ic('trend')} Relatório</button>
       <span class="spacer"></span>
       ${meu ? `<button class="btn primary" id="arLink">${ic('share')} Mandar link ao candidato</button>` : `<span class="badge">Agenda de ${h((A.recs.find(r => r.rec === A.rec) || {}).nome || '')}</span>`}
     </div>
     ${A.recs.length > 1 ? `<div class="ar-recs"><span>${ic('users')} Ver agenda de:</span>${A.recs.map(r => `<button class="ar-rec ${r.rec === A.rec ? 'sel' : ''}" data-rec="${h(r.rec)}">${r.rec === A.meu.rec ? 'Minha agenda' : h(r.nome.split(' - ')[0])}</button>`).join('')}</div>` : ''}
     <div class="ar-week">${semana.map(d => { const n = qtd(d); return `<button class="ar-day ${d.dia === D.dia ? 'sel' : ''} ${d.dia === hoje ? 'hoje' : ''} ${fim(d) ? 'fech' : ''}" data-d="${d.dia}"><small>${AG_SEM_[agDt_(d.dia).getDay()].replace('-feira', '')}${d.dia === hoje ? ' · hoje' : ''}</small><b>${agDdMm_(d.dia)}</b><em>${d.feriado ? '🎉 ' + h(d.feriado) : d.fechado ? '🔒 fechado' : n ? n + ' entrevista' + (n > 1 ? 's' : '') : 'livre'}</em>${(A.candDias || []).includes(d.dia) && meu ? '<i title="O candidato pode escolher este dia pelo link">link</i>' : ''}</button>`; }).join('')}</div>
     <div class="card ar-diac">
-      <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + A.horarios.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
+      <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + HD.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
         ${!D.feriado && ![0, 6].includes(agDt_(D.dia).getDay()) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
-      <div class="ar-cols"><div>${turnoH('m')}${A.horarios.filter(x => x < '12:00').map(slot).join('')}</div><div>${turnoH('t')}${A.horarios.filter(x => x >= '13:00').map(slot).join('')}</div></div>
+      <div class="ar-cols"><div>${turnoH('m')}${HD.filter(x => x < '12:00').map(slot).join('')}</div><div>${turnoH('t')}${HD.filter(x => x >= '13:00').map(slot).join('')}</div></div>
     </div>
     <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
     const troca = () => { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; draw(); buscar(); };
@@ -1564,6 +1575,7 @@ async function pgAgenda() {
     $('#arProx').onclick = () => ir(agSomaF_(agSegunda_(f.dia), 7));
     $('#arHoje').onclick = () => ir(new Date().toLocaleDateString('sv-SE'));
     $('#arRef').onclick = e => run(e.currentTarget, () => buscar());
+    $('#arRel').onclick = () => openAgendaRelatorio();
     $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
     if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
     $$('[data-turno]', v).forEach(b => b.onclick = async () => {
@@ -1578,6 +1590,140 @@ async function pgAgenda() {
   draw();
   await buscar();
   const iv = setInterval(() => { if (rt !== S.rt || !document.body.contains(v)) return clearInterval(iv); if (!$('.overlay') && document.visibilityState === 'visible') buscar(true); }, 15000);
+}
+// ---------------- RELATÓRIO DA AGENDA (marcadas, realizadas, faltas, canceladas…) ----------------
+const AG_REL_ST_ = { realizada: 'Realizada', faltou: 'Faltou', cancelado: 'Cancelada', pend: 'Sem registro', fut: 'A realizar' };
+function agRelLinhas_(j) {
+  const agora = new Date(), hojeL = agora.toLocaleDateString('sv-SE'), agoraMin = agora.getHours() * 60 + agora.getMinutes(), out = [];
+  (j.recs || []).forEach(r => (r.dias || []).forEach(d => Object.keys(d.s || {}).forEach(hh => {
+    const o = d.s[hh]; if (!o || o.st === 'bloqueado') return;
+    const fimMin = Number(hh.slice(0, 2)) * 60 + Number(hh.slice(3)) + agPasso_(d.dia), passou = d.dia < hojeL || (d.dia === hojeL && fimMin <= agoraMin);
+    const st = o.st === 'realizada' || o.st === 'faltou' || o.st === 'cancelado' ? o.st : passou ? 'pend' : 'fut';
+    out.push({ dia: d.dia, h: hh, rec: r.rec, recNome: String(r.nome || '').split(' - ')[0], nome: o.nome || '', vaga: o.vaga || '', tel: o.tel || '', email: o.email || '', st, link: o.origem === 'candidato', remarcada: !!o.remarcado });
+  })));
+  return out.sort((a, b) => (a.dia + a.h).localeCompare(b.dia + b.h));
+}
+function agRelConta_(L) {
+  const n = k => L.filter(x => x.st === k).length, rea = n('realizada'), fal = n('faltou');
+  return { total: L.length, rea, fal, can: n('cancelado'), pend: n('pend'), fut: n('fut'), link: L.filter(x => x.link).length, rem: L.filter(x => x.remarcada).length, comp: rea + fal ? Math.round(rea / (rea + fal) * 100) : null };
+}
+function openAgendaRelatorio() {
+  const A = S.agenda || {}, hojeL = new Date().toLocaleDateString('sv-SE'), ini = agSegunda_(hojeL);
+  const mes = (o) => { const x = agDt_(hojeL); const a = new Date(x.getFullYear(), x.getMonth() + o, 1), b = new Date(x.getFullYear(), x.getMonth() + o + 1, 0); return [a.toLocaleDateString('sv-SE'), b.toLocaleDateString('sv-SE')]; };
+  const PER = { hoje: ['Hoje', hojeL, hojeL], ontem: ['Ontem', agSomaF_(hojeL, -1), agSomaF_(hojeL, -1)], sem: ['Esta semana', ini, agSomaF_(ini, 6)], semAnt: ['Semana passada', agSomaF_(ini, -7), agSomaF_(ini, -1)], mes: ['Este mês', ...mes(0)], mesAnt: ['Mês passado', ...mes(-1)], custom: ['Período', null, null] };
+  const f = getF('agRel'); if (!PER[f.per]) f.per = 'hoje';
+  if (f.rec == null) f.rec = A.recs && A.recs.length > 1 ? '' : (A.meu || {}).rec || '';
+  const recs = A.recs || [];
+  let dados = null, carregando = false, seqR = 0, erro = '';
+  const periodo = () => f.per === 'custom' ? [f.de || hojeL, f.ate && f.ate >= (f.de || hojeL) ? f.ate : (f.de || hojeL)] : [PER[f.per][1], PER[f.per][2]];
+  const fmtBR = d => d.split('-').reverse().join('/');
+  const rotPer = () => { const [a, b] = periodo(); return a === b ? fmtBR(a) : fmtBR(a) + ' a ' + fmtBR(b); };
+  const rotRec = () => !f.rec ? 'Todos os recrutadores' : ((recs.find(r => r.rec === f.rec) || {}).nome || (A.meu || {}).nome || '').split(' - ')[0];
+  modal({
+    title: 'Relatório da agenda', icon: 'trend', wide: true,
+    body: `<div id="rlF"></div><div id="rlB"></div>`,
+    foot: `<button class="btn" data-close>Fechar</button><button class="btn" id="rlXls">${ic('download')} Excel</button><button class="btn primary" id="rlPdf">${ic('file')} PDF</button>`,
+    onMount: m => {
+      const F = $('#rlF', m.el), B = $('#rlB', m.el);
+      const desenhaF = () => {
+        F.innerHTML = `<div class="chips">${Object.entries(PER).filter(([k]) => k !== 'custom').map(([k, x]) => `<span class="chip ${f.per === k ? 'on' : ''}" data-p="${k}">${ic('calendar')} ${x[0]}</span>`).join('')}<span class="chip ${f.per === 'custom' ? 'on' : ''}" data-p="custom">Escolher período</span></div>
+          <div class="toolbar" style="margin-top:8px">
+            ${f.per === 'custom' ? `<input class="input" type="date" id="rlDe" value="${h(f.de || hojeL)}" title="De"><input class="input" type="date" id="rlAte" value="${h(f.ate || hojeL)}" title="Até">` : `<b class="ar-sem">${h(rotPer())}</b>`}
+            ${recs.length > 1 ? `<select class="input" id="rlRec"><option value="">Recrutador: todos</option>${recs.map(r => `<option value="${h(r.rec)}" ${f.rec === r.rec ? 'selected' : ''}>${h(r.nome.split(' - ')[0])}</option>`).join('')}</select>` : ''}
+          </div>`;
+        $$('[data-p]', F).forEach(c => c.onclick = () => { f.per = c.dataset.p; if (f.per === 'custom' && !f.de) { f.de = ini; f.ate = hojeL; } saveF(); desenhaF(); busca(); });
+        ['rlDe', 'rlAte'].forEach(id => { const e = $('#' + id, F); if (e) e.onchange = () => { f[id === 'rlDe' ? 'de' : 'ate'] = e.value; saveF(); busca(); }; });
+        if ($('#rlRec', F)) $('#rlRec', F).onchange = e => { f.rec = e.target.value; saveF(); busca(); };
+      };
+      const desenha = () => {
+        if (erro) { B.innerHTML = `<div class="card muted">${h(erro)}</div>`; return; }
+        if (!dados) { B.innerHTML = '<div class="sk" style="height:300px;margin-top:12px"></div>'; return; }
+        const L = agRelLinhas_(dados), C = agRelConta_(L);
+        const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+        const grupo = (key, lbl) => { const g = {}; L.forEach(x => { const k = key(x) || '—'; (g[k] = g[k] || []).push(x); }); return Object.entries(g).map(([k, v]) => [lbl ? lbl(k) : k, agRelConta_(v)]); };
+        const tab = (titulo, linhas, col1) => linhas.length ? `<div class="card mt"><div class="card-h"><h3>${titulo}</h3></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>${col1}</th><th>Agendadas</th><th>Realizadas</th><th>Faltas</th><th>Canceladas</th><th>Sem registro</th><th>A realizar</th><th>Comparecimento</th></tr></thead><tbody>${linhas.map(([k, c]) => `<tr><td><b>${h(k)}</b></td><td>${c.total}</td><td>${c.rea}</td><td>${c.fal}</td><td>${c.can}</td><td>${c.pend}</td><td>${c.fut}</td><td>${c.comp == null ? '—' : c.comp + '%'}</td></tr>`).join('')}</tbody></table></div></div>` : '';
+        const porRec = grupo(x => x.recNome).sort((a, b) => b[1].total - a[1].total);
+        const porDia = grupo(x => x.dia).sort((a, b) => a[0].localeCompare(b[0])).map(([k, c]) => [AG_SEM_[agDt_(k).getDay()].replace('-feira', '').replace(/^./, s => s.toUpperCase()) + ' · ' + fmtBR(k).slice(0, 5), c]);
+        const porVaga = grupo(x => String(x.vaga || '').trim().toUpperCase() || 'NÃO INFORMADA').sort((a, b) => b[1].total - a[1].total).slice(0, 15);
+        if (f.lst && !AG_REL_ST_[f.lst]) f.lst = '';
+        const lista = L.filter(x => !f.lst || x.st === f.lst);
+        const bd = { realizada: 'b-ok', faltou: 'b-bad', cancelado: '', pend: 'b-warn', fut: 'b-info' };
+        B.innerHTML = `
+          <div class="grid g5 mt">
+            ${kpi({ lbl: 'Agendadas', val: C.total, sub: `${C.link} pelo link · ${C.rem} remarcada(s)`, icon: 'calendar', c: 'c-cyan' })}
+            ${kpi({ lbl: 'Realizadas', val: C.rea, sub: pct(C.rea, C.total) + ' das agendadas', icon: 'check', c: 'c-green' })}
+            ${kpi({ lbl: 'Faltas', val: C.fal, sub: pct(C.fal, C.rea + C.fal) + ' de quem devia comparecer', icon: 'alert', c: 'c-red' })}
+            ${kpi({ lbl: 'Comparecimento', val: C.comp == null ? '—' : C.comp + '%', bar: C.comp || 0, sub: 'realizadas ÷ (realizadas + faltas)', icon: 'gauge', c: 'c-violet' })}
+            ${kpi({ lbl: 'Canceladas', val: C.can, sub: `${C.fut} a realizar`, icon: 'x', c: 'c-slate' })}
+          </div>
+          ${C.pend ? `<div class="card ck-aviso mt">${ic('alert')}<div><b>${C.pend} entrevista(s) já passaram sem registro</b><span>Abra a agenda e marque Realizada ou Faltou para o relatório ficar certo.</span></div></div>` : ''}
+          ${!L.length ? `<div class="card empty mt" style="text-align:center;padding:30px"><b>Nenhuma entrevista neste período</b></div>` : `
+          ${porRec.length > 1 ? tab('Por recrutador', porRec, 'Recrutador') : ''}
+          ${porDia.length > 1 ? tab('Por dia', porDia, 'Dia') : ''}
+          ${tab('Por vaga', porVaga, 'Vaga')}
+          <div class="card mt"><div class="card-h"><h3>Entrevistas</h3><span class="spacer"></span></div>
+            <div class="chips" id="rlSt" style="padding:0 14px 8px"><span class="chip ${!f.lst ? 'on' : ''}" data-s="">Todas <span class="n">${L.length}</span></span>${Object.entries(AG_REL_ST_).map(([k, v]) => `<span class="chip ${f.lst === k ? 'on' : ''}" data-s="${k}">${v} <span class="n">${L.filter(x => x.st === k).length}</span></span>`).join('')}</div>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Hora</th><th>Candidato</th><th>Vaga</th>${porRec.length > 1 || !f.rec ? '<th>Recrutador</th>' : ''}<th>WhatsApp</th><th>Situação</th></tr></thead><tbody>
+            ${lista.map(x => `<tr><td>${fmtBR(x.dia).slice(0, 5)}</td><td>${x.h}</td><td><b>${h(x.nome)}</b>${x.link ? ' <span class="badge b-origem">pelo link</span>' : ''}${x.remarcada ? ' <span class="badge b-warn">remarcada</span>' : ''}</td><td>${h(x.vaga)}</td>${porRec.length > 1 || !f.rec ? `<td>${h(x.recNome)}</td>` : ''}<td>${x.tel ? `<a href="https://wa.me/55${h(x.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${h(telFmt(x.tel))}</a>` : ''}</td><td><span class="badge ${bd[x.st]}">${AG_REL_ST_[x.st]}</span></td></tr>`).join('') || '<tr><td colspan="7" class="muted">Nenhuma entrevista nesta situação.</td></tr>'}
+            </tbody></table></div></div>`}`;
+        $$('#rlSt .chip', B).forEach(c => c.onclick = () => { f.lst = c.dataset.s; saveF(); desenha(); });
+      };
+      const busca = async () => {
+        const [de, ate] = periodo(), k = ++seqR;
+        if (agDt_(ate) - agDt_(de) > 92 * 864e5) { erro = 'Escolha um período de até 3 meses.'; dados = null; desenha(); return; }
+        erro = ''; dados = null; desenha();
+        try { const j = await api('agendaRelatorio', { de, ate, rec: f.rec || '' }, { silent: true }); if (k !== seqR || !$('#rlB', m.el)) return; dados = j; desenha(); }
+        catch (e) { if (k === seqR) { erro = e.message; desenha(); } }
+      };
+      $('#rlPdf', m.el).onclick = () => { if (!dados) return toast('Aguarde carregar o relatório', true); agRelPDF_(agRelLinhas_(dados), rotPer(), rotRec(), !!f.rec); };
+      $('#rlXls', m.el).onclick = () => {
+        if (!dados) return toast('Aguarde carregar o relatório', true);
+        const L = agRelLinhas_(dados); if (!L.length) return toast('Nada para exportar neste período', true);
+        downloadCSV('relatorio_agenda', ['Data', 'Hora', 'Candidato', 'Vaga', 'Recrutador', 'WhatsApp', 'E-mail', 'Situação', 'Origem', 'Remarcada'], L.map(x => [fmtBR(x.dia), x.h, x.nome, x.vaga, x.recNome, x.tel ? telFmt(x.tel) : '', x.email, AG_REL_ST_[x.st], x.link ? 'Pelo link' : 'RH', x.remarcada ? 'Sim' : 'Não']));
+      };
+      desenhaF(); busca();
+    }
+  });
+}
+// PDF do relatório (resumo + por recrutador + por dia + por vaga + lista)
+function agRelPDF_(L, rotPer, rotRec, umRec) {
+  const esc = h, logo = cfgv('logo', ''), agora = new Date(), C = agRelConta_(L), fmtBR = d => d.split('-').reverse().join('/');
+  const grupo = key => { const g = {}; L.forEach(x => { const k = key(x) || '—'; (g[k] = g[k] || []).push(x); }); return Object.entries(g).map(([k, v]) => [k, agRelConta_(v)]); };
+  const tab = (t, linhas, col1) => linhas.length ? `<h2>${t}</h2><table><thead><tr><th>${col1}</th><th>Agendadas</th><th>Realizadas</th><th>Faltas</th><th>Canceladas</th><th>Sem registro</th><th>A realizar</th><th>Comparecimento</th></tr></thead><tbody>${linhas.map(([k, c]) => `<tr><td><b>${esc(k)}</b></td><td>${c.total}</td><td>${c.rea}</td><td>${c.fal}</td><td>${c.can}</td><td>${c.pend}</td><td>${c.fut}</td><td>${c.comp == null ? '—' : c.comp + '%'}</td></tr>`).join('')}</tbody></table>` : '';
+  const porRec = grupo(x => x.recNome).sort((a, b) => b[1].total - a[1].total);
+  const porDia = grupo(x => x.dia).sort((a, b) => a[0].localeCompare(b[0])).map(([k, c]) => [AG_SEM_[agDt_(k).getDay()].replace('-feira', '').replace(/^./, s => s.toUpperCase()) + ' · ' + fmtBR(k).slice(0, 5), c]);
+  const porVaga = grupo(x => String(x.vaga || '').trim().toUpperCase() || 'NÃO INFORMADA').sort((a, b) => b[1].total - a[1].total).slice(0, 15);
+  const k = (l, v, s, cor) => `<div class="k" style="--c:${cor}"><span>${l}</span><b>${v}</b><small>${s || ''}</small></div>`;
+  const cls = { realizada: 'ok', faltou: 'bad', pend: 'warn', fut: 'info', cancelado: '' };
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Relatório da agenda · ${esc(rotPer)}</title>
+  <style>
+  @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;margin:0;font-size:10.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:900px;margin:0 auto;padding:18px}header{display:flex;align-items:center;gap:16px;border-bottom:3px solid #6366f1;padding-bottom:12px;margin-bottom:14px}
+  header img{height:46px;max-width:140px;object-fit:contain}.mark{width:46px;height:46px;border-radius:12px;background:linear-gradient(135deg,#22d3ee,#6366f1,#a855f7);color:#fff;display:grid;place-items:center;font-weight:800}
+  header h1{margin:0;font-size:20px}header .meta{color:#5b6785;font-size:11px;margin-top:2px}
+  .ks{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:6px}.k{border:1px solid #e5e7eb;border-top:3px solid var(--c);border-radius:8px;padding:8px 10px}
+  .k span{display:block;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#5b6785}.k b{display:block;font-size:22px;line-height:1.2}.k small{color:#5b6785;font-size:9px}
+  .av{background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:7px 10px;margin:8px 0;font-weight:600}
+  h2{font-size:13px;margin:16px 0 6px;color:#312e81}table{width:100%;border-collapse:collapse}thead{display:table-header-group}th{background:#0f172a;color:#fff;text-align:left;padding:5px 6px;font-size:9px;text-transform:uppercase;letter-spacing:.04em}
+  td{padding:4px 6px;border-bottom:1px solid #e5e7eb;vertical-align:top}tr{page-break-inside:avoid}tbody tr:nth-child(even) td{background:#f8fafc}
+  .st{font-weight:700;border-radius:99px;padding:1px 7px;background:#e2e8f0}.st.ok{background:#dcfce7;color:#166534}.st.bad{background:#fee2e2;color:#991b1b}.st.warn{background:#fef3c7;color:#92400e}.st.info{background:#dbeafe;color:#1e40af}
+  footer{margin-top:14px;color:#94a3b8;font-size:10px;display:flex;justify-content:space-between}
+  .bar{position:sticky;top:0;background:#0f172a;color:#fff;padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:space-between}.bar button{background:#6366f1;color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;font-size:13px}
+  @media print{.bar{display:none}.wrap{padding:0}}
+  </style></head><body>
+  <div class="bar"><span>Pré-visualização do PDF · escolha <b>Salvar como PDF</b> na impressão</span><button onclick="window.print()">Baixar / imprimir PDF</button></div>
+  <div class="wrap">
+  <header>${logo && /^(data:image\/|https:)/.test(logo) ? `<img src="${esc(logo)}">` : '<div class="mark">GRC</div>'}<div><h1>Relatório de entrevistas</h1><div class="meta">${esc(rotPer)} · ${esc(rotRec)} · ${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos<br>Gerado em ${agora.toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div></header>
+  <div class="ks">${k('Agendadas', C.total, C.link + ' pelo link · ' + C.rem + ' remarcada(s)', '#06b6d4')}${k('Realizadas', C.rea, C.total ? Math.round(C.rea / C.total * 100) + '% das agendadas' : '', '#16a34a')}${k('Faltas', C.fal, C.rea + C.fal ? Math.round(C.fal / (C.rea + C.fal) * 100) + '% de faltas' : '', '#dc2626')}${k('Comparecimento', C.comp == null ? '—' : C.comp + '%', 'realizadas ÷ (realizadas + faltas)', '#7c3aed')}${k('Canceladas', C.can, C.fut + ' a realizar · ' + C.pend + ' sem registro', '#64748b')}</div>
+  ${C.pend ? `<div class="av">⚠ ${C.pend} entrevista(s) já passaram sem registro de Realizada ou Faltou.</div>` : ''}
+  ${!umRec && porRec.length > 1 ? tab('Por recrutador', porRec, 'Recrutador') : ''}
+  ${porDia.length > 1 ? tab('Por dia', porDia, 'Dia') : ''}
+  ${tab('Por vaga', porVaga, 'Vaga')}
+  ${L.length ? `<h2>Entrevistas (${L.length})</h2><table><thead><tr><th>Data</th><th>Hora</th><th>Candidato</th><th>Vaga</th>${umRec ? '' : '<th>Recrutador</th>'}<th>WhatsApp</th><th>Situação</th></tr></thead><tbody>${L.map(x => `<tr><td>${fmtBR(x.dia).slice(0, 5)}</td><td>${x.h}</td><td><b>${esc(x.nome)}</b>${x.remarcada ? ' (remarcada)' : ''}</td><td>${esc(x.vaga)}</td>${umRec ? '' : `<td>${esc(x.recNome)}</td>`}<td>${x.tel ? esc(telFmt(x.tel)) : ''}</td><td><span class="st ${cls[x.st]}">${AG_REL_ST_[x.st]}</span></td></tr>`).join('')}</tbody></table>` : '<p>Nenhuma entrevista neste período.</p>'}
+  <footer><span>${esc(cfgv('sistema', 'Quadro de Lojas'))} · Agenda de entrevistas</span><span>Comparecimento = realizadas ÷ (realizadas + faltas)</span></footer>
+  </div><script>setTimeout(function(){try{window.print()}catch(e){}},600)</script></body></html>`;
+  const w = window.open('', '_blank'); if (!w) { toast('Permita pop-ups para gerar o PDF', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 function agTroca_(d) { const A = S.agenda; if (!A) return; A.dias = A.dias.map(x => x.dia === d.dia ? d : x); agCacheGrava_(A); }
 // cache da agenda no aparelho (abre na hora e atualiza em segundo plano)
@@ -1595,7 +1741,7 @@ function agSalvar_(payload, mut, done, ok, falha) {
 function agMsgConfirma_(rec, o, dia, hh) {
   const recNome = (((S.agenda.recs || []).find(r => r.rec === rec) || S.agenda.meu || {}).nome || (S.user || {}).nome || '').split(' - ')[0];
   const prim = s => String(s || '').split(' ')[0].toLowerCase().replace(/^./, c => c.toUpperCase());
-  return `Olá, ${prim(o.nome)}! Aqui é ${recNome}, do RH do Grupo R Center.\n\nSua entrevista online está *confirmada* para ${agExt_(dia)}, às ${hh} (duração de cerca de 20 minutos).\n\n🎥 Link da videochamada (Google Meet):\n${o.meet || '(gerando o link...)'}\n\nRecomendamos entrar alguns minutos antes, em um lugar tranquilo e com boa conexão.${o.email ? ' O convite também foi enviado para o seu e-mail.' : ''}\n\nAté breve!`;
+  return `Olá, ${prim(o.nome)}! Aqui é ${recNome}, do RH do Grupo R Center.\n\nSua entrevista online está *confirmada* para ${agExt_(dia)}, às ${hh} (duração de cerca de ${agPasso_(dia)} minutos).\n\n🎥 Link da videochamada (Google Meet):\n${o.meet || '(gerando o link...)'}\n\nRecomendamos entrar alguns minutos antes, em um lugar tranquilo e com boa conexão.${o.email ? ' O convite também foi enviado para o seu e-mail.' : ''}\n\nAté breve!`;
 }
 function openAgendaConfirma(rec, dia, hh, esperar) {
   const pega = () => { const D = (S.agenda.dias || []).find(x => x.dia === dia); return D && D.s[hh]; };
@@ -1651,10 +1797,10 @@ function openAgendaItem(rec, D, hh, done) {
     return;
   }
   const quando = `${agExt_(D.dia)} às ${hh}`;
-  const convite = `Entrevista online · ${o.nome}\nData: ${D.dia.split('-').reverse().join('/')} às ${hh} (20 min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
+  const convite = `Entrevista online · ${o.nome}\nData: ${D.dia.split('-').reverse().join('/')} às ${hh} (${agPasso_(D.dia)} min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
   modal({
     title: o.nome, icon: 'calendar',
-    body: `<div class="ar-info"><div>📅 <b>${h(quando.replace(/^./, c => c.toUpperCase()))}</b> · 20 min · Google Meet</div>
+    body: `<div class="ar-info"><div>📅 <b>${h(quando.replace(/^./, c => c.toUpperCase()))}</b> · ${agPasso_(D.dia)} min · Google Meet</div>
       ${o.vaga ? `<div>💼 ${h(o.vaga)}</div>` : ''}
       ${o.email ? `<div>✉️ <a href="mailto:${h(o.email)}">${h(o.email)}</a> <button class="btn sm ghost" id="aiCpE" title="Copiar e-mail">${ic('copy')}</button></div>` : ''}
       ${o.tel ? `<div>📱 <a target="_blank" rel="noopener" href="https://wa.me/55${h(o.tel)}">${h(telFmt(o.tel))}</a></div>` : ''}
@@ -1680,7 +1826,7 @@ function openAgendaItem(rec, D, hh, done) {
 }
 // remarcar entrevista: escolhe novo dia e horário e avisa o candidato
 function openAgendaMover(rec, D, hh, done) {
-  const o = D.s[hh], H = (S.agenda && S.agenda.horarios) || [];
+  const o = D.s[hh];
   modal({
     title: 'Remarcar entrevista', icon: 'swap',
     body: `<div class="ar-mv-at"><b>${h(o.nome)}</b><span>Atual: ${h(agExt_(D.dia))} às ${hh}</span></div>
@@ -1698,6 +1844,7 @@ function openAgendaMover(rec, D, hh, done) {
         if (doc.feriado || w === 0 || w === 6) { el.innerHTML = `<div class="ag-vazio">${doc.feriado ? '🎉 Feriado: ' + h(doc.feriado) : 'Fim de semana'}. Escolha outro dia.</div>`; return; }
         const livre = x => (!doc.s[x] || doc.s[x].st === 'cancelado') && !(dd === D.dia && x === hh) && !(dd === hoje && Number(x.slice(0, 2)) * 60 + Number(x.slice(3)) <= agoraMin());
         const bt = x => { const L = livre(x), oc = doc.s[x] && doc.s[x].st !== 'cancelado'; return `<button class="ar-mv-h ${sel === x ? 'sel' : ''} ${x === hh && dd === D.dia ? 'atual' : ''}" data-h="${x}" ${L ? '' : 'disabled'} title="${oc ? h(doc.s[x].st === 'bloqueado' ? 'Bloqueado' : doc.s[x].nome) : ''}">${x}</button>`; };
+        const H = agHorariosF_(dd);
         el.innerHTML = `<div class="ar-turno">☀️ Manhã</div><div class="ar-mv-hs">${H.filter(x => x < '12:00').map(bt).join('')}</div><div class="ar-turno" style="margin-top:8px">🌤️ Tarde</div><div class="ar-mv-hs">${H.filter(x => x >= '13:00').map(bt).join('')}</div>${doc.fechado ? '<p class="faint" style="font-size:12px;margin:8px 0 0">Este dia está fechado para o link do candidato, mas você pode remarcar nele.</p>' : ''}`;
         $$('.ar-mv-h:not([disabled])', el).forEach(b => b.onclick = () => { sel = b.dataset.h; $('#amOk', m.el).disabled = false; desenha(); });
       };
@@ -1735,8 +1882,8 @@ function openAgendaAviso(rec, o, de, para) {
   const recNome = ((S.agenda.recs || []).find(r => r.rec === rec) || S.agenda.meu || {}).nome || (S.user || {}).nome || '';
   const prim = s => String(s || '').split(' ')[0].toLowerCase().replace(/^./, c => c.toUpperCase());
   const quando = agExt_(para.dia);
-  const msg = `Olá, ${prim(o.nome)}! Aqui é ${recNome.split(' - ')[0]}, do RH do Grupo R Center.\n\nPrecisamos ajustar o horário da sua entrevista online. Ela foi *remarcada para ${quando}, às ${para.h}* (duração de cerca de 20 minutos, pelo Google Meet).\n\n${o.meet ? '🎥 O link da videochamada continua o mesmo:\n' + o.meet + '\n\n' : ''}${o.email ? 'O convite atualizado também foi enviado para o seu e-mail (' + o.email + '). ' : ''}Caso não possa comparecer nesse horário, por favor, nos avise por aqui.\n\nObrigado pela compreensão!`;
-  const dados = `Entrevista online · ${o.nome}\nNova data: ${para.dia.split('-').reverse().join('/')} às ${para.h} (20 min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
+  const msg = `Olá, ${prim(o.nome)}! Aqui é ${recNome.split(' - ')[0]}, do RH do Grupo R Center.\n\nPrecisamos ajustar o horário da sua entrevista online. Ela foi *remarcada para ${quando}, às ${para.h}* (duração de cerca de ${agPasso_(para.dia)} minutos, pelo Google Meet).\n\n${o.meet ? '🎥 O link da videochamada continua o mesmo:\n' + o.meet + '\n\n' : ''}${o.email ? 'O convite atualizado também foi enviado para o seu e-mail (' + o.email + '). ' : ''}Caso não possa comparecer nesse horário, por favor, nos avise por aqui.\n\nObrigado pela compreensão!`;
+  const dados = `Entrevista online · ${o.nome}\nNova data: ${para.dia.split('-').reverse().join('/')} às ${para.h} (${agPasso_(para.dia)} min)\nE-mail: ${o.email || '-'}\nWhatsApp: ${o.tel ? telFmt(o.tel) : '-'}${o.vaga ? '\nVaga: ' + o.vaga : ''}`;
   modal({
     title: 'Entrevista remarcada', icon: 'check',
     body: `<div class="ar-mv-ok"><span>${h(agDdMm_(de.dia))} · ${de.h}</span><i>➜</i><b>${h(agDdMm_(para.dia))} · ${para.h}</b></div>

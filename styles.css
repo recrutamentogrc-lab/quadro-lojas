@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=Nunito+Sans:wght@400;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&display=swap');
 
 :root{
   --bg:#070b16; --bg2:#0b1122; --surface:#0f1729; --surface2:#141e35; --surface3:#1a2642;
@@ -1354,3 +1355,125 @@ body{text-rendering:optimizeLegibility}
 .chip,.badge,.ar-rec,.tr-chip{transition:background .18s,border-color .18s,color .18s,transform .15s var(--ease)}
 .chip:hover,.ar-rec:hover{transform:translateY(-1px)}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+
+
+/* =====================================================================
+ * NOVO VISUAL · identidade Grupo R Center (azul-marinho + laranja)
+ * ===================================================================== */
+:root{
+  --navy:#0a0d7c; --navy2:#060852; --navy3:#11159a; --orange:#ff5a14; --orange2:#ff7a2f;
+  --bg:#060a26; --bg2:#080c2e; --surface:#0d1240; --surface2:#121852; --surface3:#19206a;
+  --border:rgba(160,170,255,.12); --border2:rgba(160,170,255,.22);
+  --text:#eef0ff; --muted:#9aa2d6; --faint:#6a72a8;
+  --accent:#ff6a26; --accent2:#7b82ff; --acc-bg:rgba(255,106,38,.12);
+  --grad:linear-gradient(135deg,#ff8a3d 0%,#ff5a14 55%,#e8430a 100%);
+  --grad-navy:linear-gradient(160deg,#11159a 0%,#0a0d7c 45%,#060852 100%);
+  --radius:18px;
+}
+:root[data-theme="light"]{
+  --bg:#f3f5fc; --bg2:#eef1fa; --surface:#ffffff; --surface2:#f6f7fd; --surface3:#eceffa;
+  --border:rgba(10,13,124,.08); --border2:rgba(10,13,124,.15);
+  --text:#0b1037; --muted:#5a6191; --faint:#9aa0c3;
+  --accent:#f2550f; --accent2:#0a0d7c; --acc-bg:rgba(242,85,15,.08);
+}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif}
+body::before{background:radial-gradient(1000px 520px at 100% -10%,rgba(255,90,20,.10),transparent 60%),radial-gradient(900px 520px at -10% 110%,rgba(10,13,124,.12),transparent 60%)}
+:root[data-theme="light"] body::before{opacity:1;background:radial-gradient(1000px 520px at 100% -10%,rgba(255,90,20,.07),transparent 60%),radial-gradient(900px 600px at -10% 110%,rgba(10,13,124,.06),transparent 60%)}
+h1,h2,h3,.topbar h1,.kpi .val,.hero h2,.hero .stats b,.ring::before{font-family:'Sora','Plus Jakarta Sans',sans-serif}
+
+/* ---- menu lateral azul-marinho ---- */
+.sidebar{background:var(--grad-navy);border-right:0;box-shadow:8px 0 30px -18px rgba(6,8,82,.6);color:#fff}
+.sidebar::after{content:"";position:absolute;inset:auto -60px -80px auto;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,rgba(255,90,20,.35),transparent 65%);pointer-events:none;filter:blur(10px)}
+.sidebar .brand-txt{color:#fff}
+.sidebar .brand small,.sidebar .brand-txt small{color:rgba(255,255,255,.6)}
+.sidebar .sb-label,.sidebar .sb-tog{color:rgba(255,255,255,.45)}
+.sidebar .sb-tog:hover{color:rgba(255,255,255,.85)}
+.sidebar .nav{color:rgba(255,255,255,.72)}
+.sidebar .nav svg.i{color:rgba(255,255,255,.7)}
+.sidebar .nav:hover{background:rgba(255,255,255,.08);color:#fff}
+.sidebar .nav.active{background:rgba(255,255,255,.12);color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.sidebar .nav.active svg.i{color:var(--orange2)}
+.sidebar .nav.active::before{left:-12px;width:4px;background:var(--grad);box-shadow:0 0 12px rgba(255,90,20,.8)}
+.sidebar .nav .cnt{background:rgba(255,255,255,.12);color:#fff}
+.sidebar .nav .cnt.hot{background:var(--orange);color:#fff}
+.sidebar .nav .new{background:rgba(52,211,153,.18);color:#6ee7b7}
+.sidebar .sb-sum{background:var(--orange);color:#fff}
+.sidebar .sb-foot{border-top:1px solid rgba(255,255,255,.1)}
+.sidebar .me:hover{background:rgba(255,255,255,.08)}
+.sidebar .me .who b{color:#fff}
+.sidebar .me .who span{color:rgba(255,255,255,.6)}
+.sidebar .btn.ghost,.sidebar .btn{color:rgba(255,255,255,.8);background:transparent;border-color:transparent}
+.sidebar .btn:hover{background:rgba(255,255,255,.1);color:#fff}
+.sidebar a:not(.nav),.sidebar .logout,.sidebar [id*=Sair]{color:rgba(255,255,255,.75)}
+.sidebar *{scrollbar-color:rgba(255,255,255,.2) transparent}
+.sidebar ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);background-clip:content-box}
+.sidebar.collapsed .sb-label{border-top-color:rgba(255,255,255,.1)}
+.brand-logo{background:#fff;box-shadow:0 8px 22px -8px rgba(255,90,20,.7)}
+
+/* ---- topo ---- */
+.topbar{background:color-mix(in srgb,var(--bg) 72%,transparent);border-bottom:1px solid var(--border)}
+.topbar h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+:root[data-theme="light"] .topbar h1{color:var(--navy)}
+.topbar .crumb{text-transform:uppercase;letter-spacing:.08em;font-size:10.5px;font-weight:700;color:var(--faint)}
+
+/* ---- botões ---- */
+.btn{border-radius:12px}
+.btn.primary{background:var(--grad);box-shadow:0 10px 24px -12px rgba(242,85,15,.9)}
+.btn.primary:hover{box-shadow:0 14px 30px -12px rgba(242,85,15,1)}
+:root[data-theme="light"] .btn:not(.primary):not(.ghost):not(.danger):not(.ok){background:#fff;box-shadow:0 1px 2px rgba(10,13,124,.06)}
+:root[data-theme="light"] .btn:not(.primary):not(.ghost):not(.danger):not(.ok):hover{border-color:var(--navy);color:var(--navy)}
+
+/* ---- cartões ---- */
+.card{border-radius:var(--radius)}
+:root[data-theme="light"] .card{border-color:rgba(10,13,124,.07)}
+.kpi .lbl{text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:700}
+.kpi .val{font-weight:700;letter-spacing:-.035em}
+:root[data-theme="light"] .kpi .val{color:var(--navy)}
+.kpi .ico{border-radius:13px;width:42px;height:42px}
+.kpi::after{opacity:.05;width:140px;height:140px}
+.card.kpi::before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:3px;border-radius:0 3px 3px 0;background:var(--kc,var(--accent));opacity:.85}
+.bar{height:8px;background:var(--surface3)}
+
+/* ---- destaque do painel (azul + laranja) ---- */
+.hero{border-radius:24px;padding:26px 28px}
+.hero-dash{background:var(--grad-navy)!important;border:0!important;color:#fff;box-shadow:0 24px 50px -24px rgba(6,8,82,.75)}
+.hero-dash::after{background:radial-gradient(circle,rgba(255,90,20,.65),transparent 62%);opacity:1;width:420px;height:420px;right:-120px;top:-170px;filter:blur(6px)}
+.hero-dash::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);background-size:38px 38px;mask-image:linear-gradient(110deg,#000 10%,transparent 65%);pointer-events:none}
+.hero-dash>*{position:relative;z-index:1}
+.hero-dash h2,.hero-dash b{color:#fff}
+.hero-dash .muted,.hero-dash small,.hero-dash .stats div span,.hero-dash p{color:rgba(255,255,255,.7)!important}
+.hero-dash .stats{border-top:1px solid rgba(255,255,255,.12);padding-top:16px;gap:34px}
+.hero-dash .stats div b{font-size:26px}
+.hero-dash .stats div b[style*="--bad"]{color:var(--orange2)!important}
+.hero-dash .btn:not(.primary){background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.2);color:#fff}
+.hero-dash .btn:not(.primary):hover{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff}
+.hero-dash .avatar.lg{box-shadow:0 0 0 4px rgba(255,255,255,.15),0 0 0 8px rgba(255,90,20,.25)}
+.hero:not(.hero-dash){background:linear-gradient(120deg,color-mix(in srgb,var(--lc) 18%,var(--surface)) 0%,var(--surface) 62%);box-shadow:var(--sh1)}
+.hero:not(.hero-dash) .stats div b{font-size:24px}
+
+/* ---- filtros, chips e tabelas ---- */
+.chip{border-radius:99px}
+.chip.on{background:var(--navy);border-color:var(--navy);color:#fff}
+:root:not([data-theme="light"]) .chip.on{background:var(--accent);border-color:var(--accent)}
+.chip.on .n{opacity:.8}
+.input,select.input,textarea.input{border-radius:12px}
+:root[data-theme="light"] .input,:root[data-theme="light"] select.input{background:#fff}
+.tbl th{letter-spacing:.08em;color:var(--muted)}
+:root[data-theme="light"] .tbl thead th{background:color-mix(in srgb,#f6f7fd 92%,transparent)}
+.tbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 4%,var(--surface))}
+
+/* ---- janelas ---- */
+.modal{border-radius:24px;border:0}
+.modal-h{border-bottom-color:var(--border)}
+.modal-h h3{font-family:'Sora','Plus Jakarta Sans',sans-serif;font-weight:700;letter-spacing:-.01em}
+:root[data-theme="light"] .modal-h h3{color:var(--navy)}
+.overlay{background:rgba(6,8,52,.55)}
+
+/* ---- tela de login ---- */
+.login-hero{background:var(--grad-navy)}
+.login-hero .orb{background:radial-gradient(circle,#ff5a14,transparent 65%);opacity:.55}
+.login-hero h1 span{background:linear-gradient(90deg,#ff8a3d,#ffb37a);-webkit-background-clip:text;background-clip:text}
+.brand-logo{color:var(--navy)}
+.hero-dash .btn:not(.primary){background:rgba(255,255,255,.1)!important;border-color:rgba(255,255,255,.22)!important;color:#fff!important;box-shadow:none!important}
+.hero-dash .btn:not(.primary):hover{background:rgba(255,255,255,.2)!important;border-color:rgba(255,255,255,.4)!important}
+.sidebar .nav .dot[style*="dashed"]{border-color:rgba(255,255,255,.35)!important;color:rgba(255,255,255,.7)!important}

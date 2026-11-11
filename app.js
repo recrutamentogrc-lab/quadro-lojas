@@ -4142,7 +4142,7 @@ function pgDash() {
   const nova = L.find(l => l.nova);
   const v = $('#view');
   v.innerHTML = `
-  <div class="hero" style="--lc:#6366f1">
+  <div class="hero hero-dash" style="--lc:#ff5a14">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1">
       ${avatar(S.user.nome, S.user.foto, 'lg')}
       <div style="flex:1;min-width:220px">

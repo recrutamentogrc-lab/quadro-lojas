@@ -1273,3 +1273,84 @@ body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
 .ag-fi-ok{display:inline-block;background:#ecfdf3;color:#166534;border:1px solid #bbf7d0;border-radius:99px;padding:6px 14px;font-weight:700;font-size:13.5px;margin:0 0 12px}
 
 .ag-fi-falta{text-align:left;border:2px dashed #ffb48a;border-radius:16px;padding:14px;margin:4px 0 14px;background:#fff8f3}
+
+/* =================== acabamento visual e animações =================== */
+:root{--ease:cubic-bezier(.22,1,.36,1);--sh1:0 1px 2px rgba(0,0,0,.25),0 4px 14px -6px rgba(0,0,0,.35);--sh2:0 10px 30px -12px rgba(0,0,0,.55)}
+:root[data-theme="light"]{--sh1:0 1px 2px rgba(15,23,42,.05),0 6px 18px -10px rgba(15,23,42,.14);--sh2:0 18px 40px -18px rgba(15,23,42,.28)}
+html{scroll-behavior:smooth}
+body{text-rendering:optimizeLegibility}
+::selection{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+/* números alinhados */
+.kpi .val,.stats b,.adm-stat b,.tbl td,.ring::before,.cnt{font-variant-numeric:tabular-nums}
+/* barra de rolagem discreta */
+*{scrollbar-width:thin;scrollbar-color:var(--border2) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:99px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background-color:var(--faint)}
+::-webkit-scrollbar-track{background:transparent}
+/* cartões com profundidade suave */
+.card{box-shadow:var(--sh1);transition:box-shadow .25s var(--ease),transform .25s var(--ease),border-color .25s}
+.card.kpi:hover,.card[data-cand]:hover,.lcard:hover{transform:translateY(-2px);box-shadow:var(--sh2);border-color:var(--border2)}
+.kpi .ico{transition:transform .35s var(--ease)}
+.card.kpi:hover .ico{transform:scale(1.08) rotate(-4deg)}
+.kpi::after{transition:transform .6s var(--ease),opacity .3s}
+.card.kpi:hover::after{transform:scale(1.25);opacity:.1}
+/* botões: toque e foco */
+.btn{transition:background .18s,border-color .18s,box-shadow .18s,transform .12s var(--ease),filter .18s}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn.primary{background-size:150% 150%;background-position:0 50%;transition:background-position .5s var(--ease),box-shadow .25s,transform .12s var(--ease)}
+.btn.primary:hover{filter:none;background-position:100% 50%;box-shadow:0 12px 26px -10px rgba(99,102,241,.85)}
+.btn:focus-visible,.input:focus-visible,.nav:focus-visible,.sb-tog:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+/* menu lateral */
+.nav{transition:background .18s,color .18s,transform .18s var(--ease)}
+.nav:hover{transform:translateX(2px)}
+.nav.active{background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 16%,transparent),color-mix(in srgb,var(--accent) 4%,transparent));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 18%,transparent)}
+.nav.active svg.i{color:var(--accent)}
+.nav .dot{transition:transform .25s var(--ease)}
+.nav:hover .dot{transform:scale(1.08)}
+.sb-tog{display:flex;align-items:center;gap:6px;width:100%;background:none;border:0;cursor:pointer;text-align:left;border-radius:8px;transition:color .15s}
+.sb-tog:hover{color:var(--muted)}
+.sb-tog span{flex:1}
+.sb-tog svg.i{width:14px;height:14px;transition:transform .25s var(--ease);opacity:.7}
+.sb-tog.fech svg.i{transform:rotate(-90deg)}
+.sb-sum{font-style:normal;font-size:10px;font-weight:800;letter-spacing:0;background:var(--bad-bg);color:var(--bad);border-radius:99px;padding:1px 6px}
+.sb-sum:empty{display:none}
+.sb-grp{display:grid;grid-template-rows:1fr;transition:grid-template-rows .28s var(--ease),opacity .2s}
+.sb-grp.fech{grid-template-rows:0fr;opacity:.0}
+.sb-grp-in{overflow:hidden;min-height:0}
+.sidebar.collapsed .sb-grp,.sidebar.collapsed .sb-grp.fech{grid-template-rows:1fr;opacity:1}
+.sidebar.collapsed .sb-tog{pointer-events:none}
+.sidebar.collapsed .sb-tog>*{display:none}
+/* tabelas */
+.tbl th{backdrop-filter:blur(8px);background:color-mix(in srgb,var(--surface) 92%,transparent)}
+.tbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
+.tbl-wrap{box-shadow:var(--sh1)}
+/* janelas e avisos */
+.overlay{backdrop-filter:blur(6px) saturate(120%);animation:fade .22s ease}
+.modal{animation:pop .3s var(--ease);box-shadow:0 40px 90px -30px rgba(0,0,0,.55)}
+@keyframes pop{from{transform:translateY(14px) scale(.97);opacity:0}}
+.toast{animation:toastIn .35s var(--ease)}
+@keyframes toastIn{from{transform:translateX(30px);opacity:0}}
+/* esqueleto de carregamento com brilho */
+.sk{position:relative;overflow:hidden;background:var(--surface2)!important;border-radius:var(--radius)}
+.sk::after{content:"";position:absolute;inset:0;transform:translateX(-100%);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--text) 6%,transparent),transparent);animation:shimmer 1.3s infinite}
+@keyframes shimmer{to{transform:translateX(100%)}}
+/* barras e anéis crescem ao abrir */
+.v-in .bar>i{animation:barIn .9s var(--ease) both;animation-delay:calc(var(--d,0ms) + 150ms)}
+@keyframes barIn{from{width:0!important}}
+.v-in .ring{animation:ringIn .9s var(--ease) both}
+@property --p{syntax:'<number>';inherits:false;initial-value:0}
+@keyframes ringIn{from{--p:0}}
+/* entrada da página */
+.v-in .card,.v-in .kpi,.v-in .tbl-wrap{animation:upIn .55s var(--ease) both;animation-delay:var(--d,0ms)}
+.v-in>.toolbar,.v-in>.hero,.v-in>.dash-hero{animation:upIn .45s var(--ease) both}
+@keyframes upIn{from{opacity:0;transform:translateY(12px)}}
+/* topo */
+.topbar{transition:box-shadow .25s}
+.topbar h1{animation:titIn .4s var(--ease)}
+@keyframes titIn{from{opacity:0;transform:translateY(4px)}}
+/* chips e badges */
+.chip,.badge,.ar-rec,.tr-chip{transition:background .18s,border-color .18s,color .18s,transform .15s var(--ease)}
+.chip:hover,.ar-rec:hover{transform:translateY(-1px)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}

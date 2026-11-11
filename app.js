@@ -3141,6 +3141,7 @@ function updateShell() {
     ${podePesq() ? `<div class="sb-label">Cargos e salários</div>${navItem('/tabela', ic('table'), 'Tabela salarial', '<span class="new">novo</span>')}${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial')}` : ''}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
   `;
+  sbGrupos_();
   const sb = $('#sbBrand'); if (sb) sb.innerHTML = `${brandHTML()}<div class="brand-txt">${h(cfgv('sistema', 'Quadro de Lojas'))}<small>${h(cfgv('empresa', 'Grupo R Center'))}</small></div>`;
   const nlB = $('#navNovaLoja'); if (nlB) nlB.onclick = e => { e.preventDefault(); openNovaLoja(); };
   const ncB = $('#navConv'); if (ncB) ncB.onclick = e => { e.preventDefault(); openConvites(); };
@@ -3155,6 +3156,43 @@ function updateShell() {
   $$('.mbar a[data-nav]').forEach(a => a.classList.toggle('active', (location.hash.replace(/^#/, '') || '/inicio').startsWith(a.dataset.nav)));
   $('#meBox').innerHTML = `${avatar(S.user.nome, S.user.foto)}<div class="who"><b>${h(S.user.nome)}</b><span>${h(S.user.cargo || PERFIS[S.user.perfil] || '')}</span></div>`;
   $$('#sbNav .nav').forEach(a => a.addEventListener('click', () => { $('#sb').classList.remove('open'); const bk = $('#sbBack'); if (bk) bk.classList.remove('on'); }));
+}
+// menu lateral em grupos recolhíveis (o estado fica salvo neste navegador)
+function sbGrupos_() {
+  const nav = $('#sbNav'); if (!nav) return;
+  let fech = []; try { fech = JSON.parse(localStorage.getItem('grc_sb_fech') || '[]'); } catch (e) {}
+  let grp = null;
+  [...nav.children].forEach(el => {
+    if (el.classList.contains('sb-label')) {
+      const nome = el.textContent.trim(), bt = document.createElement('button');
+      bt.type = 'button'; bt.className = 'sb-label sb-tog'; bt.dataset.g = nome; bt.title = 'Mostrar ou recolher';
+      bt.innerHTML = `<span>${h(nome)}</span><em class="sb-sum"></em>${ic('chevron')}`;
+      grp = document.createElement('div'); grp.className = 'sb-grp'; grp.innerHTML = '<div class="sb-grp-in"></div>';
+      nav.replaceChild(bt, el); bt.after(grp);
+    } else if (grp) grp.firstChild.appendChild(el);
+  });
+  $$('.sb-tog', nav).forEach(b => {
+    const g = b.nextElementSibling;
+    const set = f => { const hot = $$('.cnt.hot', g).reduce((s, x) => s + (Number(x.textContent) || 0), 0); b.classList.toggle('fech', f); g.classList.toggle('fech', f); $('.sb-sum', b).textContent = f && hot ? hot : ''; };
+    set(fech.includes(b.dataset.g) && !$('.nav.active', g));
+    b.onclick = () => { const f = !g.classList.contains('fech'); set(f); fech = fech.filter(x => x !== b.dataset.g); if (f) fech.push(b.dataset.g); try { localStorage.setItem('grc_sb_fech', JSON.stringify(fech)); } catch (e) {} };
+  });
+}
+// animação de entrada da página: cartões sobem em sequência e os números contam até o valor
+function animaView_(v) {
+  if (!v || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+  v.classList.remove('v-in'); void v.offsetWidth; v.classList.add('v-in');
+  $$('.card, .kpi, .tbl-wrap', v).slice(0, 24).forEach((c, i) => c.style.setProperty('--d', Math.min(i, 12) * 40 + 'ms'));
+  clearTimeout(v._vin); v._vin = setTimeout(() => v.classList.remove('v-in'), 1300);
+  $$('.kpi .val, .stats > div > b, .adm-stat > b', v).slice(0, 30).forEach(el => {
+    const tn = [...el.childNodes].find(n => n.nodeType === 3 && /\d/.test(n.nodeValue)); if (!tn) return;
+    const m = tn.nodeValue.match(/^(\s*)([\d.]*\d(?:,\d+)?)(.*)$/s); if (!m) return;
+    const alvo = Number(m[2].replace(/\./g, '').replace(',', '.')); if (!isFinite(alvo) || alvo === 0) return;
+    const dec = (m[2].split(',')[1] || '').length, mil = /\./.test(m[2]), t0 = performance.now(), dur = 750;
+    const fmtN = x => x.toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: mil });
+    const passo = t => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3); tn.nodeValue = m[1] + fmtN(alvo * e) + m[3]; if (p < 1 && tn.isConnected) requestAnimationFrame(passo); else tn.nodeValue = m[1] + m[2] + m[3]; };
+    tn.nodeValue = m[1] + fmtN(0) + m[3]; requestAnimationFrame(passo);
+  });
 }
 function setTitle(t, crumb) { $('#title').textContent = t; $('#crumb').textContent = crumb || ''; document.title = t + ' · Quadro GRC'; }
 
@@ -3909,6 +3947,7 @@ function route(keep) {
   const hash = location.hash.replace(/^#/, '') || '/inicio';
   const [, page, arg] = hash.split('/');
   $$('#sbNav .nav, .mbar a[data-nav]').forEach(a => a.classList.toggle('active', hash.startsWith(a.dataset.nav)));
+  const nAt = $('#sbNav .nav.active'), gAt = nAt && nAt.closest('.sb-grp.fech'); if (gAt) { gAt.classList.remove('fech'); gAt.previousElementSibling.classList.remove('fech'); }
   const v = $('#view');
   v.innerHTML = '';
   try {
@@ -3931,6 +3970,7 @@ function route(keep) {
     else if (page === 'solicitacoes') pgSolic();
     else pgDash();
     window.scrollTo(0, keep ? sy : 0);
+    if (!keep) animaView_(v);
   } catch (e) { console.error(e); v.innerHTML = `<div class="empty">${ic('alert')}<div>Erro ao montar a página: ${h(e.message)}</div></div>`; }
 }
 function getF(k) { return S.f[k] || (S.f[k] = {}); }

@@ -812,7 +812,7 @@ const TESTE_INFO = {
   disc: { nome: 'Perfil comportamental', curto: 'DISC', icone: '🧭', min: 6, cor: '#3b82f6', desc: 'Como você costuma agir, decidir e se relacionar no dia a dia.' },
   forcas: { nome: 'Forças pessoais', curto: 'Forças', icone: '💪', min: 7, cor: '#16a34a', desc: 'Descubra as qualidades que mais aparecem em você.' },
   situacional: { nome: 'Jornada GRC', curto: 'Jogo', icone: '🗺️', min: 12, cor: '#ff5a14', desc: 'Jogo de aventura: crie seu personagem, explore as cidades do Grupo R Center e conquiste os selos.' },
-  fit: { nome: 'Fit cultural', curto: 'Fit cultural', icone: '💙', min: 5, cor: '#0a0d7c', desc: 'O quanto você se identifica com os nossos valores.' }
+  fit: { nome: 'Fit cultural', curto: 'Fit cultural', icone: '💙', min: 12, cor: '#0a0d7c', desc: 'O quanto você se identifica com os nossos valores. Termina com 3 perguntas para responder com as suas palavras.' }
 };
 const TESTE_ORDEM = ['disc', 'forcas', 'situacional', 'fit'];
 // ---- DISC: escolha a frase que MAIS combina com você (D, I, S, C)
@@ -904,6 +904,86 @@ const FIT_VAL = [
 ];
 const FIT_ITENS = FIT_VAL.flatMap((v, i) => v[2].map(([t, inv]) => ({ v: i, t, inv })));
 const FIT_ORDEM_ = (() => { const o = FIT_ITENS.map((_, i) => i); let s = 11; for (let i = o.length - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; })();
+// ---- Fit cultural: 3 perguntas abertas no fim (o candidato escreve com as próprias palavras e explica o porquê)
+const FIT_ABERTAS = [
+  { k: 'res', t: 'Conte uma situação real em que você fez mais do que era a sua obrigação (no trabalho, nos estudos ou em casa). O que você fez e por que decidiu fazer?', vals: [0, 1], chave: /(meta|resultado|entreg|cliente|ajud|resolv|termin|organiz|melhor|capricho|além|a mais|esforç|fiquei até|cobri|assumi)/ },
+  { k: 'hum', t: 'Conte sobre uma vez em que você errou ou recebeu uma crítica. Como você reagiu, o que fez depois e o que aprendeu?', vals: [2, 5], chave: /(errei|erro|errado|crític|corrig|feedback|assumi|reconheci|desculp|aprend|melhor|mudei|pedi ajuda|escutei|ouvi)/ },
+  { k: 'res2', t: 'Como você age quando um cliente ou um colega te trata mal ou discorda de você? Dê um exemplo real e explique por que agiu assim.', vals: [3, 4], chave: /(calma|respeit|educa|escut|ouvi|convers|entend|paciên|explic|líder|lider|gerente|encarreg|chamei|resolv|equipe|junto)/ }
+];
+const FIT_MIN = 75;
+// análise automática de uma resposta aberta (0 a 100) — critério rígido: precisa de exemplo real, detalhe e justificativa
+function fitAberta_(txt, q) {
+  const s = String(txt || '').trim(), n = nl_(s), pal = s ? s.split(/\s+/).filter(Boolean) : [];
+  const obs = [], alerta = [];
+  if (pal.length < 5) return { p: 0, pal: pal.length, obs: ['Não respondeu ou respondeu em poucas palavras.'], alerta: ['Resposta vazia ou curta demais'] };
+  // 1) desenvolvimento (até 20)
+  const tam = pal.length >= 70 ? 20 : pal.length >= 45 ? 16 : pal.length >= 25 ? 10 : pal.length >= 12 ? 5 : 2;
+  if (pal.length < 25) obs.push('Resposta curta (' + pal.length + ' palavras).');
+  // 2) exemplo real e concreto (até 35)
+  const marcas = [/(uma vez|certa vez|teve um dia|um dia|na epoca|quando eu|no meu (antigo |ultimo |primeiro )?(emprego|trabalho|servico)|na (empresa|loja|escola|faculdade)|ano passado|semana|mes passado)/, /\b(eu )?(fiz|fui|falei|ajudei|resolvi|percebi|pedi|chamei|assumi|organizei|fiquei|conversei|expliquei|corrigi|errei|aprendi|decidi|liguei|atendi|cobri|voltei|tentei|ouvi|escutei|comecei|terminei)\b/, /\b(cliente|colega|gerente|encarregad|lider|supervisor|chefe|professor|caixa|setor|loja|fila|mercadoria|produto|turno|equipe)\b/, /\d/];
+  const conc = marcas.filter(r => r.test(n)).length, ex = [0, 12, 22, 30, 35][conc];
+  if (conc <= 1) obs.push('Não traz um exemplo real e concreto, fala de forma genérica.');
+  // 3) explica o porquê / reflexão (até 25)
+  const pq = [/\b(porque|pois|por isso|por que|ja que|para que|pra que)\b/, /\b(aprendi|percebi|entendi|refleti|mudei|hoje eu|desde entao|a partir dai|sei que|acredito que|me ensinou)\b/, /\b(senti|fiquei (feliz|chateado|triste|nervoso|orgulhoso)|me (senti|incomodou))\b/].filter(r => r.test(n)).length;
+  const ref = [0, 12, 20, 25][pq];
+  if (!pq) obs.push('Não explica o porquê das atitudes.');
+  // 4) ligação com o valor perguntado (até 20)
+  const val = q.chave.test(n) ? 20 : 6;
+  if (!q.chave.test(n)) obs.push('Pouca relação com o que foi perguntado.');
+  let p = tam + ex + ref + val;
+  // penalidades: frases prontas sem exemplo, autopromoção vaga, sinais de alerta
+  const cliche = (n.match(/\b(proativ|dedicad|comprometid|esforcad|responsavel|pontual|honest|trabalho bem em equipe|sou uma pessoa|me considero|sempre dou o meu melhor|vestir a camisa|facil de lidar|nunca errei|nao tenho defeito|perfeccionista)/g) || []).length;
+  if (cliche >= 2 && conc <= 1) { p -= 15; obs.push('Usa frases prontas de autoelogio no lugar de fatos.'); }
+  if (/(nunca errei|nunca recebi critica|nunca tive problema|nao tenho defeito|nunca discuti com ninguem)/.test(n)) { p -= 15; alerta.push('Diz que nunca errou ou nunca teve conflito'); }
+  if (/(xinguei|revidei|respondi (na mesma|a altura)|bati|empurrei|briguei|mandei (ele|ela|o cliente) |dei uma resposta|fiquei com raiva e|sai e deixei|pedi as contas|larguei)/.test(n)) { p -= 20; alerta.push('Relata reação agressiva ou de abandono'); }
+  if (/(a culpa (foi|era) d|nao foi culpa minha|ele que errou|ela que errou|me perseguia|injustica comigo)/.test(n)) { p -= 10; alerta.push('Tende a transferir a responsabilidade'); }
+  if (s === s.toUpperCase() && /[A-Z]/.test(s) && pal.length > 8) obs.push('Escreveu tudo em maiúsculas.');
+  if (nl_(q.t).slice(0, 40) === n.slice(0, 40)) { p = 0; alerta.push('Copiou a pergunta'); }
+  p = Math.max(0, Math.min(100, Math.round(p)));
+  return { p, pal: pal.length, conc, pq, obs, alerta };
+}
+const nl_ = s => norm(s).toLowerCase();
+// ---- relação dos testes com a vaga (pelo título do link / vaga informada)
+const VAGA_CAT_ = [
+  { id: 'lider', re: /(encarreg|lider|supervis|gerent|coorden|subgeren|chefe)/, nome: 'liderança de equipe', disc: 'DI',
+    forcas: [['Liderança', 'organiza a equipe, distribui tarefas e cobra resultados'], ['Justiça', 'trata a equipe com igualdade e decide sem favorecimento'], ['Perspectiva', 'enxerga o todo da loja e orienta bem as pessoas'], ['Coragem', 'dá feedbacks difíceis e toma decisões impopulares'], ['Autocontrole', 'mantém a calma com clientes, equipe e cobranças da diretoria']] },
+  { id: 'prev', re: /(preven|perda|fiscal|seguranc|vigia|monitor|auditor)/, nome: 'prevenção de perdas e fiscalização', disc: 'CD',
+    forcas: [['Honestidade', 'lida com valores, perdas e ocorrências que exigem total transparência'], ['Coragem', 'precisa agir e comunicar irregularidades mesmo sendo desconfortável'], ['Justiça', 'aplica as regras da mesma forma para todos'], ['Prudência', 'avalia riscos antes de abordar ou agir'], ['Pensamento crítico', 'analisa fatos e evidências antes de concluir']] },
+  { id: 'caixa', re: /(caixa|frente de loja|tesour)/, nome: 'operação de caixa', disc: 'SC',
+    forcas: [['Honestidade', 'manuseia dinheiro e precisa fechar o caixa sem diferenças'], ['Autocontrole', 'mantém a calma com fila grande e clientes irritados'], ['Prudência', 'confere valores, troco e documentos com cuidado'], ['Inteligência social', 'lê o humor do cliente e se adapta no atendimento'], ['Perseverança', 'sustenta a atenção e o ritmo durante todo o turno']] },
+  { id: 'atend', re: /(atend|balcao|vendedor|vend|promot|empacot|recep|crediario|sac)/, nome: 'atendimento ao cliente', disc: 'IS',
+    forcas: [['Bondade', 'tem prazer genuíno em ajudar o cliente'], ['Inteligência social', 'percebe a necessidade do cliente e se adapta'], ['Entusiasmo', 'atende com energia e disposição'], ['Bom humor', 'deixa o atendimento leve e agradável'], ['Autocontrole', 'mantém a educação mesmo com clientes difíceis']] },
+  { id: 'prod', re: /(acougu|padar|confeit|frios|hortifr|peix|cozinh|rotiss|salgad|forneir|padeir|producao)/, nome: 'produção e manipulação de alimentos', disc: 'SC',
+    forcas: [['Apreciação do belo', 'capricha na apresentação e na qualidade do produto'], ['Prudência', 'segue normas de higiene, validade e segurança'], ['Perseverança', 'mantém o padrão em tarefas repetitivas e físicas'], ['Trabalho em equipe', 'divide a produção e ajuda o setor nos picos'], ['Amor ao aprendizado', 'aprende técnicas, receitas e procedimentos novos']] },
+  { id: 'estoque', re: /(repos|repositor|estoq|deposit|confer|receb|almox|logist|armaz)/, nome: 'reposição, estoque e recebimento', disc: 'SC',
+    forcas: [['Perseverança', 'executa tarefas físicas e repetitivas até o fim'], ['Prudência', 'confere validade, quantidade e notas com atenção'], ['Trabalho em equipe', 'ajuda os colegas e o setor a cumprir o abastecimento'], ['Autocontrole', 'cumpre horários, rotinas e procedimentos'], ['Apreciação do belo', 'deixa a gôndola organizada e bonita para o cliente']] },
+  { id: 'adm', re: /(administ|escritor|financ|rh|recursos humanos|departamento pessoal|cpd|analist|assistent|auxiliar adm|compras|fatur|contab)/, nome: 'área administrativa', disc: 'CS',
+    forcas: [['Pensamento crítico', 'analisa informações e evita erros'], ['Prudência', 'confere dados e documentos antes de concluir'], ['Honestidade', 'lida com informações confidenciais e valores'], ['Amor ao aprendizado', 'aprende sistemas e rotinas novas'], ['Perseverança', 'conclui processos longos e detalhados']] },
+  { id: 'limp', re: /(limpez|servicos gerais|asg|zelad|copeir|higieniz)/, nome: 'limpeza e serviços gerais', disc: 'S',
+    forcas: [['Perseverança', 'mantém o padrão de limpeza durante todo o turno'], ['Humildade', 'faz qualquer tarefa necessária sem resistência'], ['Trabalho em equipe', 'apoia os setores quando chamado(a)'], ['Apreciação do belo', 'valoriza o ambiente limpo e organizado'], ['Autocontrole', 'cumpre horários e rotinas com disciplina']] }
+];
+const VAGA_PADRAO_ = { id: 'geral', nome: 'operação de loja (varejo)', disc: 'SC', forcas: [['Honestidade', 'lida com produtos, valores e regras da loja'], ['Trabalho em equipe', 'o resultado da loja depende de todos os setores'], ['Perseverança', 'a rotina do varejo é intensa e repetitiva'], ['Autocontrole', 'mantém a calma nos horários de pico e com clientes difíceis'], ['Bondade', 'atende e ajuda o cliente com boa vontade']] };
+const vagaCat_ = titulo => { const n = nl_(String(titulo || '')); return VAGA_CAT_.find(c => c.re.test(n)) || VAGA_PADRAO_; };
+// perguntas de entrevista para aprofundar cada força
+const FORCA_PERG = {
+  'Criatividade': 'Conte uma vez em que você encontrou um jeito melhor de fazer uma tarefa.', 'Curiosidade': 'O que você aprendeu por conta própria nos últimos meses?', 'Pensamento crítico': 'Conte uma decisão importante que você tomou. Como analisou antes de decidir?', 'Amor ao aprendizado': 'Qual foi o último curso ou treinamento que você fez e o que aplicou dele?', 'Perspectiva': 'Conte uma vez em que você deu um conselho que ajudou alguém.',
+  'Coragem': 'Conte uma situação em que precisou falar algo difícil para alguém. Como fez?', 'Perseverança': 'Fale de algo difícil que você não desistiu de terminar.', 'Honestidade': 'Conte um erro seu que você assumiu, mesmo podendo esconder.', 'Entusiasmo': 'O que te dá energia para trabalhar num dia cansativo?',
+  'Afeto': 'Como você demonstra cuidado com as pessoas próximas no trabalho?', 'Bondade': 'Conte uma vez em que ajudou um cliente ou colega sem que pedissem.', 'Inteligência social': 'Conte uma vez em que percebeu que alguém não estava bem. O que fez?',
+  'Trabalho em equipe': 'Conte uma situação em que o time precisou de você além da sua função.', 'Justiça': 'Como você agiria se um colega fosse tratado de forma injusta?', 'Liderança': 'Conte uma vez em que você organizou um grupo para resolver algo.',
+  'Perdão': 'Como você lida com um colega que errou com você?', 'Humildade': 'Conte uma vez em que aprendeu algo com alguém menos experiente.', 'Prudência': 'Conte uma situação em que pensar antes de agir evitou um problema.', 'Autocontrole': 'Conte uma situação em que alguém te provocou no trabalho. Como reagiu?',
+  'Apreciação do belo': 'Que detalhe faz um setor de loja parecer bem cuidado para você?', 'Gratidão': 'Quem te ajudou a chegar até aqui profissionalmente?', 'Esperança': 'Onde você quer estar daqui a dois anos e o que está fazendo para isso?', 'Bom humor': 'Como você ajuda a deixar o ambiente leve num dia pesado?', 'Propósito': 'O que dá sentido ao seu trabalho?'
+};
+const SIT_PERG = { atend: 'Conte um atendimento difícil que você resolveu. O que fez?', etica: 'O que você faria se visse um colega levando um produto sem pagar?', equipe: 'Conte uma vez em que ajudou um colega mesmo não sendo sua função.', org: 'Como você organiza sua rotina para não esquecer tarefas e prazos?', prob: 'Conte um imprevisto que você resolveu no trabalho. Qual foi o passo a passo?', res: 'Como você acompanha se está cumprindo a sua meta ou tarefa do dia?' };
+const SIT_DESC = { atend: 'cuidado e paciência com o cliente', etica: 'honestidade diante de dinheiro, produtos e regras', equipe: 'colaboração e disponibilidade para ajudar', org: 'cuidado com validade, padrão e passagem de turno', prob: 'agir com calma, avisar quem deve e seguir o procedimento', res: 'compromisso com metas, vendas e redução de perdas' };
+const FIT_PERG = { 'Foco no resultado': 'Qual foi a meta mais difícil que você já cumpriu e o que fez para chegar lá?', 'Amor pelo que fazemos': 'O que te faz gostar (ou não) de trabalhar com atendimento e varejo?', 'Humildade': 'Conte a última crítica que você recebeu e o que fez com ela.', 'Respeito': 'Como você reage quando um cliente é grosseiro com você?', 'União': 'Conte uma vez em que você dividiu o seu trabalho para ajudar o time.', 'Desenvolvimento humano': 'O que você está fazendo hoje para crescer profissionalmente?' };
+const DISC_MAIS = {
+  D: { comunica: 'direta e objetiva, vai direto ao ponto', motiva: 'desafios, metas e autonomia', pressao: 'pode ficar impaciente e autoritário(a)', perg: 'Conte uma situação em que precisou seguir uma regra com a qual não concordava. Como agiu?' },
+  I: { comunica: 'calorosa e expressiva, gosta de conversar', motiva: 'reconhecimento, contato com pessoas e ambiente leve', pressao: 'pode se dispersar e prometer mais do que consegue entregar', perg: 'Fale de uma tarefa repetitiva e detalhada que fez por muito tempo. Como manteve a atenção?' },
+  S: { comunica: 'calma e acolhedora, escuta antes de falar', motiva: 'estabilidade, equipe unida e rotina clara', pressao: 'evita o conflito e pode guardar insatisfações', perg: 'Conte uma mudança de última hora no trabalho. Como você reagiu?' },
+  C: { comunica: 'precisa e cuidadosa, baseada em fatos', motiva: 'padrões claros, qualidade e tempo para fazer bem feito', pressao: 'pode ficar crítico(a) e demorar para decidir', perg: 'Conte uma situação em que precisou decidir rápido sem ter todas as informações. O que fez?' }
+};
+const nivelP_ = p => p >= 85 ? 'forte' : p >= 70 ? 'adequado' : p >= 55 ? 'a desenvolver' : 'frágil';
+const corP_ = (p, min) => p >= (min || 70) ? '#16a34a' : p >= (min ? min - 15 : 55) ? '#f59e0b' : '#ef4444';
 const LIKERT_ = ['Discordo totalmente', 'Discordo', 'Neutro', 'Concordo', 'Concordo totalmente'];
 // ordem embaralhada (estável por item) das alternativas
 const embaralha_ = (n, seed) => { const o = [...Array(n).keys()]; let s = seed * 7919 + 13; for (let i = n - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; };
@@ -912,36 +992,54 @@ function testePerguntas_(t) {
   if (t === 'disc') return DISC_Q.map((q, i) => ({ tipo: 'esc', titulo: 'Qual frase MAIS combina com você?', ops: embaralha_(4, i + 1).map(k => ({ v: 'DISC'[k], t: q[k] })) }));
   if (t === 'forcas') return FORCAS_ORDEM_.map(k => ({ tipo: 'lik', titulo: FORCAS_ITENS[k].t, k }));
   if (t === 'situacional') return SIT_Q.map((q, i) => ({ tipo: 'esc', fase: true, emoji: q[1], titulo: q[2], ops: embaralha_(4, i + 3).map(k => ({ v: String(k), t: q[3][k][0] })) }));
-  if (t === 'fit') return FIT_ORDEM_.map(k => ({ tipo: 'lik', titulo: FIT_ITENS[k].t, k }));
+  if (t === 'fit') return FIT_ORDEM_.map(k => ({ tipo: 'lik', titulo: FIT_ITENS[k].t, k })).concat(FIT_ABERTAS.map((q, j) => ({ tipo: 'txt', titulo: q.t, n: j + 1 })));
   return [];
 }
 // ---- correção e parecer (feito no Quadro, a partir das respostas brutas)
+const media_ = L => L.length ? L.reduce((a, b) => a + b, 0) / L.length : 0;
 function testeCorrigir_(r) {
-  const R = r.resp || [], pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+  const R = r.resp || [], pct = (a, b) => b ? Math.round(a / b * 100) : 0, vg = vagaCat_(r.titulo), min_ = Math.round((r.seg || 0) / 60);
   if (r.teste === 'disc') {
     const n = { D: 0, I: 0, S: 0, C: 0 }; R.forEach(x => { if (n[x] != null) n[x]++; });
     const tot = Object.values(n).reduce((a, b) => a + b, 0) || 1, p = {}; Object.keys(n).forEach(k => p[k] = pct(n[k], tot));
     const ord = Object.keys(p).sort((a, b) => p[b] - p[a]), pri = ord[0], sec = p[ord[1]] >= 22 ? ord[1] : '';
-    const F = DISC_FATOR[pri], F2 = sec ? DISC_FATOR[sec] : null;
-    const perfil = pri + (sec || '');
-    const txt = `Perfil predominante: ${F.nome} (${p[pri]}%)${F2 ? `, com traços de ${F2.nome} (${p[sec]}%)` : ''}. ${F.resumo}\n\nPontos fortes: ${F.fortes}${F2 ? `; e também ${F2.fortes.split(',')[0]}` : ''}.\nPontos de atenção: ${F.atencao}.\nComo gerir: ${F.gestao}.\nFunções com maior afinidade: ${F.funcoes}.`;
-    return { tipo: 'disc', p, perfil, pri, sec, nota: null, rotulo: perfil + ' · ' + F.nome, txt };
+    const F = DISC_FATOR[pri], F2 = sec ? DISC_FATOR[sec] : null, X = DISC_MAIS[pri];
+    const perfil = pri + (sec || ''), equil = p[pri] < 35;
+    const afin = vg.disc.split('').reduce((a, k) => a + p[k], 0), afinTxt = afin >= vg.disc.length * 30 ? 'alta' : afin >= vg.disc.length * 22 ? 'média' : 'baixa';
+    const alertas = [], perg = [X.perg];
+    if (afinTxt === 'baixa') { alertas.push(`Perfil pouco parecido com o mais comum na função (${vg.disc.split('').map(k => DISC_FATOR[k].nome).join(' e ')})`); perg.push(DISC_MAIS[vg.disc[0]].perg); }
+    if (r.seg && r.seg < DISC_Q.length * 3) alertas.push('Respondeu muito rápido (' + r.seg + ' s)');
+    const txt = `O que é: o perfil comportamental (modelo DISC) mostra como a pessoa costuma agir, decidir e se relacionar: Dominância (D), Influência (I), Estabilidade (S) e Conformidade (C). Não existe perfil certo ou errado; o que importa é o encaixe com a função.\n\nResultado: D ${p.D}% · I ${p.I}% · S ${p.S}% · C ${p.C}%.\nPerfil predominante: ${F.nome} (${p[pri]}%)${F2 ? `, com traços de ${F2.nome} (${p[sec]}%)` : ''}${equil ? '. Perfil equilibrado: a pessoa se adapta a diferentes situações, sem um estilo muito marcado' : ''}. ${F.resumo}\n\nPontos fortes: ${F.fortes}${F2 ? `; e também ${F2.fortes.split(',')[0]}` : ''}.\nPontos de atenção: ${F.atencao}.\nComunicação: ${X.comunica}.\nO que motiva: ${X.motiva}.\nSob pressão: ${X.pressao}.\nComo gerir: ${F.gestao}.\nFunções com maior afinidade: ${F.funcoes}.\n\nRelação com a vaga${r.titulo ? ' (' + r.titulo + ')' : ''}: em ${vg.nome}, os estilos mais valorizados são ${vg.disc.split('').map(k => DISC_FATOR[k].nome).join(' e ')}. Afinidade do candidato: ${afinTxt} (${afin}% das respostas nesses estilos).${alertas.length ? '\n\nAlertas: ' + alertas.join('; ') + '.' : ''}\n\nPerguntas para a entrevista:\n${perg.map(x => '• ' + x).join('\n')}`;
+    return { tipo: 'disc', p, perfil, pri, sec, equil, afin, afinTxt, vg, nota: null, alertas, perg, rotulo: perfil + ' · ' + F.nome, txt };
   }
   if (r.teste === 'forcas') {
     const s = FORCAS.map(() => 0);
     FORCAS_ORDEM_.forEach((k, i) => { s[FORCAS_ITENS[k].f] += Number(R[i]) || 0; });
     const lista = FORCAS.map((f, i) => ({ nome: f[0], virt: f[1], desc: f[2], v: s[i], p: Math.round((s[i] - 2) / 8 * 100) })).sort((a, b) => b.v - a.v || a.nome.localeCompare(b.nome));
+    lista.forEach((x, i) => x.pos = i + 1);
     const virt = {}; lista.forEach(x => { (virt[x.virt] = virt[x.virt] || []).push(x.p); });
-    const V = Object.keys(virt).map(k => ({ nome: k, p: Math.round(virt[k].reduce((a, b) => a + b, 0) / virt[k].length) })).sort((a, b) => b.p - a.p);
+    const V = Object.keys(virt).map(k => ({ nome: k, p: Math.round(media_(virt[k])) })).sort((a, b) => b.p - a.p);
     const top = lista.slice(0, 5), baixo = lista.slice(-3);
-    const txt = `Forças de destaque: ${top.map(x => x.nome).join(', ')}.\n${top.map(x => `• ${x.nome}: ${x.desc}`).join('\n')}\n\nVirtude mais presente: ${V[0].nome}. Forças menos evidentes nas respostas: ${baixo.map(x => x.nome).join(', ')} (podem ser exploradas na entrevista).`;
-    return { tipo: 'forcas', lista, virt: V, top, nota: null, rotulo: top.slice(0, 3).map(x => x.nome).join(' · '), txt };
+    const req = vg.forcas.map(([nm, pq]) => { const x = lista.find(y => y.nome === nm); return { nome: nm, pq, p: x.p, pos: x.pos }; });
+    // aderência à vaga: nota das forças exigidas, ponderada pela posição no ranking (precisa estar entre as mais fortes)
+    const ader = Math.round(media_(req.map(x => x.p * .5 + Math.max(0, (25 - x.pos) / 24 * 100) * .5)));
+    const altos = R.filter(x => Number(x) === 5).length / (R.length || 1), ideal = altos >= .75;
+    const alertas = [], perg = [];
+    if (ideal) alertas.push(`Respostas idealizadas: marcou "concordo totalmente" em ${Math.round(altos * 100)}% das frases. O ranking fica pouco confiável; confirme na entrevista`);
+    if (r.seg && r.seg < R.length * 3) alertas.push('Respondeu muito rápido (' + Math.round(r.seg / 60 * 10) / 10 + ' min)');
+    const fracas = req.filter(x => x.pos > 12 || x.p < 60);
+    if (fracas.length >= 3) alertas.push(`${fracas.length} das 5 forças essenciais para a função aparecem pouco`);
+    fracas.slice(0, 3).forEach(x => perg.push(FORCA_PERG[x.nome]));
+    if (perg.length < 2) perg.push(FORCA_PERG[top[0].nome]);
+    const afinTxt = ader >= 75 ? 'alta' : ader >= 60 ? 'média' : 'baixa';
+    const txt = `O que é: o teste de Forças Pessoais avalia 24 qualidades de caráter (inspirado no modelo de forças da psicologia positiva), agrupadas em 6 virtudes: Sabedoria, Coragem, Humanidade, Justiça, Moderação e Transcendência. Ele não mede conhecimento técnico nem tem resposta certa: mostra o que a pessoa faz com mais naturalidade e prazer.\nPara que serve na seleção: verificar se as qualidades mais fortes do candidato são as que a função exige no dia a dia, prever onde ele tende a se destacar e onde vai precisar de apoio, e direcionar as perguntas da entrevista.\n\nRelação com a vaga${r.titulo ? ' (' + r.titulo + ')' : ''}: para ${vg.nome}, as forças essenciais são:\n${req.map(x => `• ${x.nome}: ${x.p}% (${x.pos}º de 24) ${x.pos <= 8 ? '✔' : x.pos <= 16 ? '~' : '✖'}. Por que importa: ${x.pq}.`).join('\n')}\nAderência das forças à vaga: ${ader}% (${afinTxt}).\n\nForças de destaque do candidato: ${top.map(x => x.nome).join(', ')}.\n${top.map(x => `• ${x.nome}: ${x.desc}`).join('\n')}\nVirtude mais presente: ${V[0].nome} (${V[0].p}%). Virtude menos presente: ${V[V.length - 1].nome} (${V[V.length - 1].p}%).\nForças menos evidentes: ${baixo.map(x => x.nome).join(', ')}.${fracas.length ? `\n\nPontos de atenção para a função: ${fracas.map(x => x.nome).join(', ')} aparecem pouco nas respostas.` : '\n\nAs forças essenciais para a função aparecem bem nas respostas.'}${alertas.length ? '\n\nAlertas: ' + alertas.join('; ') + '.' : ''}\n\nPerguntas para a entrevista:\n${perg.map(x => '• ' + x).join('\n')}`;
+    return { tipo: 'forcas', lista, virt: V, top, req, ader, afinTxt, vg, ideal, nota: null, alertas, perg, rotulo: top.slice(0, 3).map(x => x.nome).join(' · '), txt };
   }
   if (r.teste === 'situacional') {
     const c = {}; let tot = 0;
     SIT_Q.forEach((q, i) => { const k = Number(R[i]); const pt = q[3][k] ? q[3][k][1] : 0; tot += pt; (c[q[0]] = c[q[0]] || [0, 0]); c[q[0]][0] += pt; c[q[0]][1] += 3; });
     const dec = pct(tot, SIT_Q.length * 3);
-    let comp = Object.keys(c).map(k => ({ nome: SIT_COMP[k], p: pct(c[k][0], c[k][1]) }));
+    let comp = Object.keys(c).map(k => ({ k, nome: SIT_COMP[k], p: pct(c[k][0], c[k][1]) }));
     const jogo = R.length > 12 && R[12] !== '' && R[12] != null;
     let nota = dec, mini = null, agil = null;
     if (jogo) {
@@ -956,21 +1054,55 @@ function testeCorrigir_(r) {
     const cls = nota >= 80 ? 'Excelente' : nota >= 65 ? 'Bom' : nota >= 50 ? 'Regular' : 'Atenção';
     const [md, mn] = medalha_(nota);
     const todos = comp.concat(mini || []), fracas = todos.filter(x => x.p < 60);
-    const txt = `${jogo ? `Jornada GRC (jogo): ${md} medalha de ${mn}, nota ${nota}% (${cls}).\nDecisões nas situações de loja: ${dec}%.` : `Desempenho nas situações de loja: ${nota}% (${cls}).`}\nMelhor desempenho: ${comp[0].nome} (${comp[0].p}%).${mini ? `\nMinigames: troco ${mini[0].p}%, validade ${mini[1].p}%, atenção ${mini[2].p}%, agilidade ${mini[3].p}%.` : ''}\n${fracas.length ? `Pontos a aprofundar na entrevista: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : 'Nenhuma competência abaixo de 60%.'}`;
+    const graves = SIT_Q.map((q, i) => ({ q, k: Number(R[i]) })).filter(x => x.q[3][x.k] && x.q[3][x.k][1] === 0);
+    const alertas = []; if (nota < 65) alertas.push('Desempenho abaixo de 65% nas situações de loja');
+    const eticaRuim = graves.filter(x => x.q[0] === 'etica'); if (eticaRuim.length) alertas.push('Escolheu atitude inadequada em situação de ética/integridade');
+    const perg = comp.filter(x => x.p < 67).slice(0, 3).map(x => SIT_PERG[x.k]); if (!perg.length) perg.push(SIT_PERG[comp[comp.length - 1].k]);
     const sz = R[23] !== '' && R[23] != null && MW_SETORES[Number(R[23])], heroi = sz ? { p: Number(R[20]) || 0, cor: Number(R[21]) || 0, ac: Number(R[22]) || 0, setor: Number(R[23]) } : null;
-    return { tipo: 'situacional', comp, mini, dec, nota, cls, md, mn, heroi, rotulo: nota + '% · ' + cls, txt: txt + (sz ? `\nSetor de interesse escolhido no jogo: ${sz[1]}.` : '') };
+    const txt = `O que é: ${jogo ? 'jogo de aventura em que o candidato percorre as lojas do grupo, decide o que fazer em 12 situações reais do dia a dia e joga minigames de troco, validade e atenção' : 'avaliação de como o candidato agiria em 12 situações reais de loja'}. Mede julgamento prático, não personalidade.\n\n${jogo ? `Resultado: ${md} medalha de ${mn}, nota ${nota}% (${cls}).\nDecisões nas situações de loja: ${dec}% (peso 60%). Minigames: troco ${mini[0].p}%, validade ${mini[1].p}%, atenção ${mini[2].p}% (peso 30%), agilidade ${mini[3].p}% (peso 10%).` : `Resultado: ${nota}% (${cls}).`}\n\nCompetências:\n${comp.map(x => `• ${x.nome}: ${x.p}% (${nivelP_(x.p)}). Avalia ${SIT_DESC[x.k]}.`).join('\n')}${graves.length ? `\n\nEscolhas inadequadas (0 ponto):\n${graves.map(x => `• ${x.q[2]} → "${x.q[3][x.k][0]}"`).join('\n')}` : '\n\nNenhuma escolha inadequada.'}${fracas.length ? `\n\nPontos a aprofundar: ${fracas.map(x => `${x.nome} (${x.p}%)`).join(', ')}.` : ''}${sz ? `\nSetor de interesse escolhido no jogo: ${sz[1]}.` : ''}${alertas.length ? '\n\nAlertas: ' + alertas.join('; ') + '.' : ''}\n\nPerguntas para a entrevista:\n${perg.map(x => '• ' + x).join('\n')}`;
+    return { tipo: 'situacional', comp, mini, dec, nota, cls, md, mn, heroi, graves, alertas, perg, rotulo: nota + '% · ' + cls, txt };
   }
   if (r.teste === 'fit') {
-    const s = FIT_VAL.map(() => [0, 0]); let incoer = 0;
-    FIT_ORDEM_.forEach((k, i) => { const it = FIT_ITENS[k], v = Number(R[i]) || 3, val = it.inv ? 6 - v : v; s[it.v][0] += val; s[it.v][1] += 5; if (it.inv && v >= 4) incoer++; });
-    const vals = FIT_VAL.map((x, i) => ({ nome: x[0], emoji: x[1], p: Math.round((s[i][0] - 4) / (s[i][1] - 4) * 100) }));
-    const nota = Math.round(vals.reduce((a, b) => a + b.p, 0) / vals.length);
-    const cls = nota >= 80 ? 'Alta aderência' : nota >= 65 ? 'Boa aderência' : nota >= 50 ? 'Aderência moderada' : 'Baixa aderência';
-    const ord = vals.slice().sort((a, b) => b.p - a.p);
-    const txt = `Aderência aos valores do Grupo R Center: ${nota}% (${cls}).\nValores mais fortes: ${ord.slice(0, 2).map(x => `${x.nome} (${x.p}%)`).join(', ')}.\nValor a observar: ${ord[ord.length - 1].nome} (${ord[ord.length - 1].p}%).${incoer >= 3 ? '\nObservação: respostas pouco consistentes (concordou com frases opostas). Recomenda-se confirmar na entrevista.' : ''}`;
-    return { tipo: 'fit', vals, nota, cls, incoer, rotulo: nota + '% · ' + cls, txt };
+    const NL = FIT_ORDEM_.length, DIR = [0, 0, 15, 40, 75, 100], INV = [0, 100, 75, 35, 5, 0];
+    const s = FIT_VAL.map(() => [0, 0]); let incoer = 0, n5 = 0, nDir = 0; const usados = {};
+    FIT_ORDEM_.forEach((k, i) => { const it = FIT_ITENS[k], v = Math.min(5, Math.max(1, Number(R[i]) || 3)); usados[v] = 1; s[it.v][0] += it.inv ? INV[v] : DIR[v]; s[it.v][1]++; if (it.inv && v >= 4) incoer++; if (!it.inv) { nDir++; if (v === 5) n5++; } });
+    const vals = FIT_VAL.map((x, i) => ({ nome: x[0], emoji: x[1], p: Math.round(s[i][0] / (s[i][1] || 1)) }));
+    const lik = Math.round(media_(vals.map(x => x.p)));
+    const ab = FIT_ABERTAS.map((q, j) => Object.assign({ q: q.t, txt: String(R[NL + j] == null ? '' : R[NL + j]) }, fitAberta_(R[NL + j], q)));
+    const temAb = R.length > NL;
+    if (temAb) FIT_ABERTAS.forEach((q, j) => q.vals.forEach(vi => { vals[vi].p = Math.round(vals[vi].p * .7 + ab[j].p * .3); }));
+    const abN = temAb ? Math.round(media_(ab.map(x => x.p))) : null;
+    const alertas = []; let pen = 0;
+    if (nDir && n5 / nDir >= .85) { pen += 8; alertas.push(`Respostas idealizadas: concordou totalmente com ${Math.round(n5 / nDir * 100)}% das frases positivas`); }
+    if (incoer >= 2) alertas.push(`Concordou com ${incoer} frases contrárias aos valores da empresa`);
+    if (Object.keys(usados).length === 1) { pen += 10; alertas.push('Marcou a mesma opção em todas as frases'); }
+    if (r.seg && r.seg < NL * 4 + (temAb ? 90 : 0)) { pen += 5; alertas.push('Respondeu rápido demais (' + Math.round(r.seg / 60 * 10) / 10 + ' min)'); }
+    if (temAb) ab.forEach((x, j) => { if (x.p < 40) alertas.push(`Pergunta aberta ${j + 1} fraca (${x.p}%)`); x.alerta.forEach(a => alertas.push(`Pergunta aberta ${j + 1}: ${a}`)); });
+    const nota = Math.max(0, Math.round((temAb ? lik * .55 + abN * .45 : lik) - pen));
+    const abaixo = nota < FIT_MIN;
+    const cls = nota >= 85 ? 'Alta aderência' : nota >= FIT_MIN ? 'Aderência adequada' : nota >= 60 ? 'Abaixo do mínimo' : 'Baixa aderência';
+    const ord = vals.slice().sort((a, b) => b.p - a.p), fracos = vals.filter(x => x.p < 70);
+    const perg = (fracos.length ? fracos : [ord[ord.length - 1]]).slice(0, 3).map(x => FIT_PERG[x.nome]);
+    const txt = `O que é: mede o quanto o jeito de pensar e agir do candidato combina com os 6 valores do Grupo R Center. Combina 24 frases (com frases invertidas para checar coerência) e ${temAb ? '3 perguntas abertas em que o candidato escreve com as próprias palavras' : 'nenhuma pergunta aberta (teste respondido antes da versão nova)'}.\n\nNota: ${nota}% · ${cls}. Nota mínima exigida: ${FIT_MIN}%.${abaixo ? `\n⚠ ABAIXO DA NOTA MÍNIMA. Recomenda-se aprofundar os pontos abaixo na entrevista antes de avançar.` : ''}\nComposição: frases ${lik}%${temAb ? ` (peso 55%) · perguntas abertas ${abN}% (peso 45%)` : ''}${pen ? ` · desconto por inconsistência: -${pen}` : ''}.\n\nValores:\n${vals.map(x => `• ${x.nome}: ${x.p}% (${nivelP_(x.p)})`).join('\n')}\nMais forte: ${ord[0].nome}. Mais frágil: ${ord[ord.length - 1].nome}.${temAb ? `\n\nPerguntas abertas:\n${ab.map((x, j) => `${j + 1}) ${x.q}\nNota: ${x.p}%${x.obs.length ? ' · ' + x.obs.join(' ') : ' · Resposta com exemplo real, detalhes e justificativa.'}\nResposta: "${x.txt.trim() || '(em branco)'}"`).join('\n\n')}` : ''}${alertas.length ? '\n\nAlertas: ' + alertas.join('; ') + '.' : ''}\n\nPerguntas para a entrevista:\n${perg.map(x => '• ' + x).join('\n')}`;
+    return { tipo: 'fit', vals, nota, cls, incoer, lik, abN, ab, temAb, pen, abaixo, alertas, perg, rotulo: nota + '% · ' + cls, txt };
   }
-  return { txt: '' };
+  return { txt: '', alertas: [], perg: [] };
+}
+// parecer geral do candidato (junta todos os testes feitos)
+function testeGeral_(cand) {
+  const C = {}; TESTE_ORDEM.forEach(t => { if (cand.testes[t]) C[t] = testeCorrigir_(cand.testes[t]); });
+  const fortes = [], atencao = [], vermelho = [];
+  if (C.fit) { (C.fit.abaixo ? atencao : fortes).push(`Fit cultural ${C.fit.nota}%${C.fit.abaixo ? ' (mínimo ' + FIT_MIN + '%)' : ''}`); if (C.fit.abaixo) vermelho.push('Fit cultural abaixo de ' + FIT_MIN + '%'); }
+  if (C.situacional) { (C.situacional.nota >= 65 ? fortes : atencao).push(`Situações de loja ${C.situacional.nota}%`); if (C.situacional.nota < 50) vermelho.push('Situações de loja abaixo de 50%'); if (C.situacional.alertas.some(a => /etica/i.test(nl_(a)))) vermelho.push('Escolha inadequada em situação de ética'); }
+  if (C.forcas) (C.forcas.ader >= 60 ? fortes : atencao).push(`Forças × vaga ${C.forcas.ader}% (${C.forcas.afinTxt})`);
+  if (C.disc) (C.disc.afinTxt !== 'baixa' ? fortes : atencao).push(`Perfil ${C.disc.perfil} com afinidade ${C.disc.afinTxt} para a função`);
+  const alertas = Object.keys(C).flatMap(t => (C[t].alertas || []).map(a => TESTE_INFO[t].curto + ': ' + a));
+  const perg = uniq(Object.keys(C).flatMap(t => C[t].perg || [])).slice(0, 6);
+  const nivel = vermelho.length ? 'Atenção' : (atencao.length || alertas.length) ? 'Favorável com ressalvas' : 'Favorável';
+  const cor = nivel === 'Atenção' ? '#ef4444' : nivel === 'Favorável' ? '#16a34a' : '#f59e0b';
+  const feitos = Object.keys(C).length, falta = TESTE_ORDEM.filter(t => !C[t]).map(t => TESTE_INFO[t].nome);
+  const txt = `Parecer geral: ${nivel}.\n${feitos} de ${TESTE_ORDEM.length} testes feitos${falta.length ? ' (falta: ' + falta.join(', ') + ')' : ''}.${fortes.length ? '\nPontos favoráveis: ' + fortes.join('; ') + '.' : ''}${atencao.length ? '\nPontos de atenção: ' + atencao.join('; ') + '.' : ''}${alertas.length ? '\nAlertas: ' + alertas.join('; ') + '.' : ''}\n\nPerguntas sugeridas para a entrevista:\n${perg.map(x => '• ' + x).join('\n')}\n\nOs testes são apoio: a decisão considera também a entrevista e a análise do(a) psicólogo(a).`;
+  return { C, nivel, cor, fortes, atencao, alertas, vermelho, perg, txt };
 }
 
 // ---- efeitos sonoros e trilha (sintetizados no aparelho, sem arquivos)
@@ -1348,6 +1480,7 @@ async function renderTeste(codigo) {
     let i = Math.min(R.length, Q.length - 1); if (R.length >= Q.length) i = Q.length - 1;
     const tela = () => {
       const q = Q[i], pr = Math.round(i / Q.length * 100);
+      if (q.tipo === 'txt') return telaTxt(q, pr);
       M.innerHTML = `<div class="tx-q" style="--c:${T.cor}">
         <div class="tx-qtop"><button class="tx-back" id="txV">‹</button><div class="tx-prog"><i style="width:${pr}%"></i></div><span>${i + 1}/${Q.length}</span></div>
         <div class="tx-qcard">
@@ -1363,6 +1496,27 @@ async function renderTeste(codigo) {
         R[i] = b.dataset.v; st[k] = R; st['s_' + t] = Math.round((Date.now() - t0) / 1000); salvar();
         setTimeout(() => { if (i < Q.length - 1) { i++; tela(); } else enviar(); }, 230);
       });
+    };
+    // pergunta aberta: o candidato escreve com as próprias palavras (sem colar)
+    const telaTxt = (q, pr) => {
+      const MIN = 120;
+      M.innerHTML = `<div class="tx-q" style="--c:${T.cor}">
+        <div class="tx-qtop"><button class="tx-back" id="txV">‹</button><div class="tx-prog"><i style="width:${pr}%"></i></div><span>${i + 1}/${Q.length}</span></div>
+        <div class="tx-qcard">
+          <div class="tx-tag">${T.icone} ${T.nome} · Pergunta aberta ${q.n} de ${FIT_ABERTAS.length}</div>
+          <h3>${h(q.titulo)}</h3>
+          <p class="tx-sub">Escreva com as suas palavras. Conte um caso real: o que aconteceu, o que você fez e por quê.</p>
+          <textarea class="input tx-txt" id="txA" rows="7" maxlength="1800" placeholder="Ex.: Uma vez, no meu trabalho anterior, ...">${h(R[i] || '')}</textarea>
+          <div class="tx-cont"><small id="txN"></small><small id="txCola" class="hidden">Para conhecermos você, escreva a resposta aqui, sem colar.</small></div>
+          <button class="btn primary block fx-btn" id="txOk" style="margin-top:12px">${i < Q.length - 1 ? 'Próxima ▶' : 'Enviar respostas ✔'}</button>
+        </div></div>`;
+      const ta = $('#txA'), cnt = $('#txN'), ok = $('#txOk');
+      const at = () => { const n = ta.value.trim().length; cnt.textContent = n < MIN ? `Escreva pelo menos ${MIN} caracteres (${n}/${MIN})` : `✓ ${n} caracteres`; cnt.style.color = n < MIN ? '' : '#16a34a'; ok.disabled = n < MIN; };
+      ta.oninput = () => { R[i] = ta.value; st[k] = R; st['s_' + t] = Math.round((Date.now() - t0) / 1000); salvar(); at(); };
+      ta.onpaste = ta.ondrop = e => { e.preventDefault(); $('#txCola').classList.remove('hidden'); };
+      at(); setTimeout(() => ta.focus(), 50);
+      $('#txV').onclick = () => { if (i > 0) { i--; tela(); } else telaLista(); };
+      ok.onclick = () => { R[i] = ta.value.trim(); st[k] = R; salvar(); if (i < Q.length - 1) { i++; tela(); } else enviar(); };
     };
     const enviar = async () => {
       M.innerHTML = `<div class="fx-card tx-card" style="text-align:center;padding:40px 20px"><div class="spin" style="margin:0 auto 14px"></div><b>Enviando suas respostas…</b></div>`;
@@ -1938,22 +2092,39 @@ function compartilharTeste_(c, titulo) {
 }
 const dtHr_ = s => { const d = new Date(s); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
 const barra_ = (nome, p, cor, extra) => `<div class="tr-bar"><span>${nome}</span><div><i style="width:${Math.max(2, Math.min(100, p))}%;background:${cor || 'var(--accent)'}"></i></div><b>${p}%</b>${extra || ''}</div>`;
+const trLista_ = (tit, L, cls) => L && L.length ? `<div class="tr-blk ${cls || ''}"><b>${tit}</b><ul>${L.map(x => `<li>${h(x)}</li>`).join('')}</ul></div>` : '';
 function testeResumoHTML_(r) {
   const c = testeCorrigir_(r), T = TESTE_INFO[r.teste];
   let corpo = '';
-  if (c.tipo === 'disc') corpo = `<div class="tr-disc">${'DISC'.split('').map(k => `<div class="${c.pri === k ? 'top' : ''}" style="--c:${DISC_FATOR[k].cor}"><b>${k}</b><i style="height:${Math.max(6, c.p[k])}%"></i><span>${c.p[k]}%</span><small>${DISC_FATOR[k].nome}</small></div>`).join('')}</div>`;
-  if (c.tipo === 'forcas') corpo = `<div class="tr-top">${c.top.map((x, i) => `<span class="tr-chip"><b>${i + 1}</b> ${h(x.nome)}</span>`).join('')}</div>${c.virt.map(v => barra_(v.nome, v.p, '#16a34a')).join('')}<details class="tr-det"><summary>Ver as 24 forças</summary>${c.lista.map(x => barra_(x.nome, x.p, '#86efac')).join('')}</details>`;
-  if (c.tipo === 'situacional') { const cb = x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444'); corpo = `${c.heroi ? `<div class="tr-heroi">${mwAvatar_(c.heroi)}<span><small>Personagem criado no jogo</small><b>Setor dos sonhos: ${MW_SETORES[c.heroi.setor].join(' ')}</b></span></div>` : ''}<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}">${c.mini ? `<span class="tr-med">${c.md}</span>` : ''}<b>${c.nota}%</b><span>${c.mini ? 'Medalha de ' + c.mn + ' · ' : ''}${c.cls}</span></div>${c.mini ? '<div class="tr-sub">Decisões nas situações</div>' : ''}${c.comp.map(cb).join('')}${c.mini ? '<div class="tr-sub">Minigames</div>' + c.mini.map(cb).join('') : ''}`; }
-  if (c.tipo === 'fit') corpo = `<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}</span></div>${c.vals.map(x => barra_(x.emoji + ' ' + x.nome, x.p, '#0a0d7c')).join('')}`;
-  return `<div class="card tr-sec"><div class="tr-h"><span class="tr-ic">${T.icone}</span><div><b>${T.nome}</b><small>${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div><button class="btn sm ghost" data-cpp="${h(r.id)}" title="Copiar parecer">${ic('copy')}</button></div>${corpo}<div class="tr-parecer">${h(c.txt).replace(/\n/g, '<br>')}</div>
+  if (c.tipo === 'disc') corpo = `<div class="tr-disc">${'DISC'.split('').map(k => `<div class="${c.pri === k ? 'top' : ''}" style="--c:${DISC_FATOR[k].cor}"><b>${k}</b><i style="height:${Math.max(6, c.p[k])}%"></i><span>${c.p[k]}%</span><small>${DISC_FATOR[k].nome}</small></div>`).join('')}</div>
+    <div class="tr-kv"><div><small>Perfil</small><b>${h(c.perfil)} · ${h(DISC_FATOR[c.pri].nome)}${c.equil ? ' (equilibrado)' : ''}</b></div><div><small>Afinidade com a vaga</small><b style="color:${c.afinTxt === 'alta' ? '#16a34a' : c.afinTxt === 'média' ? '#f59e0b' : '#ef4444'}">${c.afinTxt}</b><em>${h(c.vg.nome)} · estilos ${c.vg.disc.split('').join(' + ')}</em></div></div>`;
+  if (c.tipo === 'forcas') corpo = `<div class="tr-sobre"><b>Para que serve este teste?</b> Mostra as qualidades que o candidato usa com mais naturalidade. Na seleção, o foco é saber se as forças <b>exigidas pela função</b> estão entre as mais fortes dele (ranking de 1 a 24).</div>
+    <div class="tr-nota" style="--c:${corP_(c.ader, 75)}"><b>${c.ader}%</b><span>Aderência à vaga · ${c.afinTxt}<br><small>${h(c.vg.nome)}${r.titulo ? ' · ' + h(r.titulo) : ''}</small></span></div>
+    <div class="tr-sub">Forças essenciais para a função</div>
+    ${c.req.map(x => `<div class="tr-req"><span class="tr-pos" style="--c:${x.pos <= 8 ? '#16a34a' : x.pos <= 16 ? '#f59e0b' : '#ef4444'}">${x.pos}º</span><div><b>${h(x.nome)} <em>${x.p}%</em></b><small>${h(x.pq)}</small></div></div>`).join('')}
+    <div class="tr-sub">Forças de destaque do candidato</div><div class="tr-top">${c.top.map((x, i) => `<span class="tr-chip"><b>${i + 1}</b> ${h(x.nome)}</span>`).join('')}</div>
+    <div class="tr-sub">Virtudes</div>${c.virt.map(v => barra_(v.nome, v.p, '#16a34a')).join('')}<details class="tr-det"><summary>Ver as 24 forças</summary>${c.lista.map(x => barra_(x.pos + 'º ' + x.nome, x.p, '#86efac')).join('')}</details>`;
+  if (c.tipo === 'situacional') { const cb = x => barra_(x.nome, x.p, x.p >= 65 ? '#16a34a' : x.p >= 50 ? '#f59e0b' : '#ef4444'); corpo = `${c.heroi ? `<div class="tr-heroi">${mwAvatar_(c.heroi)}<span><small>Personagem criado no jogo</small><b>Setor dos sonhos: ${MW_SETORES[c.heroi.setor].join(' ')}</b></span></div>` : ''}<div class="tr-nota" style="--c:${c.nota >= 65 ? '#16a34a' : c.nota >= 50 ? '#f59e0b' : '#ef4444'}">${c.mini ? `<span class="tr-med">${c.md}</span>` : ''}<b>${c.nota}%</b><span>${c.mini ? 'Medalha de ' + c.mn + ' · ' : ''}${c.cls}</span></div>${c.mini ? '<div class="tr-sub">Decisões nas situações</div>' : ''}${c.comp.map(cb).join('')}${c.mini ? '<div class="tr-sub">Minigames</div>' + c.mini.map(cb).join('') : ''}${c.graves.length ? `<div class="tr-sub">Escolhas inadequadas</div>${c.graves.map(x => `<div class="tr-grave"><span>${x.q[1]}</span><div><small>${h(x.q[2])}</small><b>${h(x.q[3][x.k][0])}</b></div></div>`).join('')}` : ''}`; }
+  if (c.tipo === 'fit') corpo = `<div class="tr-nota" style="--c:${c.nota >= 85 ? '#16a34a' : c.nota >= FIT_MIN ? '#22c55e' : c.nota >= 60 ? '#f59e0b' : '#ef4444'}"><b>${c.nota}%</b><span>${c.cls}<br><small>Mínimo exigido: ${FIT_MIN}% · frases ${c.lik}%${c.temAb ? ' · respostas abertas ' + c.abN + '%' : ''}${c.pen ? ' · desconto -' + c.pen : ''}</small></span></div>
+    ${c.abaixo ? `<div class="tr-alerta">⚠ <b>Abaixo da nota mínima (${FIT_MIN}%).</b> Aprofunde os valores mais frágeis na entrevista antes de avançar.</div>` : ''}
+    ${c.vals.map(x => barra_(x.emoji + ' ' + x.nome, x.p, corP_(x.p, 70), `<em class="tr-niv">${nivelP_(x.p)}</em>`)).join('')}
+    ${c.temAb ? `<div class="tr-sub">Respostas abertas (com as palavras do candidato)</div>${c.ab.map((x, j) => `<div class="tr-ab"><div class="tr-ab-h"><small>${j + 1}. ${h(x.q)}</small><span class="badge" style="background:${corP_(x.p, 70)};color:#fff">${x.p}%</span></div><blockquote>${h(x.txt.trim() || '(em branco)').replace(/\n/g, '<br>')}</blockquote>${x.obs.length || x.alerta.length ? `<p>${x.alerta.map(a => `<b style="color:var(--bad)">⚠ ${h(a)}.</b> `).join('')}${h(x.obs.join(' '))}</p>` : '<p>Resposta com exemplo real, detalhes e justificativa.</p>'}</div>`).join('')}<div class="faint" style="font-size:11.5px">Nota das respostas abertas calculada automaticamente (exemplo real, detalhes, porquê e relação com o valor). Leia as respostas para confirmar.</div>` : '<div class="faint" style="font-size:12px;margin-top:6px">Teste feito antes da versão com perguntas abertas.</div>'}`;
+  const detalhe = h(c.txt.split('\n\nAlertas:')[0].split('\n\nPerguntas para a entrevista:')[0]).replace(/\n/g, '<br>');
+  return `<div class="card tr-sec"><div class="tr-h"><span class="tr-ic">${T.icone}</span><div><b>${T.nome}</b><small>${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div><button class="btn sm ghost" data-cpp="${h(r.id)}" title="Copiar parecer">${ic('copy')}</button></div>${corpo}
+    ${trLista_('⚠ Alertas', c.alertas, 'ruim')}${trLista_('💬 Perguntas para a entrevista', c.perg)}
+    <details class="tr-det"><summary>Relatório completo</summary><div class="tr-parecer">${detalhe}</div></details>
     <div class="field" style="margin:10px 0 0"><label>Parecer do psicólogo / RH</label><textarea class="input" rows="3" data-obs="${h(r.id)}" placeholder="Escreva sua análise...">${h(r.obs || '')}</textarea>${r.obsPor ? `<small class="faint">Último registro: ${h(r.obsPor)} · ${dtHr_(r.obsEm)}</small>` : ''}<div style="margin-top:6px"><button class="btn sm" data-obsok="${h(r.id)}">${ic('check')} Salvar parecer</button></div></div></div>`;
 }
 function openTesteCand(c, done) {
-  const R = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean);
-  const textoTudo = () => `*${c.nome}* · CPF ${cpfFmt(c.cpf)}${c.titulo ? '\nVaga: ' + c.titulo : ''}\n\n` + R.map(r => `*${TESTE_INFO[r.teste].nome}*\n${testeCorrigir_(r).txt}${r.obs ? '\n_Parecer:_ ' + r.obs : ''}`).join('\n\n');
+  const R = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean), G = testeGeral_(c);
+  const textoTudo = () => `*${c.nome}* · CPF ${cpfFmt(c.cpf)}${c.titulo ? '\nVaga: ' + c.titulo : ''}\n\n*Parecer geral*\n${G.txt}\n\n` + R.map(r => `*${TESTE_INFO[r.teste].nome}*\n${testeCorrigir_(r).txt}${r.obs ? '\n_Parecer:_ ' + r.obs : ''}`).join('\n\n');
   modal({
     title: c.nome, icon: 'users', wide: true,
     body: `<div class="faint" style="margin:-4px 0 12px">CPF ${h(cpfFmt(c.cpf))}${c.tel ? ' · <a style="color:var(--accent)" target="_blank" rel="noopener" href="https://wa.me/55' + h(c.tel) + '">' + h(telFmt(c.tel)) + '</a>' : ''}${c.recrutador ? ' · <b>' + h(c.recrutador) + '</b>' : ''}${c.titulo ? ' · ' + h(c.titulo) : ''}</div>
+      <div class="card tr-sec tr-geral" style="--c:${G.cor}"><div class="tr-h"><span class="tr-ic">📋</span><div><b>Parecer geral: <span style="color:${G.cor}">${G.nivel}</span></b><small>${R.length} de ${TESTE_ORDEM.length} testes · vaga analisada: ${h(vagaCat_(c.titulo).nome)}</small></div></div>
+        <div class="tr-gk">${TESTE_ORDEM.map(t => { const k = G.C[t]; if (!k) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>não fez</b></div>`; const v = t === 'disc' ? k.perfil : t === 'forcas' ? k.ader + '%' : k.nota + '%', ruim = (t === 'fit' && k.abaixo) || (t === 'situacional' && k.nota < 65) || (t === 'forcas' && k.ader < 60) || (t === 'disc' && k.afinTxt === 'baixa'); return `<div class="${ruim ? 'ruim' : ''}"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}${t === 'forcas' ? ' × vaga' : t === 'disc' ? ' · afinidade ' + k.afinTxt : ''}</small><b>${h(v)}</b></div>`; }).join('')}</div>
+        ${trLista_('✅ Pontos favoráveis', G.fortes, 'bom')}${trLista_('🔎 Pontos de atenção', G.atencao, 'ruim')}${trLista_('⚠ Alertas', G.alertas, 'ruim')}${trLista_('💬 Perguntas sugeridas para a entrevista', G.perg)}
+      </div>
       <div class="tr-aviso">Resultados de apoio à entrevista. A decisão deve considerar também a entrevista e a análise do(a) psicólogo(a).</div>
       ${R.map(testeResumoHTML_).join('')}`,
     foot: `<button class="btn ghost" id="tcDel" style="margin-right:auto;color:var(--bad)">${ic('trash')} Apagar</button><button class="btn" data-close>Fechar</button><button class="btn primary" id="tcCp">${ic('copy')} Copiar relatório</button>`,
@@ -2001,7 +2172,7 @@ async function pgTestes() {
     ${lista.length ? `<div class="fi-grid">${lista.map(x => `
       <div class="card fi-card tr-card${x.novo ? ' nova' : ''}" data-cand="${h(x.cpf)}">
         <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')}</div></div>${x.novo ? '<span class="badge b-info">novo</span>' : ''}</div>
-        <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : (k.mini ? k.md + ' ' : '') + k.nota + '%')}</b></div>`; }).join('')}</div>
+        <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b${k.tipo === 'fit' && k.abaixo ? ' style="color:var(--bad)" title="Abaixo da nota mínima de ' + FIT_MIN + '%"' : ''}>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : (k.mini ? k.md + ' ' : '') + (k.tipo === 'fit' && k.abaixo ? '⚠ ' : '') + k.nota + '%')}</b></div>`; }).join('')}</div>
         <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button></div>
       </div>`).join('')}</div>`
       : `<div class="card empty" style="text-align:center;padding:30px"><b>${cands.length ? 'Nenhum resultado com esses filtros' : 'Nenhum teste respondido ainda'}</b><p class="muted">Clique em <b>Mandar teste ao candidato</b>, escolha os testes e envie o link pelo WhatsApp. O resultado aparece aqui assim que ele terminar.</p></div>`}

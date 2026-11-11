@@ -3037,6 +3037,10 @@ const lojaBy = k => S.data.lojas.find(l => l.key === k);
 const GRC_FOTO_ = 'https://www.rcentersupermercado.com.br/img/';
 const LOJA_FOTOS_ = { MATRIZ: 'loja-santa-rosa.webp', MESSEJANA: 'loja-messejana-fachada.jpg', EUSEBIO: 'loja-eusebio.jpg' };
 const lojaFoto_ = l => { const k = String((l && l.key) || '').toUpperCase(), f = LOJA_FOTOS_[k] || (/EUSEBIO|VITA/.test(k) ? 'loja-eusebio.jpg' : /MESSEJ/.test(k) ? 'loja-messejana-fachada.jpg' : /MATRIZ|ROSA/.test(k) ? 'loja-santa-rosa.webp' : ''); return f ? GRC_FOTO_ + f : ''; };
+// logo da marca de cada loja (no lugar do número)
+const LOJA_LOGOS_ = [[/TORRA/, 'torra-atacadista-branco.png'], [/FRALDA/, 'super-fraldas-branco.png'], [/CASA|CONSTRU/, 'r-center-casa-construcao-branco.png'], [/VITA/, 'vita-park-branco.webp'], [/MONITOR|^GRC|ADMINIST/, 'grupo-r-center-branco.webp']];
+const lojaLogo_ = l => { const k = norm((l.key || '') + ' ' + (l.nome || '')), m = LOJA_LOGOS_.find(([r]) => r.test(k)); return GRC_FOTO_ + 'grupo/' + (m ? m[1] : 'r-center-supermercados-branco.png'); };
+const lojaLogoTile_ = (l, big) => `<div class="lj-logo${big ? ' big' : ''}" style="--lc:${l.color}" title="${h(l.nome)}"><img src="${lojaLogo_(l)}" alt="${h(l.nome)}" onerror="this.outerHTML='<b>${l.num}</b>'"><i>${l.num}</i></div>`;
 const TREINO_LOJAS = ['EUSEBIO', 'SUPERFRALDAS'], TREINO_TAG = 'EM TREINAMENTO';
 const lojaTreino = k => TREINO_LOJAS.includes(k);
 const opc = (l, k) => {
@@ -4248,10 +4252,11 @@ function storeCard(l) {
   return `<div class="card store" data-k="${l.key}" style="--lc:${l.color}">
     <div class="stripe"></div>
     <div style="display:flex;align-items:center;gap:12px">
-      <div class="num">${l.num}</div>
-      <div style="flex:1;min-width:0"><b style="font-size:15px">${h(l.nome)}</b> ${l.nova ? '<span class="badge b-ok">NOVA</span>' : ''}<div class="muted" style="font-size:12px">${h(l.sub)}</div></div>
+      ${lojaLogoTile_(l)}
+      <div style="flex:1"></div>
       <div class="ring" style="--p:${Math.min(100, s.ocup)};--c:${l.color}" data-v="${s.ocup}%" title="Ocupação"></div>
     </div>
+    <div class="st-nome"><b>${h(l.nome)}</b> ${l.nova ? '<span class="badge b-ok">NOVA</span>' : ''}<div class="muted">${h(l.sub)}</div></div>
     <div class="nums">
       <div><b>${fmt(s.ideal)}</b><span>Ideal</span></div>
       <div><b>${fmt(s.atual)}</b><span>Atual</span></div>
@@ -4410,7 +4415,7 @@ function pgLoja(l) {
   v.innerHTML = `${adm ? admHero(l) + (!isAdmin() && !isDP() ? `<div style="margin-top:12px"><button class="btn primary" id="lReq">${ic('plus')} Requisitar vaga</button></div>` : '') : `
   <div class="hero ${lojaFoto_(l) ? 'hero-loja' : ''}" style="--lc:${l.color};${lojaFoto_(l) ? `--foto:url('${lojaFoto_(l)}')` : ''}">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1">
-      <div class="store" style="--lc:${l.color};cursor:default"><div class="num" style="width:54px;height:54px;font-size:20px;border-radius:16px">${l.num}</div></div>
+      ${lojaLogoTile_(l, true)}
       <div style="flex:1;min-width:200px"><div class="muted" style="font-weight:600">${h(l.sub)} ${l.nova ? '<span class="badge b-ok">LOJA NOVA</span>' : ''}</div><h2>${h(l.nome)}</h2></div>
       ${!isAdmin() && !isDP() ? `<button class="btn primary" id="lReq">${ic('plus')} Requisitar vaga</button>` : ''}
       <div class="ring" style="--p:${Math.min(100, s.ocup)};--c:${l.color};width:78px;height:78px" data-v="${s.ocup}%"></div>

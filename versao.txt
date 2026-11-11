@@ -1,1 +1,1 @@
-versao: fotos do grupo no painel, lojas e login 2026-11-11
+versao: logo da marca no lugar do numero da loja 2026-11-11

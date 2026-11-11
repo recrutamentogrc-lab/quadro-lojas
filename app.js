@@ -1570,6 +1570,23 @@ async function renderAgenda(codigo) {
   </div>`;
   const M = $('#agM');
   if (!info) { M.innerHTML = `<div class="fx-card tx-card"><div class="fx-card-h"><h2>Link indisponível</h2></div><div class="badge b-bad" style="display:flex;padding:10px 12px;white-space:normal">${h(erro)}</div><p class="muted">Peça um novo link ao RH.</p></div>`; return; }
+  // campos da ficha (usados no agendamento e, se faltar, depois da confirmação)
+  const fichaCampos = () => `<div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required value="${h(st.mae || '')}" placeholder="Como está no documento"></div>
+          <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" value="${h(st.cpf ? cpfFmt(st.cpf) : '')}" placeholder="000.000.000-00"><small id="agCpf" class="fi-cpf"></small></div>
+          <div class="field"><label>Data de nascimento</label><input class="input" name="nasc" type="date" required value="${h(st.nasc || '')}"></div></div>
+          <div class="fi-sec">Fardamento</div>
+          <div class="fi-farda">${[['blusa', 'Blusa', FICHA_BLUSA], ['calca', 'Calça', FICHA_CALCA], ['bota', 'Bota / calçado', FICHA_BOTA]].map(([nm, lb, ops]) => `<div class="field"><label>${lb}</label><select class="input" name="${nm}" required><option value="">—</option>${ops.map(o => `<option ${String(st[nm] || '') === String(o) ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`).join('')}</div>`;
+  const cpfMascara = f => { if (f.cpf) f.cpf.oninput = () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); const m = $('#agCpf'); m.className = 'fi-cpf ' + (d.length === 11 ? (cpfOk_(d) ? 'ok' : 'bad') : ''); m.textContent = d.length === 11 ? (cpfOk_(d) ? '✓ CPF válido' : 'CPF inválido. Confira os números.') : ''; }; };
+  // devolve a ficha ou o texto do erro
+  const fichaColeta = (f, nome, tel, vaga) => {
+    const fi = { nome, mae: f.mae.value.trim(), cpf: f.cpf.value.replace(/\D/g, ''), nasc: f.nasc.value, tel, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga, recrutador: info.rec };
+    Object.assign(st, { mae: fi.mae, cpf: fi.cpf, nasc: fi.nasc, blusa: fi.blusa, calca: fi.calca, bota: fi.bota }); salvar();
+    if (fi.mae.split(/\s+/).length < 2) return 'Informe o nome completo da sua mãe.';
+    if (!cpfOk_(fi.cpf)) return 'CPF inválido. Confira os números.';
+    if (!fi.nasc) return 'Informe a sua data de nascimento.';
+    if (!fi.blusa || !fi.calca || !fi.bota) return 'Informe os tamanhos do fardamento.';
+    return fi;
+  };
   const rotDia = d => d === info.hoje ? 'Hoje' : AG_SEM_[agDt_(d).getDay()].replace('-feira', '').replace(/^./, c => c.toUpperCase());
   // confirmação já feita neste aparelho
   const telaOk = () => {
@@ -1578,6 +1595,7 @@ async function renderAgenda(codigo) {
       <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>${m.ficha ? '<div class="ag-fi-ok">📄 Sua ficha também foi enviada ao RH.</div>' : ''}
       ${info.foto ? `<img class="ag-ok-foto" src="${h(info.foto)}" alt="${h(m.rec)}">` : ''}
       <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h, m.dia)} · Google Meet · com ${h(m.rec)}</small></div></div>
+      ${info.ficha && !m.ficha ? `<form id="agFi" class="ag-fi-falta"><div class="ag-passo"><i>📄</i><b>Falta só a sua ficha</b></div><p class="ag-fi-txt">Preencha exatamente como está nos seus documentos para o RH já receber os seus dados.</p>${fichaCampos()}<div id="agErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div><button class="btn primary block fx-btn" type="submit">Enviar minha ficha ✔</button></form>` : ''}
       ${m.meet ? `<div class="ag-meet"><small>🎥 Link da sua entrevista (Google Meet)</small><a href="${h(m.meet)}" target="_blank" rel="noopener">${h(m.meet.replace('https://', ''))}</a><a class="btn primary block fx-btn" href="${h(m.meet)}" target="_blank" rel="noopener">Entrar na entrevista</a><span>Guarde este link. Ele também foi enviado para o seu e-mail <b>${h(m.email)}</b>.</span></div>` : `<p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>`}
       <div class="tx-dicas">
         <div><i>⏰</i><span><b>Entre 5 minutos antes</b>Teste a câmera e o áudio com antecedência.</span></div>
@@ -1589,6 +1607,18 @@ async function renderAgenda(codigo) {
       <p class="muted" style="font-size:13px;margin:14px 0 0">Precisa remarcar? Fale com o RH pelo mesmo contato que enviou este link.</p>
       <button class="ag-outro" id="agOutro">Agendar para outra pessoa</button></div>`;
     $('#agOutro').onclick = () => { st = {}; salvar(); tela(); };
+    const ff = $('#agFi');
+    if (ff) {
+      cpfMascara(ff);
+      ff.onsubmit = async e => {
+        e.preventDefault();
+        const err = $('#agErr', ff), falha = t => { err.textContent = t; err.classList.remove('hidden'); }; err.classList.add('hidden');
+        const fi = fichaColeta(ff, st.nome || '', st.tel || '', st.vaga || ''); if (typeof fi === 'string') return falha(fi);
+        const b = $('button[type=submit]', ff); b.disabled = true; b.innerHTML = '<span class="spin" style="width:16px;height:16px;border-width:2px"></span>';
+        try { const jf = await sendRaw_('fichaEnviar', { codigo: info.ficha, data: fi }); if (!jf || !jf.ok) throw new Error((jf && jf.error) || 'Não foi possível enviar a ficha.'); m.ficha = true; salvar(); telaOk(); }
+        catch (e2) { b.disabled = false; b.textContent = 'Enviar minha ficha ✔'; falha(e2.message); }
+      };
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   let sel = { dia: null, h: null };
@@ -1616,11 +1646,7 @@ async function renderAgenda(codigo) {
           <div class="field"><label>Vaga de interesse (opcional)</label><input class="input" name="vaga" maxlength="80" value="${h(st.vaga || '')}" placeholder="Ex.: Operador de caixa"></div>
           ${info.ficha ? `<div class="ag-passo"><i>4</i><b>Ficha do candidato</b></div>
           <p class="ag-fi-txt">Preencha exatamente como está nos seus documentos. Assim o RH já recebe a sua ficha junto com o agendamento.</p>
-          <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required value="${h(st.mae || '')}" placeholder="Como está no documento"></div>
-          <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" value="${h(st.cpf ? cpfFmt(st.cpf) : '')}" placeholder="000.000.000-00"><small id="agCpf" class="fi-cpf"></small></div>
-          <div class="field"><label>Data de nascimento</label><input class="input" name="nasc" type="date" required value="${h(st.nasc || '')}"></div></div>
-          <div class="fi-sec">Fardamento</div>
-          <div class="fi-farda">${[['blusa', 'Blusa', FICHA_BLUSA], ['calca', 'Calça', FICHA_CALCA], ['bota', 'Bota / calçado', FICHA_BOTA]].map(([nm, lb, ops]) => `<div class="field"><label>${lb}</label><select class="input" name="${nm}" required><option value="">—</option>${ops.map(o => `<option ${String(st[nm] || '') === String(o) ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`).join('')}</div>` : ''}
+          ${fichaCampos()}` : ''}
           <div id="agErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
           <button class="btn primary block fx-btn" type="submit">${info.ficha ? 'Confirmar entrevista e enviar ficha ✔' : 'Confirmar agendamento ✔'}</button>
           ${info.ficha ? '<p class="fx-lgpd">🔒 Seus dados serão usados somente pelo RH do Grupo R Center para o processo seletivo e a admissão, conforme a Lei Geral de Proteção de Dados (LGPD).</p>' : ''}
@@ -1631,7 +1657,7 @@ async function renderAgenda(codigo) {
     $$('.ag-h:not(.off)', M).forEach(b => b.onclick = () => { sel.h = b.dataset.h; tela(); const f = $('#agF'); if (f) setTimeout(() => f.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); });
     const f = $('#agF');
     f.tel.oninput = () => { f.tel.value = telFmt(f.tel.value.replace(/\D/g, '').slice(0, 11)); };
-    if (f.cpf) f.cpf.oninput = () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); const m = $('#agCpf'); m.className = 'fi-cpf ' + (d.length === 11 ? (cpfOk_(d) ? 'ok' : 'bad') : ''); m.textContent = d.length === 11 ? (cpfOk_(d) ? '✓ CPF válido' : 'CPF inválido. Confira os números.') : ''; };
+    cpfMascara(f);
     f.onsubmit = async e => {
       e.preventDefault();
       const err = $('#agErr'), falha = m => { err.textContent = m; err.classList.remove('hidden'); };
@@ -1643,12 +1669,7 @@ async function renderAgenda(codigo) {
       Object.assign(st, { nome: d.nome, tel: d.tel, email: d.email, vaga: d.vaga });
       let fi = null;
       if (info.ficha) {
-        fi = { nome: d.nome, mae: f.mae.value.trim(), cpf: f.cpf.value.replace(/\D/g, ''), nasc: f.nasc.value, tel: d.tel, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: d.vaga, recrutador: info.rec };
-        Object.assign(st, { mae: fi.mae, cpf: fi.cpf, nasc: fi.nasc, blusa: fi.blusa, calca: fi.calca, bota: fi.bota });
-        if (fi.mae.split(/\s+/).length < 2) { salvar(); return falha('Informe o nome completo da sua mãe.'); }
-        if (!cpfOk_(fi.cpf)) { salvar(); return falha('CPF inválido. Confira os números.'); }
-        if (!fi.nasc) { salvar(); return falha('Informe a sua data de nascimento.'); }
-        if (!fi.blusa || !fi.calca || !fi.bota) { salvar(); return falha('Informe os tamanhos do fardamento.'); }
+        fi = fichaColeta(f, d.nome, d.tel, d.vaga); if (typeof fi === 'string') return falha(fi);
         d.cpf = fi.cpf; d.ficha = true;
       }
       salvar();

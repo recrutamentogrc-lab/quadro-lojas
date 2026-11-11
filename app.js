@@ -376,7 +376,7 @@ async function refreshPublicCfg() {
 function renderLogin(msg) {
   $('#root').innerHTML = `
   <div class="login-wrap">
-    <section class="login-hero">
+    <section class="login-hero" style="--foto:url('https://www.rcentersupermercado.com.br/img/sobre-equipe.jpg')">
       <div class="grid-bg"></div><div class="orb"></div>
       <div class="brand" style="position:relative;color:#fff">${brandHTML(true)}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
       <div style="position:relative">
@@ -432,7 +432,7 @@ async function renderConvite(codigo) {
   const setTxt = info && info.setores && info.setores.length ? info.setores.join(' · ') : 'Todos os setores';
   $('#root').innerHTML = `
   <div class="login-wrap">
-    <section class="login-hero">
+    <section class="login-hero" style="--foto:url('https://www.rcentersupermercado.com.br/img/sobre-equipe.jpg')">
       <div class="grid-bg"></div><div class="orb"></div>
       <div class="brand" style="position:relative;color:#fff">${brandHTML(true)}<div>${h(cfgv('empresa', CFG.EMPRESA || 'Grupo R Center'))}<small>Recursos Humanos</small></div></div>
       <div style="position:relative"><h1>Seu acesso ao<br><span>quadro da sua equipe</span></h1><p>Acompanhe o quadro do seu setor, as vagas em aberto e faça requisições de vaga para o RH.</p></div>
@@ -3033,6 +3033,10 @@ function derive() {
 }
 const lojaBy = k => S.data.lojas.find(l => l.key === k);
 // Eusébio e Super Fraldas: tag para quem ainda está em treinamento
+// fotos do site do Grupo R Center (fachadas e equipe)
+const GRC_FOTO_ = 'https://www.rcentersupermercado.com.br/img/';
+const LOJA_FOTOS_ = { MATRIZ: 'loja-santa-rosa.webp', MESSEJANA: 'loja-messejana-fachada.jpg', EUSEBIO: 'loja-eusebio.jpg' };
+const lojaFoto_ = l => { const k = String((l && l.key) || '').toUpperCase(), f = LOJA_FOTOS_[k] || (/EUSEBIO|VITA/.test(k) ? 'loja-eusebio.jpg' : /MESSEJ/.test(k) ? 'loja-messejana-fachada.jpg' : /MATRIZ|ROSA/.test(k) ? 'loja-santa-rosa.webp' : ''); return f ? GRC_FOTO_ + f : ''; };
 const TREINO_LOJAS = ['EUSEBIO', 'SUPERFRALDAS'], TREINO_TAG = 'EM TREINAMENTO';
 const lojaTreino = k => TREINO_LOJAS.includes(k);
 const opc = (l, k) => {
@@ -4142,7 +4146,7 @@ function pgDash() {
   const nova = L.find(l => l.nova);
   const v = $('#view');
   v.innerHTML = `
-  <div class="hero hero-dash" style="--lc:#ff5a14">
+  <div class="hero hero-dash" style="--lc:#ff5a14;--foto:url('${GRC_FOTO_}sobre-equipe.jpg')">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1">
       ${avatar(S.user.nome, S.user.foto, 'lg')}
       <div style="flex:1;min-width:220px">
@@ -4404,7 +4408,7 @@ function pgLoja(l) {
   const s = l.st, ed = canEdit(l.key);
   const v = $('#view');
   v.innerHTML = `${adm ? admHero(l) + (!isAdmin() && !isDP() ? `<div style="margin-top:12px"><button class="btn primary" id="lReq">${ic('plus')} Requisitar vaga</button></div>` : '') : `
-  <div class="hero" style="--lc:${l.color}">
+  <div class="hero ${lojaFoto_(l) ? 'hero-loja' : ''}" style="--lc:${l.color};${lojaFoto_(l) ? `--foto:url('${lojaFoto_(l)}')` : ''}">
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:relative;z-index:1">
       <div class="store" style="--lc:${l.color};cursor:default"><div class="num" style="width:54px;height:54px;font-size:20px;border-radius:16px">${l.num}</div></div>
       <div style="flex:1;min-width:200px"><div class="muted" style="font-weight:600">${h(l.sub)} ${l.nova ? '<span class="badge b-ok">LOJA NOVA</span>' : ''}</div><h2>${h(l.nome)}</h2></div>

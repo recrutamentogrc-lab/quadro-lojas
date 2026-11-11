@@ -3040,6 +3040,8 @@ const lojaFoto_ = l => { const k = String((l && l.key) || '').toUpperCase(), f =
 // logo da marca de cada loja (no lugar do número)
 const LOJA_LOGOS_ = [[/TORRA/, 'torra-atacadista-branco.png'], [/FRALDA/, 'super-fraldas-branco.png'], [/CASA|CONSTRU/, 'r-center-casa-construcao-branco.png'], [/VITA/, 'vita-park-branco.webp'], [/MONITOR|^GRC|ADMINIST/, 'grupo-r-center-branco.webp']];
 const lojaLogo_ = l => { const k = norm((l.key || '') + ' ' + (l.nome || '')), m = LOJA_LOGOS_.find(([r]) => r.test(k)); return GRC_FOTO_ + 'grupo/' + (m ? m[1] : 'r-center-supermercados-branco.png'); };
+// ícone da marca no menu lateral (recorte do símbolo da logo, como ícone de app)
+const lojaDot_ = l => { const u = lojaLogo_(l), f = u.split('/').pop().split('.')[0]; return `<span class="dot lg-dot lg-${f}" style="--lc:${l.color};--lg:url('${u}')"><i>${l.num}</i></span>`; };
 const lojaLogoTile_ = (l, big) => `<div class="lj-logo${big ? ' big' : ''}" style="--lc:${l.color}" title="${h(l.nome)}"><img src="${lojaLogo_(l)}" alt="${h(l.nome)}" onerror="this.outerHTML='<b>${l.num}</b>'"><i>${l.num}</i></div>`;
 const TREINO_LOJAS = ['EUSEBIO', 'SUPERFRALDAS'], TREINO_TAG = 'EM TREINAMENTO';
 const lojaTreino = k => TREINO_LOJAS.includes(k);
@@ -3131,7 +3133,7 @@ function updateShell() {
     <div class="sb-label">Visão geral</div>
     ${navItem('/inicio', ic('home'), 'Dashboard')}
     <div class="sb-label">Lojas</div>
-    ${nl.filter(l => !isAdmLoja(l)).map(l => navItem('/loja/' + l.key, `<span class="dot" style="background:${l.color}">${l.num}</span>`, l.nome, (l.nova ? '<span class="new">NOVA</span>' : '') + (l.st.vagas ? `<span class="cnt ${l.st.vagas > 5 ? 'hot' : ''}" title="Vagas abertas">${l.st.vagas}</span><span class="badge-mini"></span>` : ''))).join('')}
+    ${nl.filter(l => !isAdmLoja(l)).map(l => navItem('/loja/' + l.key, lojaDot_(l), l.nome, (l.nova ? '<span class="new">NOVA</span>' : '') + (l.st.vagas ? `<span class="cnt ${l.st.vagas > 5 ? 'hot' : ''}" title="Vagas abertas">${l.st.vagas}</span><span class="badge-mini"></span>` : ''))).join('')}
     ${nl.filter(isAdmLoja).map(l => navItem('/loja/' + l.key, `<span class="dot" style="background:linear-gradient(135deg,#fde68a,#f5c451 45%,#b8860b);color:#1a1204;font-size:11px">★</span>`, 'Administrativo', l.st.vagas ? `<span class="cnt">${l.st.vagas}</span>` : '')).join('')}
     ${isAdmin() && !nl.some(isAdmLoja) ? `<a class="nav" href="#" id="navAdm" title="Criar o quadro do administrativo"><span class="dot" style="background:linear-gradient(135deg,#fde68a,#f5c451 45%,#b8860b);color:#1a1204;font-size:11px">★</span><span class="lbl">Criar quadro ADM</span></a>` : ''}
     ${isAdmin() ? `<a class="nav" href="#" id="navNovaLoja" title="Criar nova loja"><span class="dot" style="background:transparent;border:1.5px dashed var(--border2);color:var(--muted)">+</span><span class="lbl">Nova loja</span></a>` : ''}

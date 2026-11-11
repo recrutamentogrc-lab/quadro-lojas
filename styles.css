@@ -1584,3 +1584,29 @@ body:has(.app){background:transparent}
 }
 .ring::before{background:#0d1240}
 :root[data-theme="light"] .ring::before{background:#fff}
+
+/* ícone da marca no menu (só o símbolo da logo, como ícone de app) */
+.sidebar .nav .lg-dot{position:relative;width:30px;height:30px;border-radius:9px;background:linear-gradient(145deg,#1d22c0,#0a0d7c);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--lc) 85%,transparent),0 4px 10px -4px rgba(0,0,0,.5);color:transparent;overflow:visible;--lw:21px;--lh:20px}
+.sidebar .nav .lg-dot::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:var(--lw);height:var(--lh);background:var(--lg) no-repeat 0 50%/auto 100%}
+.sidebar .nav .lg-dot i{position:absolute;right:-5px;bottom:-4px;min-width:14px;height:14px;padding:0 3px;border-radius:99px;background:var(--lc);color:#06101c;font-style:normal;font-size:9px;font-weight:800;display:grid;place-items:center;box-shadow:0 0 0 2px #0a0d7c}
+.sidebar .nav .lg-torra-atacadista-branco{--lw:16px;--lh:20px}
+.sidebar .nav .lg-super-fraldas-branco{--lw:16px;--lh:20px}
+.sidebar .nav .lg-r-center-casa-construcao-branco{--lw:23px;--lh:14px}
+.sidebar .nav .lg-vita-park-branco{--lw:17px;--lh:18px}
+.sidebar .nav .lg-grupo-r-center-branco::before{width:24px;height:9px;background-size:100% auto}
+/* mais transparência (vidro mais evidente) */
+:root[data-theme="light"]{--glass:rgba(255,255,255,.42);--glass-b:rgba(255,255,255,.7)}
+:root:not([data-theme="light"]){--glass:rgba(18,24,80,.42)}
+:root[data-theme="light"] body:has(.app)::before{background:
+  radial-gradient(700px 600px at 0% 0%,rgba(70,80,255,.38),transparent 62%),
+  radial-gradient(700px 560px at 100% 0%,rgba(255,110,40,.34),transparent 62%),
+  radial-gradient(800px 640px at 75% 100%,rgba(10,13,124,.26),transparent 62%),
+  radial-gradient(650px 520px at 10% 100%,rgba(255,160,90,.30),transparent 62%),#e9edfb}
+body:has(.app)::after{content:"";position:fixed;inset:-10%;pointer-events:none;z-index:0;
+  background:radial-gradient(420px 420px at 30% 40%,rgba(255,90,20,.20),transparent 70%),radial-gradient(460px 460px at 70% 60%,rgba(60,70,255,.22),transparent 70%);
+  filter:blur(20px);animation:bolhas 24s ease-in-out infinite alternate}
+@keyframes bolhas{0%{transform:translate(0,0) scale(1)}50%{transform:translate(6%,-5%) scale(1.08)}100%{transform:translate(-5%,6%) scale(.96)}}
+.app{z-index:1}
+@media (min-width:861px){.sidebar{background:linear-gradient(165deg,rgba(30,36,190,.66),rgba(10,13,124,.6) 50%,rgba(6,8,82,.72))!important}}
+:root[data-theme="light"] .modal{background:rgba(255,255,255,.7)!important}
+:root[data-theme="light"] .topbar{background:rgba(255,255,255,.45)!important}

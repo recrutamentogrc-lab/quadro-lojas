@@ -2129,6 +2129,7 @@ function openTesteCand(c, done) {
       ${R.map(testeResumoHTML_).join('')}`,
     foot: `<button class="btn ghost" id="tcDel" style="margin-right:auto;color:var(--bad)">${ic('trash')} Apagar</button><button class="btn" data-close>Fechar</button><button class="btn primary" id="tcCp">${ic('copy')} Copiar relatório</button>`,
     onMount: m => {
+      setTimeout(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); const b = $('.modal-b', m.el); if (b) b.scrollTop = 0; }, 90);
       $('#tcCp', m.el).onclick = () => copiar_(textoTudo(), 'Relatório copiado');
       $$('[data-cpp]', m.el).forEach(b => b.onclick = () => { const r = R.find(x => x.id === b.dataset.cpp); copiar_(`*${TESTE_INFO[r.teste].nome}* · ${c.nome}\n${testeCorrigir_(r).txt}`, 'Parecer copiado'); });
       $$('[data-obsok]', m.el).forEach(b => b.onclick = ev => run(ev.currentTarget, async () => {

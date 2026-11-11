@@ -1575,7 +1575,7 @@ async function renderAgenda(codigo) {
   const telaOk = () => {
     const m = st.marcado;
     M.innerHTML = `<div class="fx-card tx-card ag-ok">
-      <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>
+      <div class="ag-ok-ic">✅</div><h2>Entrevista agendada!</h2>${m.ficha ? '<div class="ag-fi-ok">📄 Sua ficha também foi enviada ao RH.</div>' : ''}
       ${info.foto ? `<img class="ag-ok-foto" src="${h(info.foto)}" alt="${h(m.rec)}">` : ''}
       <div class="ag-quando"><span>📅</span><div><b>${h(agExt_(m.dia).replace(/^./, c => c.toUpperCase()))}</b><small>das ${m.h} às ${agFim_(m.h, m.dia)} · Google Meet · com ${h(m.rec)}</small></div></div>
       ${m.meet ? `<div class="ag-meet"><small>🎥 Link da sua entrevista (Google Meet)</small><a href="${h(m.meet)}" target="_blank" rel="noopener">${h(m.meet.replace('https://', ''))}</a><a class="btn primary block fx-btn" href="${h(m.meet)}" target="_blank" rel="noopener">Entrar na entrevista</a><span>Guarde este link. Ele também foi enviado para o seu e-mail <b>${h(m.email)}</b>.</span></div>` : `<p>Você receberá o <b>convite com o link do Google Meet</b> no e-mail <b>${h(m.email)}</b>. Confira também a caixa de spam e as promoções.</p>`}
@@ -1588,7 +1588,7 @@ async function renderAgenda(codigo) {
       <a class="btn block fx-btn" style="margin-top:6px" target="_blank" rel="noopener" href="${agGcal_(m.dia, m.h, m.rec)}">📆 Adicionar à minha agenda</a>
       <p class="muted" style="font-size:13px;margin:14px 0 0">Precisa remarcar? Fale com o RH pelo mesmo contato que enviou este link.</p>
       <button class="ag-outro" id="agOutro">Agendar para outra pessoa</button></div>`;
-    $('#agOutro').onclick = () => { delete st.marcado; salvar(); tela(); };
+    $('#agOutro').onclick = () => { st = {}; salvar(); tela(); };
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   let sel = { dia: null, h: null };
@@ -1614,8 +1614,16 @@ async function renderAgenda(codigo) {
           <div class="row2"><div class="field"><label>WhatsApp</label><input class="input" name="tel" required inputmode="tel" value="${h(st.tel || '')}" placeholder="(85) 90000-0000"></div>
           <div class="field"><label>E-mail <small class="muted">(o convite chega aqui)</small></label><input class="input" name="email" type="email" required autocomplete="email" value="${h(st.email || '')}" placeholder="seuemail@gmail.com"></div></div>
           <div class="field"><label>Vaga de interesse (opcional)</label><input class="input" name="vaga" maxlength="80" value="${h(st.vaga || '')}" placeholder="Ex.: Operador de caixa"></div>
+          ${info.ficha ? `<div class="ag-passo"><i>4</i><b>Ficha do candidato</b></div>
+          <p class="ag-fi-txt">Preencha exatamente como está nos seus documentos. Assim o RH já recebe a sua ficha junto com o agendamento.</p>
+          <div class="field"><label>Nome completo da mãe</label><input class="input" name="mae" required value="${h(st.mae || '')}" placeholder="Como está no documento"></div>
+          <div class="row2"><div class="field"><label>CPF</label><input class="input" name="cpf" required inputmode="numeric" maxlength="14" value="${h(st.cpf ? cpfFmt(st.cpf) : '')}" placeholder="000.000.000-00"><small id="agCpf" class="fi-cpf"></small></div>
+          <div class="field"><label>Data de nascimento</label><input class="input" name="nasc" type="date" required value="${h(st.nasc || '')}"></div></div>
+          <div class="fi-sec">Fardamento</div>
+          <div class="fi-farda">${[['blusa', 'Blusa', FICHA_BLUSA], ['calca', 'Calça', FICHA_CALCA], ['bota', 'Bota / calçado', FICHA_BOTA]].map(([nm, lb, ops]) => `<div class="field"><label>${lb}</label><select class="input" name="${nm}" required><option value="">—</option>${ops.map(o => `<option ${String(st[nm] || '') === String(o) ? 'selected' : ''}>${o}</option>`).join('')}</select></div>`).join('')}</div>` : ''}
           <div id="agErr" class="badge b-bad hidden" style="display:flex;padding:10px 12px;margin-bottom:14px;white-space:normal"></div>
-          <button class="btn primary block fx-btn" type="submit">Confirmar agendamento ✔</button>
+          <button class="btn primary block fx-btn" type="submit">${info.ficha ? 'Confirmar entrevista e enviar ficha ✔' : 'Confirmar agendamento ✔'}</button>
+          ${info.ficha ? '<p class="fx-lgpd">🔒 Seus dados serão usados somente pelo RH do Grupo R Center para o processo seletivo e a admissão, conforme a Lei Geral de Proteção de Dados (LGPD).</p>' : ''}
         </form>
         ${sel.h ? '' : '<p class="tx-dica" style="margin:14px 0 0">💡 Toque em um horário livre para continuar.</p>'}
       </div>`;
@@ -1623,6 +1631,7 @@ async function renderAgenda(codigo) {
     $$('.ag-h:not(.off)', M).forEach(b => b.onclick = () => { sel.h = b.dataset.h; tela(); const f = $('#agF'); if (f) setTimeout(() => f.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); });
     const f = $('#agF');
     f.tel.oninput = () => { f.tel.value = telFmt(f.tel.value.replace(/\D/g, '').slice(0, 11)); };
+    if (f.cpf) f.cpf.oninput = () => { const d = f.cpf.value.replace(/\D/g, '').slice(0, 11); f.cpf.value = d.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/(\d{3})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3-$4'); const m = $('#agCpf'); m.className = 'fi-cpf ' + (d.length === 11 ? (cpfOk_(d) ? 'ok' : 'bad') : ''); m.textContent = d.length === 11 ? (cpfOk_(d) ? '✓ CPF válido' : 'CPF inválido. Confira os números.') : ''; };
     f.onsubmit = async e => {
       e.preventDefault();
       const err = $('#agErr'), falha = m => { err.textContent = m; err.classList.remove('hidden'); };
@@ -1631,16 +1640,29 @@ async function renderAgenda(codigo) {
       if (d.nome.split(/\s+/).length < 2) return falha('Informe o seu nome completo.');
       if (d.tel.length < 10) return falha('Informe um WhatsApp válido com DDD.');
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) return falha('Informe um e-mail válido. O convite da entrevista será enviado para ele.');
-      Object.assign(st, { nome: d.nome, tel: d.tel, email: d.email, vaga: d.vaga }); salvar();
+      Object.assign(st, { nome: d.nome, tel: d.tel, email: d.email, vaga: d.vaga });
+      let fi = null;
+      if (info.ficha) {
+        fi = { nome: d.nome, mae: f.mae.value.trim(), cpf: f.cpf.value.replace(/\D/g, ''), nasc: f.nasc.value, tel: d.tel, blusa: f.blusa.value, calca: f.calca.value, bota: f.bota.value, vaga: d.vaga, recrutador: info.rec };
+        Object.assign(st, { mae: fi.mae, cpf: fi.cpf, nasc: fi.nasc, blusa: fi.blusa, calca: fi.calca, bota: fi.bota });
+        if (fi.mae.split(/\s+/).length < 2) { salvar(); return falha('Informe o nome completo da sua mãe.'); }
+        if (!cpfOk_(fi.cpf)) { salvar(); return falha('CPF inválido. Confira os números.'); }
+        if (!fi.nasc) { salvar(); return falha('Informe a sua data de nascimento.'); }
+        if (!fi.blusa || !fi.calca || !fi.bota) { salvar(); return falha('Informe os tamanhos do fardamento.'); }
+        d.cpf = fi.cpf; d.ficha = true;
+      }
+      salvar();
       const b = $('button[type=submit]', f); b.disabled = true; b.innerHTML = '<span class="spin" style="width:16px;height:16px;border-width:2px"></span>';
       try {
+        // a ficha vai primeiro (se tiver erro nos dados, o horário não é ocupado)
+        if (fi && st.fichaOk !== fi.cpf) { const jf = await sendRaw_('fichaEnviar', { codigo: info.ficha, data: fi }); if (!jf || !jf.ok) throw new Error((jf && jf.error) || 'Não foi possível enviar a ficha.'); st.fichaOk = fi.cpf; salvar(); }
         const j = await sendRaw_('agendaMarcar', { codigo, data: d });
         if (!j || !j.ok) {
           if (j && j.ocupado) { await carregar(); sel.h = null; tela(); toast(j.error, true); return; }
           throw new Error((j && j.error) || 'Não foi possível agendar.');
         }
-        st.marcado = { dia: j.dia, h: j.h, rec: j.rec, email: d.email, meet: j.meet || '' }; salvar(); telaOk();
-      } catch (e2) { b.disabled = false; b.textContent = 'Confirmar agendamento ✔'; falha(e2.message); }
+        st.marcado = { dia: j.dia, h: j.h, rec: j.rec, email: d.email, meet: j.meet || '', ficha: !!fi }; delete st.fichaOk; salvar(); telaOk();
+      } catch (e2) { b.disabled = false; b.textContent = info.ficha ? 'Confirmar entrevista e enviar ficha ✔' : 'Confirmar agendamento ✔'; falha(e2.message); }
     };
   };
   tela();
@@ -1651,7 +1673,7 @@ const podeAgenda = () => !!(S.user && (isAdmin() || S.user.podeAgenda));
 const agendaUrl_ = c => { const base = cfgv('siteUrl', '') || (location.origin + location.pathname); return base.replace(/\/+$/, '') + '/agenda.html?agenda=' + c; };
 const agendaNovos = () => ((S.agenda && S.agenda.dias) || []).reduce((n, d) => n + Object.values(d.s || {}).filter(o => o && o.visto === false && o.st === 'marcado').length, 0);
 function compartilharAgenda_(c) {
-  const txt = `Olá! Para agendar a sua entrevista online com o RH do ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}, escolha o melhor horário pelo link abaixo.\n\nA entrevista dura cerca de ${agPasso_(new Date().toLocaleDateString('sv-SE'))} minutos e será pelo Google Meet. O convite com o link será enviado para o seu e-mail.\n\n${agendaUrl_(c)}`;
+  const txt = `Olá! Para agendar a sua entrevista online com o RH do ${cfgv('empresa', CFG.EMPRESA || 'Grupo R Center')}, escolha o melhor horário e preencha a sua ficha pelo link abaixo (leva poucos minutos; tenha o seu CPF em mãos).\n\nA entrevista dura cerca de ${agPasso_(new Date().toLocaleDateString('sv-SE'))} minutos e será pelo Google Meet. O convite com o link será enviado para o seu e-mail.\n\n${agendaUrl_(c)}`;
   window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
 }
 const AG_ST_ = { marcado: ['Marcada', 'b-info'], realizada: ['Realizada', 'b-ok'], faltou: ['Faltou', 'b-bad'], cancelado: ['Cancelada', ''], bloqueado: ['Bloqueado', ''] };
@@ -1693,7 +1715,7 @@ async function pgAgenda() {
       if (!o || o.st === 'cancelado') return `<button class="ar-sl livre ${pas || fim(D) ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span>${fim(D) ? '—' : pas ? '' : 'Livre'}</span>${o ? `<em class="faint">cancelada: ${h(o.nome)}</em>` : ''}</button>`;
       if (o.st === 'bloqueado') return `<button class="ar-sl bloq" data-h="${hh}"><b>${hh}</b><span>🔒 Bloqueado${o.motivo ? ' · ' + h(o.motivo) : ''}</span></button>`;
       const [lb, cl] = AG_ST_[o.st] || AG_ST_.marcado;
-      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? `<span class="ar-em"> · ${h(o.email)}</span>` : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.remarcado ? '<span class="badge b-origem b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge b-origem" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
+      return `<button class="ar-sl ocup st-${o.st} ${pas ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span class="ar-c"><strong>${h(o.nome)}</strong><small>${o.vaga ? h(o.vaga) + ' · ' : ''}${o.tel ? h(telFmt(o.tel)) : ''}${o.email ? `<span class="ar-em"> · ${h(o.email)}</span>` : ''}</small></span><span class="ar-tags">${o.visto === false ? '<span class="badge b-info">novo</span>' : ''}${o.ficha ? '<span class="badge" title="Preencheu a ficha no agendamento">📄</span>' : ''}${o.remarcado ? '<span class="badge b-origem b-warn" title="Entrevista remarcada">remarcada</span>' : o.origem === 'candidato' ? '<span class="badge b-origem" title="O candidato escolheu pelo link">pelo link</span>' : ''}<span class="badge ${cl}">${lb}</span></span></button>`;
     };
     const HD = agHorariosDia_(D);
     const hsT = t => HD.filter(x => t === 'm' ? x < '12:00' : x >= '13:00');
@@ -1958,6 +1980,7 @@ function openAgendaItem(rec, D, hh, done) {
       ${o.vaga ? `<div>💼 ${h(o.vaga)}</div>` : ''}
       ${o.email ? `<div>✉️ <a href="mailto:${h(o.email)}">${h(o.email)}</a> <button class="btn sm ghost" id="aiCpE" title="Copiar e-mail">${ic('copy')}</button></div>` : ''}
       ${o.tel ? `<div>📱 <a target="_blank" rel="noopener" href="https://wa.me/55${h(o.tel)}">${h(telFmt(o.tel))}</a></div>` : ''}
+      ${o.ficha ? `<div>📄 <b>Ficha preenchida no agendamento</b>${o.cpf ? ' · CPF ' + h(cpfFmt(o.cpf)) : ''}${podeFichas() ? ` · <a href="#/fichas" data-close style="color:var(--accent)">ver em Fichas</a>` : ''}</div>` : ''}
       <div class="ar-meet" id="aiMeet">${o.meet ? `<span>🎥</span><a href="${h(o.meet)}" target="_blank" rel="noopener">${h(o.meet.replace('https://', ''))}</a><button class="btn sm" id="aiCpL">${ic('copy')} Copiar</button><a class="btn sm primary" href="${h(o.meet)}" target="_blank" rel="noopener">Entrar</a>` : `<span>🎥</span><span class="faint">${o.meetErro ? 'Não foi possível gerar o link: ' + h(o.meetErro) : 'Sem link do Google Meet'}</span><button class="btn sm primary" id="aiGer">Gerar link do Meet</button>`}</div>
       ${o.remarcado ? `<div class="faint" style="font-size:12px">🔁 Remarcada (antes: ${h(o.remarcado.split(' ')[0].split('-').reverse().join('/'))} às ${h(o.remarcado.split(' ')[1])})</div>` : ''}
       <div class="faint" style="font-size:12px">${o.origem === 'candidato' ? 'Escolhido pelo candidato no link' : 'Marcado pelo RH'} · ${dtHr_(o.em)}${o.alt ? ' · última alteração: ' + h(o.alt) : ''}</div></div>

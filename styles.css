@@ -1267,3 +1267,7 @@ body.arrastando-pg{user-select:none;-webkit-user-select:none;cursor:grabbing}
 @media (max-width:600px){.tr-gk{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .tr-bar:has(.tr-niv){grid-template-columns:minmax(120px,190px) 1fr 44px 78px}
 @media (max-width:600px){.tr-bar:has(.tr-niv){grid-template-columns:minmax(100px,140px) 1fr 40px}.tr-niv{display:none}}
+
+/* agenda + ficha num link só */
+.ag-fi-txt{font-size:13px;color:var(--fx-mu);margin:-4px 0 12px}
+.ag-fi-ok{display:inline-block;background:#ecfdf3;color:#166534;border:1px solid #bbf7d0;border-radius:99px;padding:6px 14px;font-weight:700;font-size:13.5px;margin:0 0 12px}

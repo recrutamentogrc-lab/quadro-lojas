@@ -186,7 +186,7 @@
       const hoje = agHoje_();
       const ds = agLerVarios_(l.rec, agDiasCand_());
       const dias = ds.map(d => { const dia = d.dia, livres = agLivres_(d, hoje); return { dia: dia, fechado: !livres.length, horarios: agHorarios_(dia).map(hh => ({ h: hh, livre: livres.indexOf(hh) >= 0 })) }; });
-      return { ok: true, rec: l.nome, foto: agFoto_(l.rec), hoje: hoje, dias: dias };
+      return { ok: true, rec: l.nome, foto: agFoto_(l.rec), hoje: hoje, dias: dias, ficha: 'demoficha' };
     }
     function agendaMarcar_(req) {
       const cache = CacheService.getScriptCache(), rk = 'ag_' + String(req.codigo || '').slice(0, 20), nt = Number(cache.get(rk) || 0);
@@ -195,7 +195,7 @@
       const l = agLinksLer_().find(x => x.codigo === String(req.codigo || ''));
       if (!l || !l.ativo) return { ok: false, error: 'Este link de agendamento não está mais ativo. Peça um novo link ao RH.' };
       const d0 = req.data || {}, t = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n);
-      const m = { nome: t(d0.nome, 90).toUpperCase(), tel: String(d0.tel || '').replace(/\D/g, '').slice(0, 13), email: t(d0.email, 100).toLowerCase(), vaga: t(d0.vaga, 80) };
+      const m = { nome: t(d0.nome, 90).toUpperCase(), tel: String(d0.tel || '').replace(/\D/g, '').slice(0, 13), email: t(d0.email, 100).toLowerCase(), vaga: t(d0.vaga, 80), cpf: String(d0.cpf || '').replace(/\D/g, '').slice(0, 11), ficha: !!d0.ficha };
       const dia = String(d0.dia || ''), hh = String(d0.h || '');
       if (m.nome.split(' ').length < 2) return { ok: false, error: 'Informe o seu nome completo.' };
       if (m.tel.length < 10) return { ok: false, error: 'Informe um WhatsApp válido com DDD.' };

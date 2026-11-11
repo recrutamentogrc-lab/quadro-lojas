@@ -1490,3 +1490,5 @@ h1,h2,h3,.topbar h1,.kpi .val,.hero h2,.hero .stats b,.ring::before{font-family:
 .hero-loja .stats{z-index:2}
 .hero-loja .ring{position:relative;z-index:2;box-shadow:0 10px 30px -10px rgba(0,0,0,.35)}
 .login-hero{background:linear-gradient(160deg,rgba(17,21,154,.94) 0%,rgba(10,13,124,.9) 45%,rgba(6,8,82,.97) 100%),var(--foto) center/cover no-repeat,#0a0d7c}
+.hero-loja .stats div{text-shadow:0 0 14px var(--surface),0 0 6px var(--surface),0 0 2px var(--surface)}
+@media (max-width:1100px){.hero-loja::before{width:70%;opacity:.55}}

@@ -253,7 +253,7 @@ async function sendRaw_(action, payload) {
 // número estável para posição/setor novo: o aparelho escolhe e o servidor usa o mesmo (o quadro fica no banco, sem linhas de planilha)
 const novaRowId_ = () => 1000000 + (Math.floor(Date.now() / 7) % 1e9) * 10 + Math.floor(Math.random() * 10);
 function idsNovos_(action, p) {
-  if ((action === 'addPosicao' || action === 'criarSetor') && !p.novoRow) return Object.assign({}, p, { novoRow: novaRowId_() });
+  if ((action === 'addPosicao' || action === 'criarSetor' || action === 'addContratacao') && !p.novoRow) return Object.assign({}, p, { novoRow: novaRowId_() });
   if (action === 'setPadrao' && p.novas && +p.novas.qtd > 0 && !p.novosRows) { const n = Math.min(30, +p.novas.qtd), L = []; for (let i = 0; i < n; i++) L.push(novaRowId_() + i * 10); return Object.assign({}, p, { novosRows: L }); }
   if (action === 'movimentar' && p.destino && !p.destino.row && !p.destino.mesmaPosicao && !p.destino.novoRow) return Object.assign({}, p, { destino: Object.assign({}, p.destino, { novoRow: novaRowId_() }) });
   return p;
@@ -7846,7 +7846,7 @@ const LOCAL = {
   marcarDesligadoContr: p => (p.rows || []).forEach(x => { const c = (S.data.contratacoes.rows || []).find(y => y.row === x.row); if (c) { if (S.ck.status) c[S.ck.status] = 'Desligado'; (S.data.desligados = S.data.desligados || []).push({ nome: c[S.ck.colab], loja: lojaKey(c[S.ck.loja]), funcao: c[S.ck.funcao], data: p.dataDesligamento || todayISO(), tipo: p.tipo || '', origem: 'Contratações' }); } }),
   contrBulkSet: p => (p.rows || []).forEach(x => { const c = (S.data.contratacoes.rows || []).find(y => y.row === x.row); if (c) c[p.campo] = p.valor; }),
   saveContratacao: p => { const c = (S.data.contratacoes.rows || []).find(y => y.row === p.row); if (c) Object.keys(p.data).forEach(k => { c[k] = k === S.ck.data && /^\d{4}-/.test(p.data[k]) ? isoToBR(p.data[k]) : p.data[k]; }); },
-  addContratacao: (p, j) => { const d = {}; Object.keys(p.data).forEach(k => d[k] = k === S.ck.data && /^\d{4}-/.test(p.data[k]) ? isoToBR(p.data[k]) : p.data[k]); d.row = j.row || 99999; if (S.ck.status) d[S.ck.status] = j.alocado ? (p.statusAlocado || 'Alocado') : 'Pendente'; S.data.contratacoes.rows.push(d); if (p.vaga && j.alocado) localFill(Object.assign({}, p.vaga, { nome: p.data[S.ck.colab] })); }
+  addContratacao: (p, j) => { const d = {}; Object.keys(p.data).forEach(k => d[k] = k === S.ck.data && /^\d{4}-/.test(p.data[k]) ? isoToBR(p.data[k]) : p.data[k]); d.row = j.row || +p.novoRow || 99999; if (S.ck.status) d[S.ck.status] = j.alocado ? (p.statusAlocado || 'Alocado') : 'Pendente'; S.data.contratacoes.rows.push(d); if (p.vaga && j.alocado) localFill(Object.assign({}, p.vaga, { nome: p.data[S.ck.colab] })); }
 };
 
 /* =====================================================================

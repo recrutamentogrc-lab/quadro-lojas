@@ -1,1 +1,1 @@
-versao: quadro das lojas no banco (sem planilha) 2026-11-12
+versao: contratacoes, desligados e movimentacoes no banco 2026-11-12

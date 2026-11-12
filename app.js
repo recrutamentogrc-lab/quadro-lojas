@@ -3600,10 +3600,15 @@ function escPessoas(l, sec, par) {
   const peso = r => (+r.qt || 0) * (/PARCIAL/.test(norm(r.contrato)) ? (+par.parcial || 0) : 1);
   const ocup = rows.filter(r => r.nome && conta(r));
   const padraoRows = rows.filter(r => !r.nome ? !/APRENDIZ|ESTAGIO/.test(norm(r.contrato)) || par.aprendiz : conta(r));
+  // funções de apoio: entram na escala e cobrem folgas, mas não aumentam a quantidade de pessoas que o setor precisa
+  const apoio = new Set((par.apoio || []).map(norm)), dem = r => !apoio.has(norm(r.funcao));
   const pessoas = ocup.filter(r => (+r.qt || 0) >= .5).sort((a, b) => String(a.funcao).localeCompare(b.funcao) || String(a.nome).localeCompare(b.nome));
   return {
     rows, funcoes: uniq(sec.linhas.map(r => r.funcao)).sort(),
     padrao: Math.round(sum(padraoRows, peso) * 100) / 100,
+    padraoDem: Math.round(sum(padraoRows.filter(dem), peso) * 100) / 100,
+    ocupadoDem: Math.round(sum(ocup.filter(dem), peso) * 100) / 100,
+    apoio: Math.round(sum(ocup.filter(r => !dem(r)), peso) * 100) / 100,
     ocupado: Math.round(sum(ocup, peso) * 100) / 100,
     vagas: rows.filter(r => r.vagaAberta).length,
     aviso: rows.filter(r => r.aviso && r.nome).length,
@@ -3629,7 +3634,7 @@ function escPostos12(par, B) { if (par.modo === 'manual' || par.atual !== '12x36
 function escCalc(l, sec, par, etKey) {
   const et = ESC_ETAPAS[etKey], L = et.L, N = Math.max(1, +par.domN || 3);
   const dad = escPessoas(l, sec, par);
-  const B = par.base === 'ocupado' ? dad.ocupado : dad.padrao;
+  const B = par.base === 'ocupado' ? dad.ocupadoDem : dad.padraoDem;
   const res = { et, etKey, L, N, dad, B, alvo: par.alvo, notas: [], grupos: [], reserva: 0 };
   const manual = par.modo === 'manual';
   if (par.alvo === '12x36') {
@@ -3788,6 +3793,7 @@ function escCss() {
   .esc-tbl tr.cov td.falta{background:var(--bad-bg);color:var(--bad)}
   .esc-tbl tr.cov .nm{background:var(--surface2)}
   .esc-tbl tr.sep td{height:8px;background:var(--surface2)}
+  #pFun .chip.apoio{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--accent);border-style:dashed}
   .esc-tbl td.nm.pick{cursor:pointer} .esc-tbl td.nm.pick:hover b{color:var(--accent);text-decoration:underline}
   .esc-tbl td.nm small.rg{color:var(--accent);font-weight:700}
   .esc-tbl tr.cov td.abaixo{color:var(--warn);font-weight:800}
@@ -3948,7 +3954,8 @@ function escSetor(l, sec, f) {
       <div class="field"><label>Horas por plantão</label><select class="input" id="pH12"><option value="12" ${+par.h12 === 12 ? 'selected' : ''}>12h (intervalo indenizado)</option><option value="11" ${+par.h12 === 11 ? 'selected' : ''}>11h (1h de intervalo)</option></select></div>
     </div>` : ''}
     <div style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Funções consideradas</div>
-      <div class="chips" id="pFun">${dad.funcoes.map(fn => `<span class="chip ${(par.fora || []).map(norm).includes(norm(fn)) ? '' : 'on'}" data-fn="${h(fn)}">${h(fn)}</span>`).join('')}</div></div>
+      <div class="chips" id="pFun">${dad.funcoes.map(fn => { const st = (par.fora || []).map(norm).includes(norm(fn)) ? 'fora' : (par.apoio || []).map(norm).includes(norm(fn)) ? 'apoio' : 'on'; return `<span class="chip ${st === 'fora' ? '' : 'on'} ${st === 'apoio' ? 'apoio' : ''}" data-fn="${h(fn)}" title="${st === 'on' ? 'Conta na demanda' : st === 'apoio' ? 'Apoio: entra na escala e cobre folgas, sem aumentar a demanda' : 'Fora da escala'}">${h(fn)}${st === 'apoio' ? ' · apoio' : ''}</span>`; }).join('')}</div>
+      <div class="faint" style="font-size:11.5px;margin-top:6px">Toque para alternar: <b>conta na demanda</b> → <b>apoio</b> (ex.: assistente que também vende: entra na escala e cobre folgas, mas não aumenta a quantidade necessária) → <b>fora da escala</b>.</div></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
       ${escEdita() ? `<button class="btn" id="pReset">${ic('eraser')} Restaurar padrão</button>` : ''}
       <span class="faint" style="font-size:11.5px;align-self:center">${ic('check')} Salvo automaticamente para todos${par._por ? ` · última alteração: ${h(par._por)}${par._em && par._em !== 'agora' ? ' em ' + h(par._em) : ''}` : ''}</span>
@@ -3958,7 +3965,7 @@ function escSetor(l, sec, f) {
 
   <div class="grid g4" style="margin-top:16px">
     ${kpi({ lbl: 'Quadro padrão hoje', val: fmt(dad.padrao), sub: `${dad.vagas} vaga(s) em aberto`, icon: 'grid', c: 'c-slate' })}
-    ${kpi({ lbl: 'Ocupado hoje', val: fmt(dad.ocupado), sub: dad.aviso ? `${dad.aviso} em aviso prévio` : 'sem aprendizes e estagiários', icon: 'users', c: 'c-cyan' })}
+    ${kpi({ lbl: 'Ocupado hoje', val: fmt(dad.ocupado), sub: dad.apoio ? `${fmt(dad.apoio)} de apoio (não aumenta a demanda)` : dad.aviso ? `${dad.aviso} em aviso prévio` : 'sem aprendizes e estagiários', icon: 'users', c: 'c-cyan' })}
     ${kpi({ lbl: 'Necessário · ' + res.et.curto, val: `${res.total}`, title: `Equivale a ${fmt(res.frac || 0, 1)} pessoa(s) em tempo integral; a diferença para o número inteiro pode ser coberta por folguista de outro setor.`, sub: res.reserva ? `${res.P} na grade + ${res.reserva} reserva` : res.alvo === '12x36' ? `${res.d12.base} plantonistas + ${res.d12.folg} folguista(s)` : `${res.grupos.length > 1 ? res.grupos.map(g => g.cod + ': ' + g.P).join(' · ') : 'pessoas na grade'}`, icon: 'calendar', c: 'c-violet' })}
     ${montar ? kpi({ lbl: 'Na escala do mês', val: String(nReal), sub: diasAbaixo ? `${diasAbaixo} dia(s) abaixo do ideal` : 'equipe atual cobre o ideal', icon: 'calendar', c: diasAbaixo ? 'c-amber' : 'c-green' }) : kpi({ lbl: 'Saldo do quadro atual', val: (saldo >= 0 ? '+' : '') + fmt(saldo), sub: saldo >= 0 ? 'cobre a escala' : 'precisa contratar', icon: saldo >= 0 ? 'check' : 'alert', c: saldo >= 0 ? 'c-green' : 'c-red' })}
   </div>
@@ -4017,7 +4024,12 @@ function escSetor(l, sec, f) {
   if ($('#p24')) $('#p24').onchange = e => set('p24', Math.max(0, Math.round(+e.target.value || 0)));
   if ($('#p12')) $('#p12').onchange = e => set('p12', Math.max(0, Math.round(+e.target.value || 0)));
   if ($('#pH12')) $('#pH12').onchange = e => set('h12', +e.target.value);
-  if (escEdita()) $$('#pFun .chip').forEach(c => c.onclick = () => { const fn = norm(c.dataset.fn), fo = (par.fora || []).map(norm); set('fora', fo.includes(fn) ? (par.fora || []).filter(x => norm(x) !== fn) : (par.fora || []).concat(c.dataset.fn)); });
+  if (escEdita()) $$('#pFun .chip').forEach(c => c.onclick = () => {
+    const fn = norm(c.dataset.fn), fo = (par.fora || []).filter(x => norm(x) !== fn), ap = (par.apoio || []).filter(x => norm(x) !== fn);
+    const era = (par.fora || []).some(x => norm(x) === fn) ? 'fora' : (par.apoio || []).some(x => norm(x) === fn) ? 'apoio' : 'on';
+    if (era === 'on') ap.push(c.dataset.fn); else if (era === 'apoio') fo.push(c.dataset.fn);
+    par.fora = fo; set('apoio', ap);
+  });
   if ($('#pReset')) $('#pReset').onclick = async () => { if (!await confirmBox('Voltar os parâmetros deste setor para o padrão?', 'Restaurar')) return; escParEnviar(escParKey(l.key, sec.nome), null); route(true); };
   $('#eMes').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { f.mes = e.target.value; saveF(); route(true); } };
   $$('#eVis button').forEach(b => b.onclick = () => { f.vis = b.dataset.v; saveF(); route(true); });

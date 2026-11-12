@@ -3399,63 +3399,69 @@ function escDiasMes(ano, mes) {
  * P pessoas, dem[7] = pessoas necessárias trabalhando (Seg..Dom), W semanas, N = folga no domingo a cada N semanas.
  * Regras: 2 folgas por semana; nunca 7 dias seguidos; domingo de folga pelo menos 1 a cada N semanas.
  * Retorna grid[p][dia] = 1 (trabalha) / 0 (folga) */
-function escGerar5x2(P, dem, W, N, semente) {
-  semente = semente || 0;
+function escGerar5x2(P, dem, W, N, semente, opt) {
+  semente = semente || 0; opt = opt || {};
+  // fix[i] = dias da semana (0 = seg … 6 = dom) em que a pessoa nunca trabalha (setor fechado, não trabalha sábado/domingo, folga fixa)
+  const fix = Array.from({ length: P }, (_, i) => (opt.fix && opt.fix[i]) || opt.fixAll || new Set());
+  const junta = opt.folgas === 'juntas';
   const grid = Array.from({ length: P }, () => []);
   const streak = Array.from({ length: P }, (_, i) => N > 1 ? (i % N) : 0); // domingos seguidos trabalhados
   const run = new Array(P).fill(0);                                        // dias seguidos trabalhados até ontem
-  const pares = []; for (let a = 0; a < 6; a++) { pares.push([a]); for (let b = a + 1; b < 6; b++) pares.push([a, b]); }
+  const offT = new Array(P).fill(0);                                       // folgas seguidas até ontem (fim da semana anterior)
+  const combos = [[]]; for (let a = 0; a < 6; a++) { combos.push([a]); for (let b = a + 1; b < 6; b++) combos.push([a, b]); }
+  // simula a semana da pessoa: maior sequência de trabalho, maior bloco de folgas, folgas coladas e como termina
+  const sim = (i, o) => {
+    let r = run[i], f = offT[i], mr = 0, mo = 0, adj = 0, prev = offT[i] > 0;
+    for (let d = 0; d < 7; d++) { if (o[d]) { f++; r = 0; if (prev) adj++; prev = true; } else { r++; f = 0; prev = false; } if (r > mr) mr = r; if (f > mo) mo = f; }
+    return { mr, mo, adj, tr: r };
+  };
+  const melhor = (x, y) => { for (let k = 0; k < x.length; k++) { if (x[k] < y[k] - 1e-9) return true; if (x[k] > y[k] + 1e-9) return false; } return false; };
   for (let w = 0; w < W; w++) {
-    const off = Array.from({ length: P }, () => new Array(7).fill(false));
-    // 1) domingo
-    const precisa = [], idx = [...Array(P).keys()];
-    idx.forEach(i => { if (N <= 1 || streak[i] >= N - 1) precisa.push(i); });
-    let k = Math.max(0, P - dem[6]);
-    const ordem = idx.sort((a, b) => (streak[b] - streak[a]) || (((a + w + semente) % P) - ((b + w + semente) % P)));
+    const off = Array.from({ length: P }, (_, i) => [0, 1, 2, 3, 4, 5, 6].map(d => fix[i].has(d)));
+    // 1) domingo: gira só entre quem trabalha domingo
+    const elig = [...Array(P).keys()].filter(i => !fix[i].has(6));
+    const precisa = elig.filter(i => N <= 1 || streak[i] >= N - 1);
+    const k = Math.max(0, elig.length - dem[6]);
+    const ordem = elig.slice().sort((a, b) => (streak[b] - streak[a]) || (offT[a] - offT[b]) || (((a + w + semente) % P) - ((b + w + semente) % P)));
     const nOff = Math.max(k, precisa.length);
     const folgaDom = new Set(precisa);
     for (const i of ordem) { if (folgaDom.size >= nOff) break; folgaDom.add(i); }
     folgaDom.forEach(i => off[i][6] = true);
-    // 2) segunda a sábado
-    const slack = dem.slice(0, 6).map(d => P - d);
-    const ord2 = [...Array(P).keys()].sort((a, b) => (run[b] - run[a]) || ((folgaDom.has(a) ? 1 : 0) - (folgaDom.has(b) ? 1 : 0)) || (((a * 7 + w * 3 + semente) % P) - ((b * 7 + w * 3 + semente) % P)));
+    // 2) segunda a sábado: completa 2 folgas, sem 7 dias seguidos e sem 3+ folgas emendadas
+    const slack = dem.slice(0, 6).map((d, j) => P - d - off.filter(o => o[j]).length);
+    const ord2 = [...Array(P).keys()].sort((a, b) => (run[b] - run[a]) || ((off[a][6] ? 1 : 0) - (off[b][6] ? 1 : 0)) || (((a * 7 + w * 3 + semente) % P) - ((b * 7 + w * 3 + semente) % P)));
     for (const i of ord2) {
-      const need = off[i][6] ? 1 : 2;
+      const need = Math.max(0, 2 - off[i].filter(Boolean).length);
       let best = null, bs = null;
-      for (const pr of pares) {
-        if (pr.length !== need) continue;
-        // não pode passar de 6 dias seguidos: 1ª folga até o dia (6 - run)
-        if (run[i] + pr[0] > 6) continue;
+      for (const pr of combos) {
+        if (pr.length !== need || pr.some(d => off[i][d])) continue;
+        const o2 = off[i].slice(); pr.forEach(d => o2[d] = true);
+        const m = sim(i, o2);
         const neg = pr.filter(d => slack[d] - 1 < 0).length;
-        const sl = sum(pr, d => slack[d]);
-        const lo = pr[pr.length - 1];
-        const trail = off[i][6] ? 0 : 6 - lo;               // dias trabalhados depois da última folga até domingo
-        const pen = trail >= 6 ? 3 : trail >= 5 ? .4 : 0;
-        const juntas = pr.length === 2 && pr[1] - pr[0] === 1 ? -.05 : 0; // leve preferência por folgas separadas
-        const rot = ((pr[0] + i + w * 2 + semente) % 6) / 100;
-        const sc = [neg, -(sl) + pen + juntas + rot];
-        if (!bs || sc[0] < bs[0] || (sc[0] === bs[0] && sc[1] < bs[1])) { bs = sc; best = pr; }
+        const pen = (m.tr >= 6 ? 3 : m.tr >= 5 ? .4 : 0) + (junta ? (m.adj ? -.6 : 0) : 1.5 * m.adj);
+        const rot = (((pr[0] || 0) + i + w * 2 + semente) % 6) / 100;
+        const sc = [m.mr > 6 ? m.mr : 0, m.mo > 2 ? m.mo : 0, neg, -sum(pr, d => slack[d]) + pen + rot];
+        if (!bs || melhor(sc, bs)) { bs = sc; best = pr; }
       }
-      if (!best) { // sem opção legal: folga no 1º dia possível
-        best = need === 1 ? [0] : [0, 1];
-      }
-      best.forEach(d => { off[i][d] = true; slack[d]--; });
+      (best || []).forEach(d => { off[i][d] = true; slack[d]--; });
     }
     // 3) grava e atualiza contadores
     for (let i = 0; i < P; i++) {
-      for (let d = 0; d < 7; d++) { const t = off[i][d] ? 0 : 1; grid[i].push(t); run[i] = t ? run[i] + 1 : 0; }
-      streak[i] = off[i][6] ? 0 : streak[i] + 1;
+      for (let d = 0; d < 7; d++) { const t = off[i][d] ? 0 : 1; grid[i].push(t); run[i] = t ? run[i] + 1 : 0; offT[i] = t ? 0 : offT[i] + 1; }
+      streak[i] = fix[i].has(6) || off[i][6] ? 0 : streak[i] + 1;
     }
   }
   return grid;
 }
 function escCobertura(grid, nDias) { const c = new Array(nDias).fill(0); grid.forEach(r => r.forEach((t, d) => { if (t) c[d]++; })); return c; }
 // conferência legal de cada pessoa
-function escConferir(grid, N) {
+function escConferir(grid, N, fix) {
   const prob = [];
   grid.forEach((r, i) => {
-    let run = 0, maxRun = 0, domSeg = 0, maxDom = 0;
-    for (let d = 0; d < r.length; d++) { run = r[d] ? run + 1 : 0; maxRun = Math.max(maxRun, run); if (d % 7 === 6) { domSeg = r[d] ? domSeg + 1 : 0; maxDom = Math.max(maxDom, domSeg); } }
+    let run = 0, maxRun = 0, domSeg = 0, maxDom = 0, fo = 0, maxFo = 0;
+    for (let d = 0; d < r.length; d++) { run = r[d] ? run + 1 : 0; maxRun = Math.max(maxRun, run); fo = r[d] ? 0 : fo + 1; maxFo = Math.max(maxFo, fo); if (d % 7 === 6) { domSeg = r[d] ? domSeg + 1 : 0; maxDom = Math.max(maxDom, domSeg); } }
+    const fx = fix && (fix[i] || fix.all);
+    if (maxFo > 2 && !(fx && fx.size >= 2)) prob.push({ i, t: `${maxFo} folgas seguidas` });
     const semanas = []; for (let w = 0; w < r.length / 7; w++) semanas.push(r.slice(w * 7, w * 7 + 7).filter(x => !x).length);
     if (maxRun > 6) prob.push({ i, t: `${maxRun} dias seguidos de trabalho` });
     if (semanas.some(x => x < 2)) prob.push({ i, t: 'semana com menos de 2 folgas' });
@@ -3464,7 +3470,7 @@ function escConferir(grid, N) {
   return prob;
 }
 // menor equipe que cobre a demanda sem quebrar as regras
-function escMinimo5x2(dem, N) {
+function escMinimo5x2(dem, N, opt) {
   const tot = sum(dem);
   if (!tot) return { P: 0, grid: [], lb: 0 };
   const lb = Math.max(Math.ceil(tot / 5 - 1e-9), N > 1 ? Math.ceil(dem[6] * N / (N - 1) - 1e-9) : (dem[6] ? Infinity : 0), Math.max(...dem));
@@ -3472,9 +3478,9 @@ function escMinimo5x2(dem, N) {
   const W = 6;
   for (let P = lb; P <= lb + 8; P++) {
     for (let s = 0; s < 4; s++) {
-      const g = escGerar5x2(P, dem, W, N, s);
+      const g = escGerar5x2(P, dem, W, N, s, opt);
       const c = escCobertura(g, W * 7);
-      const ok = c.every((x, d) => x >= dem[d % 7]) && !escConferir(g, N).length;
+      const ok = c.every((x, d) => x >= dem[d % 7]) && !escConferir(g, N, opt && opt.fixAll ? { all: opt.fixAll } : null).length;
       if (ok) return { P, lb, semente: s };
     }
   }
@@ -3564,7 +3570,7 @@ function escParDef(l, setor) {
   const s = norm(setor + ' ' + l.key);
   const atual = /MONITORAMENTO|VIGIA|PORTARIA/.test(s) ? '12x36' : isAdmLoja(l) ? '5x2' : '6x1';
   return {
-    modo: 'auto', atual, alvo: atual === '12x36' ? '12x36' : '5x2', domN: 3, cct: false, reserva: 9, aprendiz: false, parcial: .5, base: 'padrao', fora: [],
+    modo: 'auto', atual, alvo: atual === '12x36' ? '12x36' : '5x2', domN: 3, abre: [1, 1, 1, 1, 1, 1, 1], folgas: 'espacadas', cct: false, reserva: 9, aprendiz: false, parcial: .5, base: 'padrao', fora: [],
     h: { sem: { a: '07:00', f: '22:00' }, sab: { a: '07:00', f: '22:00' }, dom: { a: '07:00', f: '13:00' } },
     p: { sem: 2, sab: 3, dom: 2 },
     p24: 1, p12: 0, h12: 12
@@ -3574,6 +3580,18 @@ function escPar(l, setor) {
   const d = escParDef(l, setor), s = escParTodos()[escParKey(l.key, setor)] || {};
   return Object.assign(d, s, { h: Object.assign({}, d.h, s.h || {}), p: Object.assign({}, d.p, s.p || {}) });
 }
+// regras de folga por função e por pessoa (valem na loja inteira, em qualquer visão)
+const escRegKey = l => escParKey(l.key, '__REGRAS__');
+function escRegras(l) { const r = escParTodos()[escRegKey(l)] || {}; return { fun: Object.assign({}, r.fun || {}), pes: Object.assign({}, r.pes || {}) }; }
+function escRegrasSalvar(l, R) { const lim = o => Object.keys(o).reduce((a, k) => { const v = o[k] || {}; if (v.sab === 0 || v.dom === 0 || (v.fixa && v.fixa.length)) a[k] = v; return a; }, {}); return escParEnviar(escRegKey(l), { fun: lim(R.fun), pes: R.pes }); }
+function escRegraDe(R, r) {
+  const a = R.fun[norm((r && r.funcao) || '')] || {}, b = R.pes[norm((r && r.nome) || '')] || {}, pega = k => b[k] != null ? b[k] : a[k] != null ? a[k] : 1;
+  return { sab: pega('sab'), dom: pega('dom'), fixa: (b.fixa && b.fixa.length ? b.fixa : a.fixa) || [], propria: !!R.pes[norm((r && r.nome) || '')], daFuncao: !!R.fun[norm((r && r.funcao) || '')] };
+}
+const escFechados = par => new Set([0, 1, 2, 3, 4, 5, 6].filter(d => par.abre && par.abre[d] === 0));
+function escFixDe(res, R, r) { const s = new Set(res.fechado || []); if (r && R) { const g = escRegraDe(R, r); if (!g.sab) s.add(5); if (!g.dom) s.add(6); g.fixa.forEach(d => s.add(+d)); } return s; }
+const escRegraTxt = g => [!g.sab ? 'não trabalha sábado' : '', !g.dom ? 'não trabalha domingo' : '', g.fixa.length ? 'folga fixa ' + g.fixa.map(d => ESC_DIAS[d]).join('/') : ''].filter(Boolean).join(' · ');
+
 /* ---------------- dados do setor ---------------- */
 function escPessoas(l, sec, par) {
   const fora = new Set((par.fora || []).map(norm));
@@ -3653,9 +3671,11 @@ function escCalc(l, sec, par, etKey) {
     const dem = escDemAuto(par, B, N);
     res.grupos.push({ cod: 'T', dem, ini: '', fim: '' });
   }
+  res.fechado = esc === '5x2' ? escFechados(par) : new Set(); res.folgas = par.folgas || 'espacadas';
   res.grupos.forEach(g => {
+    if (res.fechado.size) g.dem = g.dem.map((x, d) => res.fechado.has(d) ? 0 : x);
     if (esc === '6x1') { const tot = sum(g.dem); g.P = tot ? Math.max(Math.ceil(tot / 6 - 1e-9), N > 1 ? Math.ceil(g.dem[6] * N / (N - 1) - 1e-9) : 0, Math.max(...g.dem)) : 0; g.semente = 0; }
-    else { const m = escMinimo5x2(g.dem, N); g.P = m.P || 0; g.semente = m.semente || 0; g.aprox = m.aprox; }
+    else { const m = escMinimo5x2(g.dem, N, { fixAll: res.fechado, folgas: res.folgas }); g.P = m.P || 0; g.semente = m.semente || 0; g.aprox = m.aprox; }
   });
   res.P = sum(res.grupos, g => g.P);
   const dv = esc === '6x1' ? 6 : 5;
@@ -3674,13 +3694,13 @@ function escCalc(l, sec, par, etKey) {
 const escSaldoBadge = (s, big) => s >= 0 ? `<span class="badge b-ok" ${big ? 'style="font-size:13px;padding:5px 10px"' : ''}>${s > 0 ? '+' + fmt(s) + ' a mais' : 'Cobre exato'}</span>` : `<span class="badge b-bad" ${big ? 'style="font-size:13px;padding:5px 10px"' : ''}>Faltam ${fmt(-s)}</span>`;
 
 /* ---------------- grade do mês ---------------- */
-function escGrade(res, par, ano, mes, vis) {
+function escGrade(res, par, ano, mes, vis, R) {
   const { dias, ini, fim } = escDiasMes(ano, mes);
   const noMes = d => d >= ini && d <= fim;
   const pess = res.dad.pessoas.slice();
   const linhas = []; // {nome, funcao, turno, cells[], tipo}
   let conf = [], dem = null, cov = null, excedentes = [];
-  const pegar = () => { const r = pess.shift(); return r ? { nome: r.nome, funcao: r.funcao } : null; };
+  const pegar = () => { const r = pess.shift(); return r ? { nome: r.nome, funcao: r.funcao, rg: R ? escRegraTxt(escRegraDe(R, r)) : '' } : null; };
   let nContr = 0;
   if (res.alvo === '12x36') {
     const L = res.etKey === 'hoje' ? 44 : res.L;
@@ -3705,12 +3725,19 @@ function escGrade(res, par, ano, mes, vis) {
   dem = dias.map(() => 0); cov = dias.map(() => 0);
   res.grupos.forEach((g, gi) => {
     const P = Ps[gi]; if (!P && !sum(g.dem)) return;
-    const grid = P ? escGerar5x2(P, g.dem, W, res.N, vis === 'atual' ? 0 : g.semente) : [];
-    conf = conf.concat(escConferir(grid, res.N).map(x => Object.assign(x, { g: gi })));
+    // regras de cada pessoa (setor fechado, não trabalha sábado/domingo, folga fixa) entram na montagem
+    const quem = pess.slice(0, P), fx = Array.from({ length: P }, (_, i) => escFixDe(res, R, quem[i]));
+    let grid = [], ce = [], mel = null;
+    if (P) [...new Set([vis === 'atual' ? 0 : g.semente, 0, 1, 2, 3, 4, 5])].forEach(sm => {
+      const gg = escGerar5x2(P, g.dem, W, res.N, sm, { fix: fx, folgas: res.folgas }), cc = escConferir(gg, res.N, fx), cv = escCobertura(gg, W * 7);
+      const nota = cc.length * 1000 + sum(cv.map((x, d) => Math.max(0, g.dem[d % 7] - x)));
+      if (mel == null || nota < mel) { mel = nota; grid = gg; ce = cc; }
+    });
+    conf = conf.concat(ce.map(x => Object.assign(x, { g: gi })));
     const off = linhas.length;
     grid.forEach((row, i) => {
       const r = pegar();
-      linhas.push({ nome: r ? r.nome : 'A CONTRATAR ' + (++nContr), funcao: r ? r.funcao : '', turno: g.cod === 'T' ? '' : 'Turno ' + g.cod + (g.ini ? ' · ' + g.ini + '–' + g.fim : ''), cells: row.map(t => t ? g.cod : 'F'), tipo: r ? '' : 'nova' });
+      linhas.push({ nome: r ? r.nome : 'A CONTRATAR ' + (++nContr), funcao: r ? r.funcao : '', rg: r ? r.rg : '', real: !!r, turno: g.cod === 'T' ? '' : 'Turno ' + g.cod + (g.ini ? ' · ' + g.ini + '–' + g.fim : ''), cells: row.map(t => t ? g.cod : 'F'), tipo: r ? '' : 'nova' });
     });
     conf.forEach(x => { if (x.g === gi && x.l == null) x.l = off + x.i; });
     dias.forEach((d, i) => { dem[i] += g.dem[i % 7]; cov[i] += grid.filter(rw => rw[i]).length; });
@@ -3718,7 +3745,7 @@ function escGrade(res, par, ano, mes, vis) {
   excedentes = pess;
   const leg = []; res.grupos.forEach(g => leg.push([g.cod, g.cod === 'T' ? 'Trabalha' : 'Turno ' + g.cod + (g.ini ? ' (' + g.ini + '–' + g.fim + ', ' + escDur(res.jornada) + ' + 1h intervalo)' : '')]));
   leg.push(['F', 'Folga']);
-  return { dias, ini, fim, noMes, linhas, conf, dem, cov, excedentes, legenda: leg };
+  return { dias, ini, fim, noMes, linhas, conf, dem, cov, excedentes, legenda: leg, vis };
 }
 function escCss() {
   if (document.getElementById('escCss')) return;
@@ -3761,6 +3788,12 @@ function escCss() {
   .esc-tbl tr.cov td.falta{background:var(--bad-bg);color:var(--bad)}
   .esc-tbl tr.cov .nm{background:var(--surface2)}
   .esc-tbl tr.sep td{height:8px;background:var(--surface2)}
+  .esc-tbl td.nm.pick{cursor:pointer} .esc-tbl td.nm.pick:hover b{color:var(--accent);text-decoration:underline}
+  .esc-tbl td.nm small.rg{color:var(--accent);font-weight:700}
+  .esc-tbl tr.cov td.abaixo{color:var(--warn);font-weight:800}
+  .esc-fun{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+  .esc-fun>div{display:flex;flex-direction:column;gap:4px;padding:9px 11px;border:1px solid var(--border);border-radius:12px;background:var(--surface2)}
+  .esc-fun b{font-size:12.5px}.esc-fun label{display:flex;gap:7px;align-items:center;font-size:12.5px;cursor:pointer}.esc-fun input{width:auto}
   .esc-leg{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--muted);margin-top:10px}
   .esc-leg i{display:inline-grid;place-items:center;min-width:24px;height:20px;border-radius:5px;font-style:normal;font-weight:800;font-size:11px;margin-right:4px}
   .esc-rules{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.7}
@@ -3788,13 +3821,19 @@ function pgEscala() {
   if (!ESC_ETAPAS[f.et]) f.et = 'e42';
   if (f.setor && !l.setores.some(s => s.nome === f.setor)) f.setor = '';
   if (!/^\d{4}-\d{2}$/.test(f.mes || '')) f.mes = escMesPadrao(f.et);
-  if (!f.vis) f.vis = 'nec';
-  const sec = f.setor ? l.setores.find(s => s.nome === f.setor) : null;
+  if (!f.vis2) { f.vis = 'atual'; f.vis2 = 1; } // padrão: montar a escala com o quadro que existe
+  if (!f.vis) f.vis = 'atual';
+  const sec0 = f.setor ? l.setores.find(s => s.nome === f.setor) : null;
+  const funs = uniq((sec0 ? [sec0] : l.setores).flatMap(s => s.linhas.map(r => r.funcao)).filter(Boolean)).sort((a, b) => String(a).localeCompare(String(b)));
+  if (f.fun && !funs.includes(f.fun)) f.fun = '';
+  // filtro por função (ex.: só operador de caixa): junta as linhas dessa função do setor escolhido ou da loja inteira
+  const sec = f.fun ? { nome: (sec0 ? sec0.nome : 'Loja') + ' · ' + f.fun, linhas: (sec0 ? [sec0] : l.setores).flatMap(s => s.linhas).filter(r => r.funcao === f.fun), virtual: true } : sec0;
   const v = $('#view');
   v.innerHTML = `
   <div class="toolbar" style="margin-top:0">
     <select class="input" id="eLoja">${lojas.map(x => `<option value="${x.key}" ${x.key === l.key ? 'selected' : ''}>${h(isAdmLoja(x) ? 'Administrativo' : x.nome)}</option>`).join('')}</select>
     <select class="input" id="eSetor" style="min-width:220px"><option value="">Visão da loja (todos os setores)</option>${l.setores.map(s => `<option ${s.nome === f.setor ? 'selected' : ''}>${h(s.nome)}</option>`).join('')}</select>
+    <select class="input" id="eFun" style="min-width:190px" title="Montar a escala só de uma função"><option value="">Todas as funções</option>${funs.map(x => `<option ${x === f.fun ? 'selected' : ''}>${h(x)}</option>`).join('')}</select>
     <div class="seg" id="eEt">${Object.keys(ESC_ETAPAS).map(k => `<button data-v="${k}" class="${f.et === k ? 'on' : ''}">${h(ESC_ETAPAS[k].curto)}</button>`).join('')}</div>
     <span class="spacer"></span>
     ${escAdm() ? `<button class="btn" id="eAcc" title="Quem pode ver e ajustar o simulador">${ic('key')} Acessos</button>` : ''}
@@ -3802,8 +3841,9 @@ function pgEscala() {
   </div>
   <div id="eBody"></div>`;
   if ($('#eAcc')) $('#eAcc').onclick = () => openEscAcesso();
-  $('#eLoja').onchange = e => { f.loja = e.target.value; f.setor = ''; saveF(); route(); };
-  $('#eSetor').onchange = e => { f.setor = e.target.value; saveF(); route(); };
+  $('#eLoja').onchange = e => { f.loja = e.target.value; f.setor = ''; f.fun = ''; f.pes = ''; saveF(); route(); };
+  $('#eSetor').onchange = e => { f.setor = e.target.value; f.pes = ''; saveF(); route(); };
+  $('#eFun').onchange = e => { f.fun = e.target.value; f.pes = ''; saveF(); route(); };
   $$('#eEt button').forEach(b => b.onclick = () => { f.et = b.dataset.v; f.mes = escMesPadrao(f.et); saveF(); route(true); });
   if (!sec) return escVisaoLoja(l, f);
   escSetor(l, sec, f);
@@ -3852,7 +3892,10 @@ function escSetor(l, sec, f) {
   let alt = null;
   if (par.alvo === '12x36' && f.et !== 'hoje') alt = escCalc(l, sec, Object.assign({}, par, { alvo: '5x2', atual: '12x36', modo: par.modo === 'manual' ? 'auto' : par.modo }), f.et);
   const [ano, mes] = f.mes.split('-').map(Number);
-  const gr = escGrade(res, par, ano, mes - 1, f.vis);
+  const R = escRegras(l);
+  const gr = escGrade(res, par, ano, mes - 1, f.vis, R);
+  if (gr && f.pes && !gr.linhas.some(x => x.nome === f.pes)) f.pes = '';
+  const grV = gr && f.pes ? Object.assign({}, gr, { linhas: gr.linhas.filter(x => x.nome === f.pes) }) : gr; // escala de uma pessoa só
   const domFolga = par.domN > 1 ? `um domingo de folga a cada ${par.domN} semanas` : 'folga em todos os domingos';
   // veredito
   let vt, vc, vi;
@@ -3863,6 +3906,11 @@ function escSetor(l, sec, f) {
   const vtxt = res.alvo === '12x36'
     ? `${res.slots || res.d12.slots} posto(s) de 12h por dia (${res.p24} de 24h e ${res.p12} de 12h) pedem ${res.d12.base} plantonistas${res.d12.folg ? ` e ${res.d12.folg} folguista(s)` : ''}${res.reserva ? `, mais ${res.reserva} de reserva para férias` : ''}. Hoje há ${fmt(dad.ocupado)} ocupado(s) e ${fmt(dad.padrao)} no padrão.`
     : `Na ${res.esc === '6x1' ? 'escala 6x1 atual' : 'escala 5x2'} (${escDur(res.jornada)} por dia${res.esc === '5x2' ? ', 2 folgas por semana' : ''}, ${domFolga}), o setor precisa de <b>${res.P}</b> pessoa(s) na grade${res.reserva ? ` + <b>${res.reserva}</b> de reserva para férias e faltas` : ''}. Hoje há <b>${fmt(dad.ocupado)}</b> ocupado(s) e <b>${fmt(dad.padrao)}</b> no padrão (${saldoPad >= 0 ? 'o padrão cobre' : 'o padrão precisa de +' + fmt(-saldoPad)}).${limDom ? ' O domingo é o que limita: com a regra de folga dominical, só parte da equipe pode trabalhar em cada domingo.' : ''}${dad.aviso ? ` Há ${dad.aviso} pessoa(s) em aviso prévio: depois das saídas, o saldo fica em ${fmt(futuro)}.` : ''}`;
+  // "com o quadro atual": monta a escala com quem existe, sem tratar como falta de gente
+  const montar = f.vis === 'atual' && gr && res.alvo !== '12x36';
+  const nReal = gr ? gr.linhas.filter(x => x.real).length : 0, diasAbaixo = gr ? gr.dias.filter((d, i) => gr.noMes(d) && gr.cov[i] < gr.dem[i]).length : 0;
+  const vtF = montar ? `Escala montada com as ${nReal} pessoa(s) do quadro atual` : vt, vcF = montar ? 'c-green' : vc, viF = montar ? 'check' : vi;
+  const vtxtF = montar ? `Folgas distribuídas para equilibrar a equipe que existe hoje: 2 folgas por semana ${res.folgas === 'juntas' ? 'juntas' : 'espaçadas'}, nunca mais de 2 folgas emendadas, no máximo 6 dias seguidos de trabalho e ${h(domFolga)}${res.fechado && res.fechado.size ? `; setor fechado ${[...res.fechado].sort().map(d => ESC_DIAS[d]).join('/')}` : ''}. ${diasAbaixo ? `Em ${diasAbaixo} dia(s) do mês a equipe fica abaixo do ideal calculado (linha “Trabalhando / ideal”); para ver quantas pessoas seriam necessárias, use “Simular necessário”.` : 'Todos os dias ficam dentro do ideal calculado.'}` : vtxt;
   const tipoTxt = { auto: 'Automático pelo quadro', manual: 'Horários e postos informados' };
   const hr = (k, lbl) => `<div class="esc-hr" style="margin-bottom:6px"><span style="grid-column:1/-1">${lbl}</span><small class="faint">Abre</small><small class="faint">Fecha</small><small class="faint">Postos</small><input class="input" type="time" data-h="${k}.a" value="${h(par.h[k].a)}"><input class="input" type="time" data-h="${k}.f" value="${h(par.h[k].f)}"><input class="input" type="number" min="0" data-p="${k}" value="${h(par.p[k])}" title="Pessoas trabalhando ao mesmo tempo (postos)"></div>`;
   body.innerHTML = `
@@ -3882,6 +3930,15 @@ function escSetor(l, sec, f) {
       <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer"><input type="checkbox" id="pCct" style="width:auto" ${par.cct ? 'checked' : ''}> Convenção autoriza 8h24 por dia na transição (42h)</label>
       <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer"><input type="checkbox" id="pApr" style="width:auto" ${par.aprendiz ? 'checked' : ''}> Contar aprendizes${dad.aprend ? ` (${dad.aprend})` : ''}</label>
     </div>
+    ${par.alvo === '5x2' ? `<div class="esc-grid">
+      <div class="field" style="grid-column:span 2"><label>Dias em que o setor funciona</label><div class="chips" id="pAbre">${ESC_DIAS.map((d, i) => `<span class="chip ${par.abre && par.abre[i] === 0 ? '' : 'on'}" data-d="${i}">${d}</span>`).join('')}</div></div>
+      <div class="field"><label>Folgas na semana</label><select class="input" id="pFolg"><option value="espacadas" ${par.folgas !== 'juntas' ? 'selected' : ''}>Espaçadas (recomendado)</option><option value="juntas" ${par.folgas === 'juntas' ? 'selected' : ''}>Juntas (2 dias seguidos)</option></select></div>
+    </div>
+    <div style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">Regras por função</div>
+      <div class="faint" style="font-size:11.5px;margin-bottom:8px">Ex.: logística de segunda a sábado, sem domingo. Valem para a loja inteira; para uma pessoa só, toque no nome dela na escala.</div>
+      <div class="esc-fun">${dad.funcoes.filter(Boolean).map(fn => { const g = R.fun[norm(fn)] || {}; return `<div><b>${h(fn)}</b><label><input type="checkbox" data-rf="${h(fn)}" data-k="sab" ${g.sab === 0 ? '' : 'checked'}> Trabalha sábado</label><label><input type="checkbox" data-rf="${h(fn)}" data-k="dom" ${g.dom === 0 ? '' : 'checked'}> Trabalha domingo</label></div>`; }).join('')}</div>
+      ${Object.keys(R.pes).length ? `<div style="font-weight:700;font-size:12.5px;margin:12px 0 6px">Regras individuais</div><div class="chips">${Object.keys(R.pes).filter(k => dad.rows.some(r => norm(r.nome || '') === k)).map(k => { const r = dad.rows.find(x => norm(x.nome || '') === k); return `<span class="chip on" data-rp="${h(r.nome)}" data-rpf="${h(r.funcao)}" title="Editar">${h(String(r.nome).split(' ').slice(0, 2).join(' '))} · ${h(escRegraTxt(escRegraDe({ fun: {}, pes: R.pes }, r)))}</span>`; }).join('') || '<span class="faint" style="font-size:12px">Nenhuma neste setor</span>'}</div>` : ''}
+    </div>` : ''}
     ${par.modo === 'manual' && par.alvo === '5x2' ? `<div style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Funcionamento do setor e pessoas ao mesmo tempo</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px">${hr('sem', 'Segunda a sexta')}${hr('sab', 'Sábado')}${hr('dom', 'Domingo')}</div>
       <div class="faint" style="font-size:11.5px">Postos = pessoas que precisam estar trabalhando ao mesmo tempo. Cada turno cobre ${escDur(res.jornada || 8)} + 1h de intervalo; o sistema calcula quantos turnos o horário pede.</div></div>` : ''}
@@ -3903,10 +3960,10 @@ function escSetor(l, sec, f) {
     ${kpi({ lbl: 'Quadro padrão hoje', val: fmt(dad.padrao), sub: `${dad.vagas} vaga(s) em aberto`, icon: 'grid', c: 'c-slate' })}
     ${kpi({ lbl: 'Ocupado hoje', val: fmt(dad.ocupado), sub: dad.aviso ? `${dad.aviso} em aviso prévio` : 'sem aprendizes e estagiários', icon: 'users', c: 'c-cyan' })}
     ${kpi({ lbl: 'Necessário · ' + res.et.curto, val: `${res.total}`, title: `Equivale a ${fmt(res.frac || 0, 1)} pessoa(s) em tempo integral; a diferença para o número inteiro pode ser coberta por folguista de outro setor.`, sub: res.reserva ? `${res.P} na grade + ${res.reserva} reserva` : res.alvo === '12x36' ? `${res.d12.base} plantonistas + ${res.d12.folg} folguista(s)` : `${res.grupos.length > 1 ? res.grupos.map(g => g.cod + ': ' + g.P).join(' · ') : 'pessoas na grade'}`, icon: 'calendar', c: 'c-violet' })}
-    ${kpi({ lbl: 'Saldo do quadro atual', val: (saldo >= 0 ? '+' : '') + fmt(saldo), sub: saldo >= 0 ? 'cobre a escala' : 'precisa contratar', icon: saldo >= 0 ? 'check' : 'alert', c: saldo >= 0 ? 'c-green' : 'c-red' })}
+    ${montar ? kpi({ lbl: 'Na escala do mês', val: String(nReal), sub: diasAbaixo ? `${diasAbaixo} dia(s) abaixo do ideal` : 'equipe atual cobre o ideal', icon: 'calendar', c: diasAbaixo ? 'c-amber' : 'c-green' }) : kpi({ lbl: 'Saldo do quadro atual', val: (saldo >= 0 ? '+' : '') + fmt(saldo), sub: saldo >= 0 ? 'cobre a escala' : 'precisa contratar', icon: saldo >= 0 ? 'check' : 'alert', c: saldo >= 0 ? 'c-green' : 'c-red' })}
   </div>
 
-  <div class="card" style="margin-top:16px"><div class="esc-ver ${vc}"><div class="ico">${ic(vi)}</div><div><h3>${h(vt)}</h3><p>${vtxt}</p>${res.notas.length ? `<ul class="esc-rules" style="margin-top:8px">${res.notas.map(n => `<li>${h(n)}</li>`).join('')}</ul>` : ''}</div></div></div>
+  <div class="card" style="margin-top:16px"><div class="esc-ver ${vcF}"><div class="ico">${ic(viF)}</div><div><h3>${h(vtF)}</h3><p>${vtxtF}</p>${res.notas.length ? `<ul class="esc-rules" style="margin-top:8px">${res.notas.map(n => `<li>${h(n)}</li>`).join('')}</ul>` : ''}</div></div></div>
 
   <div class="grid g2" style="margin-top:16px">
     <div class="card"><div class="card-h"><div><h3>Comparativo por etapa</h3><div class="sub">O que muda até a jornada de 40h</div></div></div>
@@ -3924,12 +3981,14 @@ function escSetor(l, sec, f) {
     <div class="card-h" style="flex-wrap:wrap"><div><h3>Escala do mês</h3><div class="sub">${gr ? `${ESC_MESES[mes - 1]} de ${ano} · montada automaticamente` : 'Selecione a etapa de 15/12/2026 ou dez/2027 para montar a 5x2'}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input class="input" type="month" id="eMes" value="${h(f.mes)}" style="width:auto;padding:7px 10px">
-        <div class="seg" id="eVis"><button data-v="nec" class="${f.vis === 'nec' ? 'on' : ''}">Necessário</button><button data-v="atual" class="${f.vis === 'atual' ? 'on' : ''}">Só quem já está</button></div>
+        <div class="seg" id="eVis"><button data-v="atual" class="${f.vis === 'atual' ? 'on' : ''}" title="Monta a escala só com quem já está no quadro">Com o quadro atual</button><button data-v="nec" class="${f.vis === 'nec' ? 'on' : ''}" title="Mostra quantas pessoas a escala ideal pede">Simular necessário</button></div>
+        ${gr ? `<select class="input" id="ePes" style="width:auto;max-width:230px;padding:7px 10px" title="Escala de uma pessoa só"><option value="">Toda a equipe</option>${gr.linhas.filter(x => x.real).map(x => `<option ${x.nome === f.pes ? 'selected' : ''}>${h(x.nome)}</option>`).join('')}</select>` : ''}
         ${gr ? `<button class="btn" id="eXls" title="Excel">${ic('download')}</button><button class="btn" id="ePdf" title="PDF para o quadro de avisos">${ic('file')} PDF</button>` : ''}
       </div></div>
-    <div id="eGrade">${gr ? escGradeHTML(gr) : `<div class="empty">${ic('calendar')}<div>A grade de folgas é montada para a escala nova.</div></div>`}</div>
+    <div id="eGrade">${gr ? escGradeHTML(grV) : `<div class="empty">${ic('calendar')}<div>A grade de folgas é montada para a escala nova.</div></div>`}</div>
     ${gr ? `<div class="esc-leg">${gr.legenda.map(([c, t]) => `<span><i style="${escCorLeg(c)}">${h(c)}</i>${h(t)}</span>`).join('')}</div>` : ''}
     ${gr ? escConfHTML(gr, res, f) : ''}
+    ${gr && escEdita() && res.alvo !== '12x36' ? `<div class="faint" style="font-size:11.5px;margin-top:8px">${ic('settings')} Toque no nome de uma pessoa para definir se ela trabalha sábado/domingo ou tem folga fixa.</div>` : ''}
   </div>
 
   <div class="card" style="margin-top:16px"><div class="card-h"><div><h3>Regras usadas no cálculo</h3><div class="sub">Confirmar sempre com a convenção coletiva (SECVGAF) e o jurídico</div></div></div>
@@ -3962,12 +4021,45 @@ function escSetor(l, sec, f) {
   if ($('#pReset')) $('#pReset').onclick = async () => { if (!await confirmBox('Voltar os parâmetros deste setor para o padrão?', 'Restaurar')) return; escParEnviar(escParKey(l.key, sec.nome), null); route(true); };
   $('#eMes').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { f.mes = e.target.value; saveF(); route(true); } };
   $$('#eVis button').forEach(b => b.onclick = () => { f.vis = b.dataset.v; saveF(); route(true); });
+  if ($('#ePes')) $('#ePes').onchange = e => { f.pes = e.target.value; saveF(); route(true); };
+  if (escEdita()) {
+    $$('#pAbre .chip').forEach(c => c.onclick = () => { const a = (par.abre || [1, 1, 1, 1, 1, 1, 1]).slice(), d = +c.dataset.d; a[d] = a[d] === 0 ? 1 : 0; if (a.filter(x => x !== 0).length < 1) return toast('O setor precisa funcionar ao menos 1 dia', true); set('abre', a); });
+    if ($('#pFolg')) $('#pFolg').onchange = e => set('folgas', e.target.value);
+    $$('[data-rf]', body).forEach(c => c.onchange = () => { const k = norm(c.dataset.rf), g = Object.assign({}, R.fun[k] || {}); g[c.dataset.k] = c.checked ? 1 : 0; R.fun[k] = g; escRegrasSalvar(l, R); route(true); });
+    $$('[data-rp]', body).forEach(c => c.onclick = () => openEscRegraPes(l, { nome: c.dataset.rp, funcao: c.dataset.rpf }));
+    $$('#eGrade [data-pn]').forEach(c => c.onclick = () => openEscRegraPes(l, { nome: c.dataset.pn, funcao: c.dataset.pf }));
+  }
   if (gr) {
     const nomeArq = 'escala_' + l.key + '_' + norm(sec.nome).replace(/[^A-Z0-9]+/g, '_') + '_' + f.mes;
     const diasM = gr.dias.map((d, i) => [d, i]).filter(([d]) => gr.noMes(d));
-    $('#eXls').onclick = () => downloadCSV(nomeArq, ['Colaborador', 'Função', 'Turno', ...diasM.map(([d]) => d.getDate() + ' ' + ESC_DIAS[(d.getDay() + 6) % 7])], gr.linhas.map(x => [x.nome, x.funcao, x.turno, ...diasM.map(([, i]) => x.cells[i])]));
-    $('#ePdf').onclick = () => escPDF(gr, res, l, sec, ano, mes - 1);
+    $('#eXls').onclick = () => downloadCSV(nomeArq + (f.pes ? '_' + norm(f.pes).replace(/[^A-Z0-9]+/g, '_') : ''), ['Colaborador', 'Função', 'Turno', ...diasM.map(([d]) => d.getDate() + ' ' + ESC_DIAS[(d.getDay() + 6) % 7])], grV.linhas.map(x => [x.nome, x.funcao, x.turno, ...diasM.map(([, i]) => x.cells[i])]));
+    $('#ePdf').onclick = () => escPDF(grV, res, l, sec, ano, mes - 1);
   }
+}
+function openEscRegraPes(l, r) {
+  const R = escRegras(l), k = norm(r.nome || ''), g = Object.assign({}, R.pes[k] || {}), fun = R.fun[norm(r.funcao || '')] || {};
+  const herda = escRegraTxt(escRegraDe({ fun: R.fun, pes: {} }, r));
+  const fixa = new Set(g.fixa || []);
+  modal({
+    title: 'Regras de folga · ' + h(String(r.nome).split(' ').slice(0, 3).join(' ')), icon: 'calendar',
+    body: `<div class="faint" style="font-size:12.5px;margin-bottom:12px">${h(r.funcao || '')}${herda ? ` · pela função: ${h(herda)}` : ''}</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="rgSab" style="width:auto" ${(g.sab != null ? g.sab : fun.sab) === 0 ? '' : 'checked'}> Trabalha sábado</label>
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="rgDom" style="width:auto" ${(g.dom != null ? g.dom : fun.dom) === 0 ? '' : 'checked'}> Trabalha domingo</label>
+        <div><div style="font-weight:700;font-size:13px;margin-bottom:6px">Folga fixa (opcional)</div><div class="chips" id="rgFix">${ESC_DIAS.slice(0, 6).map((d, i) => `<span class="chip ${fixa.has(i) ? 'on' : ''}" data-d="${i}">${d}</span>`).join('')}</div>
+        <div class="faint" style="font-size:11.5px;margin-top:6px">A pessoa folga sempre nesse dia; o sistema completa as 2 folgas da semana e confere as regras.</div></div>
+      </div>`,
+    foot: `${R.pes[k] ? `<button class="btn ghost" id="rgDel" style="margin-right:auto">${ic('eraser')} Seguir a regra da função</button>` : ''}<button class="btn" data-close>Cancelar</button><button class="btn primary" id="rgOk">${ic('check')} Salvar</button>`,
+    onMount: m => {
+      $$('#rgFix .chip', m.el).forEach(c => c.onclick = () => { const d = +c.dataset.d; if (fixa.has(d)) fixa.delete(d); else { if (fixa.size >= 2) return toast('No máximo 2 folgas fixas por semana', true); fixa.add(d); } c.classList.toggle('on', fixa.has(d)); });
+      $('#rgOk', m.el).onclick = () => {
+        const sab = $('#rgSab', m.el).checked ? 1 : 0, dom = $('#rgDom', m.el).checked ? 1 : 0;
+        if ((!sab ? 1 : 0) + (!dom ? 1 : 0) + fixa.size > 2) return toast('Com essas escolhas a pessoa teria mais de 2 folgas por semana', true);
+        R.pes[k] = { sab, dom, fixa: [...fixa].sort() }; escRegrasSalvar(l, R); m.close(); route(true); toast('Regra salva');
+      };
+      if ($('#rgDel', m.el)) $('#rgDel', m.el).onclick = () => { delete R.pes[k]; escRegrasSalvar(l, R); m.close(); route(true); toast('Regra individual removida'); };
+    }
+  });
 }
 function escCorLeg(c) { return c === 'F' ? 'background:#FCE4D6;color:#C00000' : c === 'FE' ? 'background:#FFE0B2;color:#9a3412' : 'background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)'; }
 function escGradeHTML(gr) {
@@ -3977,9 +4069,9 @@ function escGradeHTML(gr) {
   const rows = gr.linhas.map(x => {
     const sep = ultimoTurno !== null && x.turno !== ultimoTurno ? `<tr class="sep"><td class="nm"></td>${idx.map(() => '<td></td>').join('')}</tr>` : '';
     ultimoTurno = x.turno;
-    return sep + `<tr class="${x.tipo}"><td class="nm"><b title="${h(x.nome)}">${h(x.nome)}</b><small>${h([x.funcao, x.turno].filter(Boolean).join(' · '))}</small></td>${idx.map(([d, i]) => { const c = x.cells[i]; const k = c === 'F' ? 'cF' : c === 'FE' ? 'cFE' : 'cW'; return `<td class="c ${k} ${d.getDay() === 0 ? 'dom' : ''}">${h(c)}</td>`; }).join('')}</tr>`;
+    return sep + `<tr class="${x.tipo}"><td class="nm ${x.real && escEdita() ? 'pick' : ''}" ${x.real ? `data-pn="${h(x.nome)}" data-pf="${h(x.funcao)}"` : ''}><b title="${h(x.nome)}">${h(x.nome)}</b><small>${h([x.funcao, x.turno].filter(Boolean).join(' · '))}</small>${x.rg ? `<small class="rg">${h(x.rg)}</small>` : ''}</td>${idx.map(([d, i]) => { const c = x.cells[i]; const k = c === 'F' ? 'cF' : c === 'FE' ? 'cFE' : 'cW'; return `<td class="c ${k} ${d.getDay() === 0 ? 'dom' : ''}">${h(c)}</td>`; }).join('')}</tr>`;
   }).join('');
-  const cov = `<tr class="cov"><td class="nm"><b>Trabalhando / necessário</b></td>${idx.map(([, i]) => `<td class="${gr.cov[i] < gr.dem[i] ? 'falta' : ''}" title="${gr.cov[i]} de ${gr.dem[i]}">${gr.cov[i]}<span class="faint">/${gr.dem[i]}</span></td>`).join('')}</tr>`;
+  const cov = `<tr class="cov"><td class="nm"><b>Trabalhando / ${gr.vis === 'atual' ? 'ideal' : 'necessário'}</b></td>${idx.map(([, i]) => `<td class="${gr.cov[i] < gr.dem[i] ? (gr.vis === 'atual' ? 'abaixo' : 'falta') : ''}" title="${gr.cov[i]} de ${gr.dem[i]}">${gr.cov[i]}<span class="faint">/${gr.dem[i]}</span></td>`).join('')}</tr>`;
   return `<div class="tbl-wrap" style="max-height:70vh"><table class="esc-tbl"><thead>${head}</thead><tbody>${rows}${cov}</tbody></table></div>`;
 }
 function escConfHTML(gr, res, f) {
@@ -3988,8 +4080,9 @@ function escConfHTML(gr, res, f) {
   const desc = gr.linhas.filter(x => x.tipo === 'desc').length;
   const novos = gr.linhas.filter(x => x.tipo === 'nova').length;
   const it = [];
-  if (res.alvo !== '12x36') it.push(gr.conf.length ? `<span class="badge b-bad">${gr.conf.length} alerta(s) legal(is)</span> ${h(uniq(gr.conf.map(x => (gr.linhas[x.l] || {}).nome + ': ' + x.t)).slice(0, 4).join(' · '))}` : `<span class="badge b-ok">${ic('check')} Conferida</span> 2 folgas por semana, no máximo 6 dias seguidos e folga dominical dentro da regra para todos.`);
-  if (falta.length) it.push(`<span class="badge b-bad">${falta.length} dia(s) descoberto(s)</span> ${f.vis === 'atual' ? 'Com só quem já está no setor faltam pessoas nesses dias.' : 'Revise os postos ou aumente a equipe.'}`);
+  if (res.alvo !== '12x36') it.push(gr.conf.length ? `<span class="badge b-bad">${gr.conf.length} alerta(s) legal(is)</span> ${h(uniq(gr.conf.map(x => (gr.linhas[x.l] || {}).nome + ': ' + x.t)).slice(0, 4).join(' · '))}` : `<span class="badge b-ok">${ic('check')} Conferida</span> 2 folgas por semana, no máximo 6 dias seguidos, nunca mais de 2 folgas emendadas e folga dominical dentro da regra para todos.`);
+  if (falta.length && f.vis === 'atual' && res.alvo !== '12x36') it.push(`<span class="badge b-warn">${falta.length} dia(s) abaixo do ideal</span> A escala roda com a equipe atual; nesses dias trabalha menos gente que o ideal calculado.`);
+  else if (falta.length) it.push(`<span class="badge b-bad">${falta.length} dia(s) descoberto(s)</span> ${f.vis === 'atual' ? 'Com só quem já está no setor faltam pessoas nesses dias.' : 'Revise os postos ou aumente a equipe.'}`);
   else it.push(`<span class="badge b-ok">${ic('check')} Cobertura</span> Todos os dias do mês com a quantidade necessária.`);
   if (novos) it.push(`<span class="badge b-warn">${novos} a contratar</span> Linhas “A CONTRATAR” são as vagas que a escala pede além do quadro ocupado.`);
   if (desc) it.push(`<span class="badge b-bad">${desc} posição(ões) sem pessoa</span> Plantões sem cobertura com o quadro atual.`);

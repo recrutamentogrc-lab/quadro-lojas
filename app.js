@@ -4622,12 +4622,14 @@ function pgLoja(l) {
     ${ed ? `<button class="btn ${SEL.on[fk] ? 'primary' : ''}" id="selTog" title="Selecionar várias posições">${ic('check')}<span class="desk-only">${SEL.on[fk] ? 'Selecionando' : 'Selecionar'}</span></button>` : ''}
     ${getV(fk, adm ? 'exec' : 'sec') === 'sec' ? `<button class="btn" id="secAll" title="Expandir / recolher todos os setores">${ic('chevron')}<span class="desk-only">Expandir todos</span></button>` : ''}
     <div class="seg" id="vw">${adm ? `<button data-v="exec" title="Visão executiva">${ic('spark')}<span class="desk-only">Executiva</span></button>` : ''}<button data-v="sec" title="Por setor">${ic('grid')}<span class="desk-only">Setores</span></button><button data-v="tbl" title="Tabela">${ic('table')}<span class="desk-only">Tabela</span></button></div>
+    ${isAdmin() ? `<button class="btn" id="lNovoSetor" title="Criar um setor novo neste quadro">${ic('plus')}<span class="desk-only">Novo setor</span></button>` : ''}
     <button class="btn" id="exp" title="Exportar Excel / PDF">${ic('download')}</button>
   </div>
   <div class="chips" id="sitChips" style="margin-bottom:16px"></div>
   <div id="lBulk" class="bulk hidden"></div>
   <div id="lojaBody"></div>`;
   selScope(fk);
+  if ($('#lNovoSetor')) $('#lNovoSetor').onclick = () => openNovoSetor(l);
   const selOn = !!SEL.on[fk];
   const SIT = [['', 'Todos', () => true], ['ok', 'Ocupadas', r => r.nome && !r.isVaga], ['vaga', 'Vagas abertas', r => r.vagaAberta], ['fut', 'Vagas futuras', r => r.vagaFutura], ['aviso', 'Em aviso', r => r.aviso], ['aprendiz', 'Aprendizes', r => r.aprendiz], ['pcd', 'PCD', r => r.pcd], ['cipa', 'CIPA', r => r.cipa], ['estagio', 'Estágio', r => r.estagio], ['trainee', 'Trainee', r => r.trainee]].concat(lojaTreino(l.key) ? [['treino', 'Em treinamento', r => r.treino]] : []);
   const filt = () => {
@@ -5042,6 +5044,41 @@ function openFill(l, r, contrPre) {
   });
 }
 
+// cria um setor novo no quadro da loja (bloco com nome, quadro padrão e cabeçalho na aba da loja) e, se quiser, já as primeiras posições
+function openNovoSetor(l) {
+  const funcs = uniq(allFuncoes());
+  modal({
+    title: 'Novo setor', icon: 'plus',
+    body: `<p class="muted" style="margin-top:0">${lojaPill(l.key)} · o setor é criado no quadro da loja com o mesmo visual dos outros setores.</p>
+      <div class="field"><label>Nome do setor</label><input class="input" id="nsN" placeholder="Ex.: LOGÍSTICA - ENTREGAS" maxlength="60"></div>
+      <div class="field"><label>Posição no quadro</label><select class="input" id="nsD">${l.setores.map((x, i) => `<option value="${h(x.nome)}" ${i === l.setores.length - 1 ? 'selected' : ''}>Depois de ${h(x.nome)}</option>`).join('')}</select></div>
+      <div style="font-weight:700;font-size:13px;margin:14px 0 6px">Primeiras posições (opcional)</div>
+      <div class="row2"><div class="field"><label>Função</label><input class="input" id="nsF" list="dlNsF" placeholder="Ex.: MOTORISTA"><datalist id="dlNsF">${funcs.map(x => `<option value="${h(x)}">`).join('')}</datalist></div>
+      <div class="field"><label>Quantidade</label><input class="input" id="nsQ" type="number" min="0" max="20" value="1"></div></div>
+      <div class="faint" style="font-size:11.5px">As posições entram como VAGA; depois é só preencher com os colaboradores ou mover pessoas de outro setor.</div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="nsOk">${ic('check')} Criar setor</button>`,
+    onMount: m => {
+      setTimeout(() => $('#nsN', m.el).focus(), 60);
+      $('#nsOk', m.el).onclick = e => run(e.currentTarget, async () => {
+        const nome = $('#nsN', m.el).value.trim().toUpperCase().replace(/\s+/g, ' ');
+        if (!nome) throw new Error('Informe o nome do setor');
+        if (l.setores.some(x => norm(x.nome) === norm(nome))) throw new Error('Já existe um setor com esse nome nesta loja');
+        const fn = $('#nsF', m.el).value.trim().toUpperCase(), n = fn ? Math.min(20, Math.max(0, +$('#nsQ', m.el).value || 0)) : 0;
+        await api('criarSetor', { loja: l.key, nome, depois: $('#nsD', m.el).value });
+        await loadAll(false, true, true);
+        for (let i = 0; i < n; i++) {
+          const fresh = (S.data.lojas.find(x => x.key === l.key) || l).setores.find(x => x.nome === nome);
+          if (!fresh) break;
+          await api('addPosicao', { loja: l.key, setor: nome, firstRow: fresh.linhas[0] ? fresh.linhas[0].row : fresh.row + 3, funcao: fn, contrato: 'INTEGRAL', qt: 1 }, { sync: true });
+          if (!liveOn) await loadAll(false, true, true);
+        }
+        m.close(); toast(`Setor ${nome} criado${n ? ` com ${n} posição(ões)` : ''}`);
+        if (!liveOn || n) await loadAll(false, true, true);
+        route(true);
+      });
+    }
+  });
+}
 function openAddPos(l, sec) {
   const funcs = uniq(sec.linhas.map(x => x.funcao).concat(allFuncoes()));
   modal({

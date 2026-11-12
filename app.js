@@ -2159,6 +2159,77 @@ function testeResumoHTML_(r) {
     <details class="tr-det"><summary>Relatório completo</summary><div class="tr-parecer">${detalhe}</div></details>
     <div class="field" style="margin:10px 0 0"><label>Parecer do psicólogo / RH</label><textarea class="input" rows="3" data-obs="${h(r.id)}" placeholder="Escreva sua análise...">${h(r.obs || '')}</textarea>${r.obsPor ? `<small class="faint">Último registro: ${h(r.obsPor)} · ${dtHr_(r.obsEm)}</small>` : ''}<div style="margin-top:6px"><button class="btn sm" data-obsok="${h(r.id)}">${ic('check')} Salvar parecer</button></div></div></div>`;
 }
+// PDF completo dos testes de um candidato (abre a pré-visualização e a impressão → "Salvar como PDF")
+function testePDF_(c) {
+  const esc = h, agora = new Date(), G = testeGeral_(c), R = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean);
+  const cor = (p, min) => p >= (min || 70) ? '#16a34a' : p >= (min ? min - 15 : 55) ? '#f59e0b' : '#dc2626';
+  const bar = (nome, p, c2, extra) => `<div class="br"><span>${esc(nome)}</span><div><i style="width:${Math.max(2, Math.min(100, p))}%;background:${c2}"></i></div><b>${p}%</b>${extra ? `<em>${esc(extra)}</em>` : ''}</div>`;
+  const lista = (t, L, cls) => L && L.length ? `<div class="lst ${cls || ''}"><b>${t}</b><ul>${L.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+  const big = (v, rot, c2) => `<div class="big" style="--c:${c2}"><b>${esc(v)}</b><span>${esc(rot)}</span></div>`;
+  const sec = r => {
+    const k = testeCorrigir_(r), T = TESTE_INFO[r.teste]; let corpo = '';
+    if (k.tipo === 'disc') corpo = `<div class="row">${big(k.perfil, DISC_FATOR[k.pri].nome + (k.equil ? ' · equilibrado' : ''), '#0a0d7c')}${big(k.afinTxt, 'Afinidade com a vaga · ' + k.vg.nome, k.afinTxt === 'alta' ? '#16a34a' : k.afinTxt === 'média' ? '#f59e0b' : '#dc2626')}</div>${'DISC'.split('').map(f => bar(f + ' · ' + DISC_FATOR[f].nome, k.p[f], DISC_FATOR[f].cor)).join('')}`;
+    if (k.tipo === 'forcas') corpo = `<div class="row">${big(k.ader + '%', 'Aderência das forças à vaga · ' + k.afinTxt, cor(k.ader, 75))}${big(k.top.slice(0, 3).map(x => x.nome).join(', '), 'Forças de destaque', '#0a0d7c')}</div>
+      <h4>Forças essenciais para ${esc(k.vg.nome)}</h4><table><thead><tr><th>Posição</th><th>Força</th><th>Nota</th><th>Por que importa na função</th></tr></thead><tbody>${k.req.map(x => `<tr><td><span class="pos" style="background:${x.pos <= 8 ? '#16a34a' : x.pos <= 16 ? '#f59e0b' : '#dc2626'}">${x.pos}º</span></td><td><b>${esc(x.nome)}</b></td><td>${x.p}%</td><td>${esc(x.pq)}</td></tr>`).join('')}</tbody></table>
+      <h4>Virtudes</h4>${k.virt.map(v => bar(v.nome, v.p, '#16a34a')).join('')}
+      <h4>Ranking das 24 forças</h4><div class="cols">${k.lista.map(x => bar(x.pos + 'º ' + x.nome, x.p, '#86efac')).join('')}</div>`;
+    if (k.tipo === 'situacional') corpo = `<div class="row">${big(k.nota + '%', (k.mini ? 'Medalha de ' + k.mn + ' · ' : '') + k.cls, cor(k.nota, 65))}${big(k.dec + '%', 'Decisões nas situações de loja', '#0a0d7c')}</div>
+      <h4>Competências</h4>${k.comp.map(x => bar(x.nome, x.p, cor(x.p, 65))).join('')}${k.mini ? '<h4>Minigames</h4>' + k.mini.map(x => bar(x.nome, x.p, cor(x.p, 65))).join('') : ''}
+      ${k.graves.length ? `<h4>Escolhas inadequadas</h4><table><tbody>${k.graves.map(x => `<tr><td>${esc(x.q[2])}</td><td><b>${esc(x.q[3][x.k][0])}</b></td></tr>`).join('')}</tbody></table>` : ''}`;
+    if (k.tipo === 'fit') corpo = `<div class="row">${big(k.nota + '%', k.cls + ' · mínimo ' + FIT_MIN + '%', k.abaixo ? '#dc2626' : '#16a34a')}${big(k.lik + '%', 'Frases de valores', '#0a0d7c')}${k.temAb ? big(k.abN + '%', 'Respostas abertas', cor(k.abN, 70)) : ''}</div>
+      ${k.abaixo ? `<div class="alerta">⚠ Abaixo da nota mínima (${FIT_MIN}%). Aprofundar os valores mais frágeis na entrevista.</div>` : ''}
+      <h4>Valores do Grupo R Center</h4>${k.vals.map(x => bar(x.nome, x.p, cor(x.p, 70), nivelP_(x.p))).join('')}
+      ${k.temAb ? `<h4>Respostas abertas (com as palavras do candidato)</h4>${k.ab.map((x, j) => `<div class="ab"><div class="abh"><b>${j + 1}. ${esc(x.q)}</b><span style="background:${cor(x.p, 70)}">${x.p}%</span></div><blockquote>${esc(x.txt.trim() || '(em branco)')}</blockquote>${x.obs.length || x.alerta.length ? `<small>${esc(x.alerta.map(a => '⚠ ' + a + '. ').join('') + x.obs.join(' '))}</small>` : '<small>Resposta com exemplo real, detalhes e justificativa.</small>'}</div>`).join('')}` : ''}`;
+    const rel = k.txt.split('\n\nAlertas:')[0].split('\n\nPerguntas para a entrevista:')[0];
+    return `<section><div class="sh"><span class="ic">${T.icone}</span><div><h2>${esc(T.nome)}</h2><small>Respondido em ${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div></div>
+      ${corpo}${lista('⚠ Alertas', k.alertas, 'ruim')}${lista('💬 Perguntas para a entrevista', k.perg)}
+      <h4>Análise completa</h4><div class="txt">${esc(rel)}</div>
+      <div class="par"><b>Parecer do psicólogo / RH</b>${r.obs ? `<p>${esc(r.obs)}</p><small>${esc(r.obsPor || '')}${r.obsEm ? ' · ' + dtHr_(r.obsEm) : ''}</small>` : '<p class="vazio">&nbsp;</p><p class="vazio">&nbsp;</p>'}</div></section>`;
+  };
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Testes · ${esc(c.nome)}</title>
+  <style>
+  @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;color:#0b1037;margin:0;font-size:10.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:860px;margin:0 auto;padding:18px}
+  header{display:flex;align-items:center;gap:16px;background:linear-gradient(135deg,#11159a,#0a0d7c 55%,#060852);color:#fff;border-radius:14px;padding:16px 18px;margin-bottom:14px;position:relative;overflow:hidden}
+  header::after{content:"";position:absolute;right:-60px;top:-80px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,90,20,.7),transparent 65%)}
+  header img{height:34px;position:relative;z-index:1}header h1{margin:0;font-size:19px}header .meta{opacity:.8;font-size:10.5px;margin-top:3px}header>div{position:relative;z-index:1}
+  .cand{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}.cand div{border:1px solid #e3e6f3;border-radius:8px;padding:6px 9px}.cand span{display:block;font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:#5a6191;font-weight:700}.cand b{font-size:11.5px}
+  .geral{border:1px solid #e3e6f3;border-left:5px solid var(--c);border-radius:10px;padding:10px 12px;margin-bottom:6px}.geral h2{margin:0 0 6px;font-size:14px}.geral h2 span{color:var(--c)}
+  .gk{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0}.gk div{background:#f5f6fc;border-radius:8px;padding:6px;text-align:center}.gk div.ruim{background:#fee2e2}.gk small{display:block;color:#5a6191;font-size:9px}.gk b{font-size:13px}
+  section{page-break-before:always;padding-top:4px}section:first-of-type{page-break-before:auto}
+  .sh{display:flex;align-items:center;gap:10px;border-bottom:2px solid #ff5a14;padding-bottom:6px;margin:10px 0 10px}.sh .ic{font-size:22px}.sh h2{margin:0;font-size:15px;color:#0a0d7c}.sh small{color:#5a6191}
+  h4{margin:12px 0 5px;font-size:11px;color:#0a0d7c;text-transform:uppercase;letter-spacing:.05em}
+  .row{display:flex;gap:8px;margin-bottom:6px}.big{flex:1;border:1px solid #e3e6f3;border-top:3px solid var(--c);border-radius:8px;padding:7px 10px}.big b{display:block;font-size:18px;color:var(--c);text-transform:capitalize}.big span{color:#5a6191;font-size:9.5px}
+  .br{display:grid;grid-template-columns:170px 1fr 34px 70px;align-items:center;gap:8px;margin:3px 0}.br div{height:7px;background:#eceffa;border-radius:9px;overflow:hidden}.br i{display:block;height:100%;border-radius:9px}.br b{text-align:right}.br em{font-style:normal;color:#5a6191;font-size:9px}
+  .cols{columns:2;column-gap:18px}.cols .br{grid-template-columns:120px 1fr 30px 0;break-inside:avoid}
+  table{width:100%;border-collapse:collapse;margin:4px 0}th{background:#0a0d7c;color:#fff;text-align:left;padding:4px 6px;font-size:9px;text-transform:uppercase}td{padding:4px 6px;border-bottom:1px solid #e3e6f3;vertical-align:top}tr{page-break-inside:avoid}
+  .pos{color:#fff;border-radius:6px;padding:1px 6px;font-weight:700}
+  .lst{border-radius:8px;padding:6px 10px;margin:6px 0;background:#f5f6fc;page-break-inside:avoid}.lst.ruim{background:#fef2f2;border:1px solid #fecaca}.lst.bom{background:#f0fdf4;border:1px solid #bbf7d0}.lst ul{margin:3px 0 0;padding-left:16px}
+  .alerta{background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:6px 10px;margin:6px 0;font-weight:600}
+  .ab{border:1px solid #e3e6f3;border-radius:8px;padding:7px 10px;margin:5px 0;page-break-inside:avoid}.abh{display:flex;justify-content:space-between;gap:8px}.abh span{color:#fff;border-radius:99px;padding:1px 8px;font-weight:700;height:fit-content}
+  blockquote{margin:5px 0;padding:6px 9px;border-left:3px solid #ff5a14;background:#fff8f3;white-space:pre-wrap}.ab small{color:#5a6191}
+  .txt{white-space:pre-wrap;background:#fafbff;border:1px solid #eceffa;border-radius:8px;padding:8px 10px;line-height:1.45}
+  .par{border:1px dashed #9aa0c3;border-radius:8px;padding:8px 10px;margin-top:10px;page-break-inside:avoid}.par p{margin:4px 0}.par .vazio{border-bottom:1px solid #cdd2e8;height:16px}.par small{color:#5a6191}
+  .aviso{color:#5a6191;font-size:9.5px;margin:8px 0}
+  footer{margin-top:14px;color:#9aa0c3;font-size:9.5px;display:flex;justify-content:space-between}
+  .bar{position:sticky;top:0;background:#0a0d7c;color:#fff;padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:space-between;z-index:5}.bar button{background:#ff5a14;color:#fff;border:0;border-radius:99px;padding:9px 18px;font-weight:700;cursor:pointer;font-size:13px}
+  @media print{.bar{display:none}.wrap{padding:0}}
+  </style></head><body>
+  <div class="bar"><span>Pré-visualização · na impressão escolha <b>Salvar como PDF</b></span><button onclick="window.print()">Baixar / imprimir PDF</button></div>
+  <div class="wrap">
+  <header><img src="${GRC_FOTO_}grupo/grupo-r-center-branco.webp" onerror="this.remove()"><div><h1>Relatório dos testes de avaliação</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · Gerado em ${agora.toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div></header>
+  <div class="cand"><div><span>Candidato</span><b>${esc(c.nome)}</b></div><div><span>CPF</span><b>${esc(cpfFmt(c.cpf))}</b></div><div><span>Vaga</span><b>${esc(c.titulo || '—')}</b></div><div><span>Recrutador(a)</span><b>${esc(c.recrutador || '—')}</b></div></div>
+  <div class="geral" style="--c:${G.cor}"><h2>Parecer geral: <span>${esc(G.nivel)}</span></h2>
+    <div class="gk">${TESTE_ORDEM.map(t => { const k = G.C[t]; if (!k) return `<div><small>${TESTE_INFO[t].nome}</small><b>não fez</b></div>`; const v = t === 'disc' ? k.perfil : t === 'forcas' ? k.ader + '%' : k.nota + '%', ruim = (t === 'fit' && k.abaixo) || (t === 'situacional' && k.nota < 65) || (t === 'forcas' && k.ader < 60) || (t === 'disc' && k.afinTxt === 'baixa'); return `<div class="${ruim ? 'ruim' : ''}"><small>${TESTE_INFO[t].nome}</small><b>${esc(v)}</b></div>`; }).join('')}</div>
+    ${lista('✅ Pontos favoráveis', G.fortes, 'bom')}${lista('🔎 Pontos de atenção', G.atencao, 'ruim')}${lista('⚠ Alertas', G.alertas, 'ruim')}${lista('💬 Perguntas sugeridas para a entrevista', G.perg)}
+  </div>
+  <p class="aviso">Os testes são ferramenta de apoio: a decisão considera também a entrevista e a análise do(a) psicólogo(a). Uso restrito ao processo seletivo, conforme a LGPD.</p>
+  ${R.map(sec).join('')}
+  <footer><span>${esc(cfgv('sistema', 'Quadro de Lojas'))} · Testes de avaliação</span><span>${esc(c.nome)} · CPF ${esc(cpfFmt(c.cpf))}</span></footer>
+  </div><script>setTimeout(function(){try{window.print()}catch(e){}},800)</script></body></html>`;
+  const w = window.open('', '_blank'); if (!w) { toast('Permita pop-ups para gerar o PDF', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
 function openTesteCand(c, done) {
   const R = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean), G = testeGeral_(c);
   const textoTudo = () => `*${c.nome}* · CPF ${cpfFmt(c.cpf)}${c.titulo ? '\nVaga: ' + c.titulo : ''}\n\n*Parecer geral*\n${G.txt}\n\n` + R.map(r => `*${TESTE_INFO[r.teste].nome}*\n${testeCorrigir_(r).txt}${r.obs ? '\n_Parecer:_ ' + r.obs : ''}`).join('\n\n');
@@ -2171,10 +2242,11 @@ function openTesteCand(c, done) {
       </div>
       <div class="tr-aviso">Resultados de apoio à entrevista. A decisão deve considerar também a entrevista e a análise do(a) psicólogo(a).</div>
       ${R.map(testeResumoHTML_).join('')}`,
-    foot: `<button class="btn ghost" id="tcDel" style="margin-right:auto;color:var(--bad)">${ic('trash')} Apagar</button><button class="btn" data-close>Fechar</button><button class="btn primary" id="tcCp">${ic('copy')} Copiar relatório</button>`,
+    foot: `<button class="btn ghost" id="tcDel" style="margin-right:auto;color:var(--bad)">${ic('trash')} Apagar</button><button class="btn" data-close>Fechar</button><button class="btn" id="tcPdf">${ic('download')} Baixar PDF</button><button class="btn primary" id="tcCp">${ic('copy')} Copiar relatório</button>`,
     onMount: m => {
       setTimeout(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); const b = $('.modal-b', m.el); if (b) b.scrollTop = 0; }, 90);
       $('#tcCp', m.el).onclick = () => copiar_(textoTudo(), 'Relatório copiado');
+      $('#tcPdf', m.el).onclick = () => testePDF_(c);
       $$('[data-cpp]', m.el).forEach(b => b.onclick = () => { const r = R.find(x => x.id === b.dataset.cpp); copiar_(`*${TESTE_INFO[r.teste].nome}* · ${c.nome}\n${testeCorrigir_(r).txt}`, 'Parecer copiado'); });
       $$('[data-obsok]', m.el).forEach(b => b.onclick = ev => run(ev.currentTarget, async () => {
         const id = b.dataset.obsok, obs = $(`[data-obs="${id}"]`, m.el).value;
@@ -2218,7 +2290,7 @@ async function pgTestes() {
       <div class="card fi-card tr-card${x.novo ? ' nova' : ''}" data-cand="${h(x.cpf)}">
         <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')}</div></div>${x.novo ? '<span class="badge b-info">novo</span>' : ''}</div>
         <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b${k.tipo === 'fit' && k.abaixo ? ' style="color:var(--bad)" title="Abaixo da nota mínima de ' + FIT_MIN + '%"' : ''}>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : (k.mini ? k.md + ' ' : '') + (k.tipo === 'fit' && k.abaixo ? '⚠ ' : '') + k.nota + '%')}</b></div>`; }).join('')}</div>
-        <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button></div>
+        <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button><button class="btn sm" data-pdf="${h(x.cpf)}" title="Baixar o PDF com todos os testes">${ic('download')} PDF</button></div>
       </div>`).join('')}</div>`
       : `<div class="card empty" style="text-align:center;padding:30px"><b>${cands.length ? 'Nenhum resultado com esses filtros' : 'Nenhum teste respondido ainda'}</b><p class="muted">Clique em <b>Mandar teste ao candidato</b>, escolha os testes e envie o link pelo WhatsApp. O resultado aparece aqui assim que ele terminar.</p></div>`}
     <div class="faint" style="font-size:12px;margin-top:10px">${lista.length} candidato(s) · Ferramenta de apoio: os resultados não devem ser usados isoladamente para eliminar candidatos.</div>`;
@@ -2227,6 +2299,7 @@ async function pgTestes() {
     $('#trNovo').onclick = () => openTesteLink(draw);
     $('#trLinks').onclick = () => openTesteLinks(draw);
     if ($('#trAc')) $('#trAc').onclick = openTesteAcesso;
+    $$('[data-pdf]').forEach(b => b.onclick = ev => { ev.stopPropagation(); const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === b.dataset.pdf); if (cand) testePDF_(cand); });
     $$('[data-cand]').forEach(el => el.onclick = () => {
       const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === el.dataset.cand); if (!cand) return;
       openTesteCand(cand, draw);

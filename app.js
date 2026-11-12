@@ -250,7 +250,16 @@ async function sendRaw_(action, payload) {
 }
 
 /* ---------------- API ---------------- */
+// número estável para posição/setor novo: o aparelho escolhe e o servidor usa o mesmo (o quadro fica no banco, sem linhas de planilha)
+const novaRowId_ = () => 1000000 + (Math.floor(Date.now() / 7) % 1e9) * 10 + Math.floor(Math.random() * 10);
+function idsNovos_(action, p) {
+  if ((action === 'addPosicao' || action === 'criarSetor') && !p.novoRow) return Object.assign({}, p, { novoRow: novaRowId_() });
+  if (action === 'setPadrao' && p.novas && +p.novas.qtd > 0 && !p.novosRows) { const n = Math.min(30, +p.novas.qtd), L = []; for (let i = 0; i < n; i++) L.push(novaRowId_() + i * 10); return Object.assign({}, p, { novosRows: L }); }
+  if (action === 'movimentar' && p.destino && !p.destino.row && !p.destino.mesmaPosicao && !p.destino.novoRow) return Object.assign({}, p, { destino: Object.assign({}, p.destino, { novoRow: novaRowId_() }) });
+  return p;
+}
 async function api(action, payload = {}, opt = {}) {
+  payload = idsNovos_(action, payload);
   const gated = !!(S.user && ((GATED[action] && S.user.perfil === 'RECRUTADOR' && (GATED[action] === 1 || (S.cfg && S.cfg.aprovarEtapas))) || (GATED_EDITOR[action] && S.user.perfil === 'EDITOR')));
   if (gated) payload = Object.assign({ resumo: describe(action, payload) }, payload);
   // gravação instantânea pela fila do Firebase (a planilha é atualizada em segundo plano)
@@ -277,10 +286,7 @@ async function api(action, payload = {}, opt = {}) {
       if (enfileirou) {
         if (j.pendente) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
         else if (!liveOn && LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); } catch (e) { console.warn('local', e); } }
-        if (MUDA_LINHAS[action] && !j.pendente) {
-          for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1);
-          if (!liveOn && !DEMO) { try { await loadAll(false, true, true); } catch (e) {} }
-        }
+        if (MUDA_LINHAS[action] && !j.pendente) { for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1); }
         return j;
       }
     }
@@ -301,11 +307,7 @@ async function api(action, payload = {}, opt = {}) {
     if (action === 'listFotosColab') overlayFotos_(j);
     if (j.pendente) { toast('Enviado para aprovação do administrador. Você será notificado da decisão.'); S.muteUntil = Date.now() + 2500; }
     else if (LOCAL[action] && S.data) { try { LOCAL[action](payload, j); derive(); updateShell(); route(true); if (OTIMISTA[action] || LOTE_PEND[action]) PEND.push({ action, payload, j, ate: Date.now() + PEND_MS }); } catch (e) { console.warn('local', e); } }
-    if (MUDA_LINHAS[action] && !j.pendente) {
-      for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1);
-      // a numeração das linhas mudou: recarrega direto da planilha antes de permitir novas edições
-      if (!DEMO) { try { await loadAll(false, true, true); } catch (e) {} }
-    }
+    if (MUDA_LINHAS[action] && !j.pendente) { for (let i = PEND.length - 1; i >= 0; i--) if (PEND[i].ate) PEND.splice(i, 1); }
     if (j.publicar) publicarBg_();
     return j;
   } finally { if (!opt.silent) busy(false); }
@@ -2597,7 +2599,7 @@ function selMobLive_(semTela) {
  * para todos que estão com o sistema aberto. O Apps Script aplica cada alteração na planilha
  * em segundo plano, na ordem e com as mesmas regras de antes, e publica o resultado.
  * Ninguém mais espera a planilha para continuar trabalhando. */
-const FILA_ASYNC = { moverLinha: 1, escalaSet: 1, addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
+const FILA_ASYNC = { criarSetor: 1, moverLinha: 1, escalaSet: 1, addPosicao: 1, removerPosicao: 1, setPadrao: 1, movimentar: 1, saveRow: 1, abrirVaga: 1, preencherVaga: 1, setVagaInfo: 1, setVagaInfoLote: 1, alocar: 1, desligar: 1, desligarLote: 1, marcarDesligadoContr: 1, saveContratacao: 1, addContratacao: 1, contrBulkSet: 1, saveSelecao: 1, deleteSelecao: 1, mobSave: 1, mobDelete: 1, saveFotoColab: 1, setLiderSetor: 1 };
 const FILA_SYNC = { decidirSolicitacao: 1, iniciarSLA: 1, criarLoja: 1, criarQuadroAdm: 1, cruzarContr: 1 };
 let filaSnap = [], filaLocal = [], filaUnsub = null, filaVivo = false, filaTent = 0, filaKickT = null, filaOff = false, fbUidP = null, filaRedraw = null;
 const filaEspera = {}, filaAvisados = new Set();
@@ -5065,15 +5067,8 @@ function openNovoSetor(l) {
         if (l.setores.some(x => norm(x.nome) === norm(nome))) throw new Error('Já existe um setor com esse nome nesta loja');
         const fn = $('#nsF', m.el).value.trim().toUpperCase(), n = fn ? Math.min(20, Math.max(0, +$('#nsQ', m.el).value || 0)) : 0;
         await api('criarSetor', { loja: l.key, nome, depois: $('#nsD', m.el).value });
-        await loadAll(false, true, true);
-        for (let i = 0; i < n; i++) {
-          const fresh = (S.data.lojas.find(x => x.key === l.key) || l).setores.find(x => x.nome === nome);
-          if (!fresh) break;
-          await api('addPosicao', { loja: l.key, setor: nome, firstRow: fresh.linhas[0] ? fresh.linhas[0].row : fresh.row + 3, funcao: fn, contrato: 'INTEGRAL', qt: 1 }, { sync: true });
-          if (!liveOn) await loadAll(false, true, true);
-        }
+        for (let i = 0; i < n; i++) await api('addPosicao', { loja: l.key, setor: nome, funcao: fn, contrato: 'INTEGRAL', qt: 1 });
         m.close(); toast(`Setor ${nome} criado${n ? ` com ${n} posição(ões)` : ''}`);
-        if (!liveOn || n) await loadAll(false, true, true);
         route(true);
       });
     }
@@ -7761,11 +7756,11 @@ function shiftLoja_(l, from, delta) {
     s.linhas.forEach(r => { if (r.row >= from) r.row += delta; });
   });
 }
-function localAddPos(lk, setor, funcao, contrato, qt, motivo, resp) {
+function localAddPos(lk, setor, funcao, contrato, qt, motivo, resp, novoRow) {
   const l = lojaBy(lk); const s = l && l.setores.find(x => x.nome === setor); if (!s) return 0;
-  // nova posição vai para o fim do setor (depois das pessoas)
-  const nr = s.linhas.length ? s.linhas[s.linhas.length - 1].row + 1 : (s.padraoRow || s.row) + 2;
-  shiftLoja_(l, nr, 1);
+  // nova posição vai para o fim do setor, com o mesmo número que o servidor vai usar
+  const nr = +novoRow || novaRowId_();
+  if (findRow(lk, nr)) return nr;
   const r = { row: nr, qt: +qt || 1, nome: '', funcao: String(funcao || '').toUpperCase(), contrato: contrato || 'INTEGRAL', situacao: 'VAGA', tag: '', tempo: '', meses: null, vid: '', loja: l.key, setor: s.nome,
     info: { etapa: 'Aberta', responsavel: resp || S.user.nome, abertura: todayISO(), previsao: '', candidatos: '', motivo: motivo || 'Aumento de quadro', obs: '', hist: [{ e: 'Aberta', d: todayISO() }] } };
   s.linhas.push(r);
@@ -7775,8 +7770,6 @@ function localAddPos(lk, setor, funcao, contrato, qt, motivo, resp) {
 function moverOk_(s, de, para) {
   const i = s.linhas.findIndex(x => x.row === +de), j = s.linhas.findIndex(x => x.row === +para);
   if (i < 0 || j < 0 || i === j) return null;
-  const a = Math.min(i, j), b = Math.max(i, j);
-  for (let k = a; k < b; k++) if (s.linhas[k + 1].row !== s.linhas[k].row + 1) return null;
   return { i, j };
 }
 function localMover_(p) {
@@ -7785,9 +7778,7 @@ function localMover_(p) {
   const ix = moverOk_(s, p.row, p.para); if (!ix) return false;
   const r = s.linhas[ix.i];
   if (p.expect && (norm(r.nome) !== norm(p.expect.nome) || norm(r.funcao) !== norm(p.expect.funcao))) return false;
-  const nums = s.linhas.map(x => x.row);
   s.linhas.splice(ix.i, 1); s.linhas.splice(ix.j, 0, r);
-  s.linhas.forEach((x, k) => { x.row = nums[k]; });
   return true;
 }
 function localRemove(lk, row, expect) {
@@ -7797,7 +7788,7 @@ function localRemove(lk, row, expect) {
     if (i < 0) continue;
     const r = s.linhas[i];
     if (expect && (norm(r.nome) !== norm(expect.nome) || norm(r.funcao) !== norm(expect.funcao))) return false;
-    s.linhas.splice(i, 1); shiftLoja_(l, +row + 1, -1); return true;
+    s.linhas.splice(i, 1); return true;
   }
   return false;
 }
@@ -7808,7 +7799,7 @@ function localMovimentar(p) {
   const nome = ro.nome, contratoO = ro.contrato, tagO = ro.tag, tempoO = ro.tempo, mesesO = ro.meses;
   if (d.mesmaPosicao) { ro.funcao = String(d.funcao || ro.funcao).toUpperCase(); if (d.tag !== undefined) ro.tag = d.tag || ''; if (d.contrato) ro.contrato = d.contrato; return; }
   let dRow = +d.row;
-  if (!dRow) dRow = localAddPos(d.loja, d.setor, d.funcao, d.contrato || contratoO || 'INTEGRAL', d.qt || 1, (p.tipo || 'Movimentação') + ' — ' + nome, p.responsavel);
+  if (!dRow) dRow = localAddPos(d.loja, d.setor, d.funcao, d.contrato || contratoO || 'INTEGRAL', d.qt || 1, (p.tipo || 'Movimentação') + ' — ' + nome, p.responsavel, d.novoRow);
   const rd = findRow(d.loja, dRow); if (!rd || rd.nome) return;
   localFill({ loja: d.loja, row: dRow, nome, contrato: d.contrato || contratoO, tag: d.tag !== undefined ? d.tag : tagO });
   rd.tempo = tempoO; rd.meses = mesesO;
@@ -7836,9 +7827,10 @@ const LOCAL = {
     (p.remover || []).slice().sort((a, b) => b.row - a.row).forEach(x => localRemove(p.loja, x.row, x.expect));
     sc.padrao = +p.padrao; sc.pad = +p.padrao;
     const nv = p.novas && +p.novas.qtd > 0 ? Math.min(30, +p.novas.qtd) : 0;
-    for (let i = 0; i < nv; i++) localAddPos(p.loja, p.setor, p.novas.funcao, p.novas.contrato || 'INTEGRAL', p.novas.qt || 1, 'Aumento de quadro' + (p.motivo ? ' — ' + p.motivo : ''), p.novas.responsavel);
+    for (let i = 0; i < nv; i++) localAddPos(p.loja, p.setor, p.novas.funcao, p.novas.contrato || 'INTEGRAL', p.novas.qt || 1, 'Aumento de quadro' + (p.motivo ? ' — ' + p.motivo : ''), p.novas.responsavel, (p.novosRows || [])[i]);
   },
-  addPosicao: p => { localAddPos(p.loja, p.setor, p.funcao, p.contrato || 'INTEGRAL', p.qt || 1, p.motivo || 'Aumento de quadro', p.responsavel); },
+  addPosicao: p => { localAddPos(p.loja, p.setor, p.funcao, p.contrato || 'INTEGRAL', p.qt || 1, p.motivo || 'Aumento de quadro', p.responsavel, p.novoRow); },
+  criarSetor: p => { const l = lojaBy(p.loja); if (!l || l.setores.some(x => norm(x.nome) === norm(p.nome))) return; const nm = String(p.nome || '').trim().toUpperCase().replace(/\s+/g, ' '); const i = l.setores.findIndex(x => x.nome === p.depois); l.setores.splice(i >= 0 ? i + 1 : l.setores.length, 0, { nome: nm, row: +p.novoRow || novaRowId_(), padrao: 0, linhas: [] }); },
   removerPosicao: p => { localRemove(p.loja, p.row, p.expect); },
   moverLinha: p => { localMover_(p); },
   movimentar: p => localMovimentar(p),

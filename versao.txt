@@ -1,1 +1,1 @@
-versao: contratacoes, desligados e movimentacoes no banco 2026-11-12
+versao: pesquisa salarial por segmento + Google 2026-11-13

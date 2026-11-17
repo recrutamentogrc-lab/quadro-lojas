@@ -45,6 +45,7 @@ const splitMulti = s => String(s || '').split(',').map(x => x.trim()).filter(Boo
 const lojaPill = k => `<span class="loja-pill" style="--lc:${LC[k] || '#94a3b8'}"><i></i>${h(LOJA_NOMES[k] || k)}</span>`;
 
 const ICONS = {
+  food: '<path d="M7 3v8"/><path d="M4.5 3v4.5a2.5 2.5 0 0 0 5 0V3"/><path d="M7 11v10"/><path d="M17.5 3c-2 0-3.5 2.2-3.5 5.5 0 2.6 1.3 4 3.5 4.2V21"/>',
   home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
   store: '<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/>',
   briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/>',
@@ -344,6 +345,7 @@ function init() {
   if (QS.get('ficha')) { renderFicha(QS.get('ficha')); refreshPublicCfg(); }
   else if (QS.get('teste')) { renderTeste(QS.get('teste')); refreshPublicCfg(); }
   else if (QS.get('agenda')) { renderAgenda(QS.get('agenda')); refreshPublicCfg(); }
+  else if (QS.get('almoco')) { renderAlmoco(QS.get('almoco')); }
   else if (S.token) {
     const cache = DEMO ? null : ls.get('grc_data', null);
     if (cache && cache.data && cache.data.user) {
@@ -3222,6 +3224,7 @@ function updateShell() {
     ${temMob() ? navItem('/mobilidade', ic('car'), 'Mobilidade') : ''}
     ${navItem('/experiencias', ic('clock'), 'Experiências', nE ? `<span class="cnt hot">${nE}</span>` : '')}
     ${navItem('/desligamentos', ic('door'), 'Desligamentos')}
+    ${podeAlmoco() ? navItem('/almoco', ic('food'), 'Controle de almoço', '<span class="new">novo</span>') : ''}
     ${!isAdmin() && S.user.podeConvidar ? `<a class="nav" href="#" id="navConv" title="Links de convite">${ic('link')}<span class="lbl">Links de convite</span></a>` : ''}
     ${podePesq() ? `<div class="sb-label">Cargos e salários</div>${navItem('/tabela', ic('table'), 'Tabela salarial', '<span class="new">novo</span>')}${navItem('/pesquisa', ic('trend'), 'Pesquisa salarial')}` : ''}
     ${isAdmin() ? `<div class="sb-label">Administração</div>${navItem('/aprovacoes', ic('check'), 'Aprovações', S.notif.pendentes ? `<span class="cnt hot">${S.notif.pendentes}</span><span class="badge-mini"></span>` : '')}${navItem('/admin', ic('shield'), 'Acessos e configurações')}${navItem('/historico', ic('history'), 'Histórico')}` : `<div class="sb-label">Solicitações</div>${navItem('/solicitacoes', ic('file'), 'Minhas solicitações', (S.data.pendentes || []).length ? `<span class="cnt">${S.data.pendentes.length}</span>` : '')}`}
@@ -4320,6 +4323,279 @@ function escPDF(gr, res, l, sec, ano, mes) {
   w.document.open(); w.document.write(html); w.document.close();
 }
 
+/* =====================================================================
+ * CONTROLE DE ALMOÇO
+ * Restaurante: link público fixo (?almoco=TOKEN), sem login, sempre no dia de hoje (America/Fortaleza).
+ * RH: cadastro, histórico por dia, resumo do mês, link e acesso. Tudo no banco (Firebase), sem planilha.
+ * ===================================================================== */
+const podeAlmoco = () => !!(S.user && (isAdmin() || S.user.podeAlmoco));
+const almUrl_ = t => (cfgv('siteUrl', '') || (location.origin + location.pathname)).replace(/index\.html$/, '').replace(/\/+$/, '') + '/?almoco=' + t;
+const almExt_ = iso => { const d = parseISO(iso); return d ? d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase()) : ''; };
+const almOrd_ = L => L.slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
+function almCss() {
+  if (document.getElementById('almCss')) return;
+  const st = document.createElement('style'); st.id = 'almCss';
+  st.textContent = `
+  .alm{min-height:100vh;background:#f4f6fb;color:#111827;padding-bottom:150px;font-size:16px}
+  .alm-top{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;padding:16px 16px 22px;border-radius:0 0 22px 22px}
+  .alm-top small{opacity:.85;font-size:13px;display:block}
+  .alm-top h1{font-size:20px;margin:2px 0 0;font-weight:800}
+  .alm-dia{font-size:14px;margin-top:6px;opacity:.95}
+  .alm-cnt{display:flex;align-items:center;gap:14px;background:#fff;color:#111827;border-radius:18px;padding:14px 16px;margin:-14px 14px 0;box-shadow:0 8px 24px rgba(15,23,42,.12)}
+  .alm-cnt b{font-size:44px;line-height:1;color:#16a34a;font-weight:900}
+  .alm-cnt span{font-size:14px;color:#475569}
+  .alm-wrap{max-width:640px;margin:0 auto}
+  .alm-bar{display:flex;flex-direction:column;gap:10px;padding:14px}
+  .alm-bar input{width:100%;font-size:17px;padding:14px 16px;border-radius:14px;border:1.5px solid #cbd5e1;background:#fff;color:#111827;outline:none}
+  .alm-bar input:focus{border-color:#2563eb}
+  .alm-row2{display:flex;gap:10px}
+  .alm-tg{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:13px;border-radius:14px;border:1.5px solid #cbd5e1;background:#fff;font-weight:700;font-size:15px;color:#334155;cursor:pointer}
+  .alm-tg.on{background:#1e3a8a;border-color:#1e3a8a;color:#fff}
+  .alm-list{padding:0 14px;display:flex;flex-direction:column;gap:8px}
+  .alm-p{display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid #e2e8f0;border-radius:16px;padding:14px 14px;min-height:64px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent}
+  .alm-p:active{transform:scale(.99)}
+  .alm-p .alm-nm{flex:1 1 auto;min-width:0;width:auto}
+  .alm-p .alm-nm b{display:block;font-size:16.5px;line-height:1.25}
+  .alm-p .alm-nm small{display:block;color:#64748b;font-size:13px;margin-top:2px}
+  .alm-p .alm-ck{width:44px;height:44px;min-width:44px;max-width:44px;padding:0;box-sizing:border-box;border-radius:50%;border:2.5px solid #cbd5e1;display:flex;align-items:center;justify-content:center;flex:none;font-size:22px;font-weight:900;color:#fff}
+  .alm-p.ok{border-color:#86efac;background:#f0fdf4}
+  .alm-p.ok .alm-ck{background:#16a34a;border-color:#16a34a}
+  .alm-p .alm-hr{font-size:13px;font-weight:800;color:#15803d;margin-right:4px;white-space:nowrap}
+  .alm-p .fora{display:inline-block;font-size:11px;font-weight:800;color:#9a3412;background:#ffedd5;border-radius:6px;padding:1px 6px;margin-top:3px}
+  .alm-p.pend{opacity:.6}
+  .alm-add{margin:14px;width:calc(100% - 28px);padding:15px;border-radius:14px;border:2px dashed #94a3b8;background:transparent;font-size:16px;font-weight:800;color:#334155;cursor:pointer}
+  .alm-foot{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #e2e8f0;padding:12px 14px calc(12px + env(safe-area-inset-bottom));box-shadow:0 -6px 20px rgba(15,23,42,.08)}
+  .alm-foot button{width:100%;padding:17px;border-radius:16px;border:0;background:#16a34a;color:#fff;font-size:17px;font-weight:900;cursor:pointer}
+  .alm-foot button:disabled{background:#94a3b8}
+  .alm-foot small{display:block;text-align:center;font-size:13px;color:#15803d;font-weight:700;margin-bottom:8px}
+  .alm-vazio{text-align:center;color:#64748b;padding:30px 10px}
+  .alm-dlg{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:flex-end;justify-content:center;z-index:9999}
+  .alm-dlg>div{background:#fff;color:#111827;width:100%;max-width:520px;border-radius:22px 22px 0 0;padding:20px 18px calc(18px + env(safe-area-inset-bottom))}
+  .alm-dlg h3{margin:0 0 6px;font-size:19px}
+  .alm-dlg p{margin:0 0 14px;color:#475569;font-size:15px}
+  .alm-dlg input{width:100%;font-size:17px;padding:14px;border-radius:12px;border:1.5px solid #cbd5e1;margin-bottom:10px;color:#111827;background:#fff}
+  .alm-dlg .bt{display:flex;gap:10px;margin-top:6px}
+  .alm-dlg .bt button{flex:1;padding:15px;border-radius:14px;font-size:16px;font-weight:800;border:1.5px solid #cbd5e1;background:#fff;color:#334155;cursor:pointer}
+  .alm-dlg .bt button.pri{background:#2563eb;border-color:#2563eb;color:#fff}
+  .alm-dlg .bt button.red{background:#dc2626;border-color:#dc2626;color:#fff}
+  .alm-toast{position:fixed;left:50%;transform:translateX(-50%);bottom:110px;background:#111827;color:#fff;padding:12px 16px;border-radius:12px;font-size:14.5px;z-index:10000;max-width:90vw;text-align:center}
+  .alm-toast.err{background:#b91c1c}`;
+  document.head.appendChild(st);
+}
+// janela simples (celular): confirmação ou formulário
+function almDlg_({ titulo, texto, campos, ok, perigo }) {
+  return new Promise(res => {
+    const w = document.createElement('div'); w.className = 'alm-dlg';
+    w.innerHTML = `<div><h3>${h(titulo)}</h3>${texto ? `<p>${texto}</p>` : ''}${(campos || []).map((c, i) => `<input data-i="${i}" placeholder="${h(c)}" ${i === 0 ? 'autofocus' : ''}>`).join('')}<div class="bt"><button data-x>Cancelar</button><button class="${perigo ? 'red' : 'pri'}" data-ok>${h(ok || 'Confirmar')}</button></div></div>`;
+    document.body.appendChild(w);
+    const fim = v => { w.remove(); res(v); };
+    w.onclick = e => { if (e.target === w) fim(null); };
+    w.querySelector('[data-x]').onclick = () => fim(null);
+    w.querySelector('[data-ok]').onclick = () => fim(campos ? [...w.querySelectorAll('input')].map(i => i.value.trim()) : true);
+    const i0 = w.querySelector('input'); if (i0) setTimeout(() => i0.focus(), 50);
+  });
+}
+function almToast_(m, err) { const t = document.createElement('div'); t.className = 'alm-toast' + (err ? ' err' : ''); t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), err ? 4500 : 2600); }
+
+async function renderAlmoco(token) {
+  document.documentElement.dataset.theme = 'light';
+  document.title = 'Controle de almoço · Grupo R Center';
+  almCss();
+  $('#root').innerHTML = `<div class="loader"><div style="text-align:center"><div class="spin" style="margin:0 auto 14px"></div><div class="muted">Abrindo…</div></div></div>`;
+  let D = null, erro = '', busca = '', soNao = false, ocupado = 0, ultimo = 0;
+  const carregar = async () => {
+    try { const j = await sendRaw_('almPub', { token }); if (j && j.ok) { if (!ocupado) { const mudouDia = D && D.data !== j.data; D = j; erro = ''; if (mudouDia) { busca = ''; soNao = false; } } } else erro = (j && j.error) || 'Link inválido.'; }
+    catch (e) { if (!D) erro = e.message; }
+    ultimo = Date.now();
+  };
+  const desenhar = () => {
+    if (!D) { $('#root').innerHTML = `<div class="alm"><div class="alm-top"><small>Grupo R Center</small><h1>Controle de almoço</h1></div><div class="alm-vazio" style="margin-top:30px"><b>Link indisponível</b><br>${h(erro || 'Tente de novo em instantes.')}<br><br>Peça um novo link ao RH.</div></div>`; return; }
+    const marc = {}; D.itens.forEach(x => { if (x.pid) marc[x.pid] = x; });
+    const q = norm(busca);
+    let L = D.pessoas.map(p => ({ p, it: marc[p.id] })).concat(D.itens.filter(x => x.fora).map(x => ({ p: { id: x.id, nome: x.nome, cargo: x.cargo }, it: x, fora: true })));
+    L = almOrd_(L.map(x => Object.assign({ nome: x.p.nome }, x))).filter(x => (!q || norm(x.p.nome + ' ' + (x.p.cargo || '')).includes(q)) && (!soNao || !x.it));
+    const n = D.itens.length;
+    const busc = document.activeElement && document.activeElement.id === 'almQ';
+    $('#root').innerHTML = `<div class="alm"><div class="alm-wrap">
+      <div class="alm-top"><small>Grupo R Center · Restaurante</small><h1>Controle de almoço</h1><div class="alm-dia">${h(almExt_(D.data))}</div></div>
+      <div class="alm-cnt"><b>${n}</b><span>refeiç${n === 1 ? 'ão registrada' : 'ões registradas'} hoje<br><small>${D.pessoas.length} pessoa(s) na lista</small></span></div>
+      <div class="alm-bar"><input id="almQ" type="search" placeholder="🔎 Buscar pelo nome" value="${h(busca)}" autocomplete="off">
+        <div class="alm-row2"><button class="alm-tg ${soNao ? 'on' : ''}" id="almSo">${soNao ? '✓ ' : ''}Só quem ainda não foi</button></div></div>
+      <div class="alm-list">${L.length ? L.map(x => `<div class="alm-p ${x.it ? 'ok' : ''} ${x.it && x.it._pend ? 'pend' : ''}" data-id="${h(x.p.id)}" data-f="${x.fora ? 1 : ''}"><div class="alm-nm"><b>${h(x.p.nome)}</b>${x.p.cargo ? `<small>${h(x.p.cargo)}</small>` : ''}${x.fora ? '<span class="fora">FORA DA LISTA</span>' : ''}</div>${x.it ? `<span class="alm-hr">${h(x.it.hora || '')}</span>` : ''}<div class="alm-ck">${x.it ? '✓' : ''}</div></div>`).join('') : `<div class="alm-vazio">${soNao ? 'Todos da lista já almoçaram.' : 'Ninguém encontrado com esse nome.'}</div>`}</div>
+      <button class="alm-add" id="almFora">+ Pessoa fora da lista</button>
+      <div class="alm-foot">${D.enviado ? `<small>✓ Relação enviada às ${h(D.enviado.hora)}${D.enviado.qtd !== n ? ' · houve mudança depois: envie de novo' : ''}</small>` : ''}<button id="almEnv" ${n ? '' : 'disabled'}>Finalizar e enviar relação do dia</button></div>
+    </div></div>`;
+    const qi = $('#almQ');
+    qi.oninput = () => { busca = qi.value; const p = qi.selectionStart; desenhar(); const n2 = $('#almQ'); n2.focus(); try { n2.setSelectionRange(p, p); } catch (e) {} };
+    if (busc) { qi.focus(); try { qi.setSelectionRange(qi.value.length, qi.value.length); } catch (e) {} }
+    $('#almSo').onclick = () => { soNao = !soNao; desenhar(); };
+    $$('.alm-p').forEach(el => el.onclick = () => tocar(el.dataset.id, !!el.dataset.f));
+    $('#almFora').onclick = fora;
+    $('#almEnv').onclick = enviar;
+  };
+  const operar = async (payload, otimista) => {
+    ocupado++; const antes = JSON.stringify(D.itens);
+    if (otimista) { otimista(); desenhar(); }
+    try {
+      const j = await sendRaw_('almMarcar', Object.assign({ token }, payload));
+      if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível salvar.');
+      D = Object.assign(D, { itens: j.itens, enviado: j.enviado, data: j.data });
+    } catch (e) { D.itens = JSON.parse(antes); almToast_(e.message + ' Tente de novo.', true); }
+    finally { ocupado--; desenhar(); }
+  };
+  const agora = () => { try { return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Fortaleza' }); } catch (e) { return ''; } };
+  const tocar = async (id, eFora) => {
+    const it = D.itens.find(x => eFora ? x.id === id : x.pid === id);
+    if (it) {
+      if (!await almDlg_({ titulo: 'Desmarcar?', texto: `Tirar <b>${h(it.nome)}</b> da relação de hoje (registrado às ${h(it.hora || '')})?`, ok: 'Desmarcar', perigo: true })) return;
+      return operar({ op: 'desmarcar', id: it.id }, () => { D.itens = D.itens.filter(x => x !== it); });
+    }
+    const p = D.pessoas.find(x => x.id === id); if (!p) return;
+    operar({ op: 'marcar', pid: id }, () => { D.itens.push({ id, pid: id, nome: p.nome, cargo: p.cargo, hora: agora(), _pend: 1 }); });
+  };
+  const fora = async () => {
+    const v = await almDlg_({ titulo: 'Pessoa fora da lista', texto: 'Registra só no dia de hoje. Não entra no cadastro fixo.', campos: ['Nome completo', 'Cargo ou setor (opcional)'], ok: 'Registrar almoço' });
+    if (!v) return;
+    if (v[0].split(/\s+/).filter(Boolean).length < 2) return almToast_('Informe nome e sobrenome.', true);
+    operar({ op: 'fora', nome: v[0], cargo: v[1] }, () => { D.itens.push({ id: 'tmp' + Date.now(), nome: v[0].toUpperCase(), cargo: v[1], fora: true, hora: agora(), _pend: 1 }); });
+  };
+  const enviar = async () => {
+    const n = D.itens.length;
+    if (!await almDlg_({ titulo: 'Enviar relação do dia', texto: `<b>${h(almExt_(D.data))}</b><br>${n} refeiç${n === 1 ? 'ão' : 'ões'} registrada(s).${D.enviado ? '<br>A ficha nova substitui a enviada às ' + h(D.enviado.hora) + '.' : ''}`, ok: 'Enviar' })) return;
+    const b = $('#almEnv'); b.disabled = true; b.textContent = 'Enviando…'; ocupado++;
+    try { const j = await sendRaw_('almEnviar', { token }); if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível enviar.'); D.enviado = j.enviado; almToast_('Relação enviada ao RH às ' + j.enviado.hora); }
+    catch (e) { almToast_(e.message, true); }
+    finally { ocupado--; desenhar(); }
+  };
+  await carregar(); desenhar();
+  // vivo: atualiza sozinho e vira o dia à meia-noite
+  setInterval(async () => { if (document.visibilityState !== 'visible' || ocupado || document.querySelector('.alm-dlg')) return; if (Date.now() - ultimo < 14000) return; const a = JSON.stringify(D); await carregar(); if (JSON.stringify(D) !== a && !document.querySelector('.alm-dlg')) desenhar(); }, 3000);
+  document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible' && !ocupado) { await carregar(); desenhar(); } });
+}
+
+// ficha do dia (A4 vertical) para imprimir e colher a rubrica
+function almFichaHTML(dia, itens) {
+  const L = almOrd_(itens), br = isoToBR(dia), ext = almExt_(dia);
+  const lin = L.map((x, i) => `<tr><td class="n">${i + 1}</td><td>${h(x.nome)}${x.fora ? '<span class="fora">Fora da lista</span>' : ''}</td><td>${h(x.cargo || '')}</td><td class="r">✓ ${h(x.hora || '')}</td><td class="a"></td></tr>`).join('');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Lista de controle de almoço · ${br}</title><style>
+  @page{size:A4 portrait;margin:14mm 12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11.5px;margin:0}
+  h1{font-size:17px;margin:0;text-align:center;letter-spacing:.5px}.sub{text-align:center;font-size:12.5px;margin:4px 0 12px}
+  .info{display:flex;justify-content:space-between;border:1px solid #333;padding:7px 10px;margin-bottom:10px;font-size:12px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:9px 6px;vertical-align:middle}th{background:#e8e8e8;font-size:10.5px;text-transform:uppercase}
+  td.n{width:30px;text-align:center}td.r{width:82px;text-align:center;white-space:nowrap}td.a{width:150px}tr{page-break-inside:avoid}
+  .fora{display:block;font-size:9.5px;font-weight:bold;color:#9a3412;margin-top:2px}
+  .tot{margin-top:10px;font-size:12.5px;font-weight:bold}.ass{display:flex;gap:40px;margin-top:50px}.ass div{flex:1;border-top:1px solid #111;text-align:center;padding-top:5px}
+  .obs{font-size:10px;color:#444;margin-top:8px}</style></head><body>
+  <h1>LISTA DE CONTROLE DE ALMOÇO</h1><div class="sub">Grupo R Center – Recursos Humanos</div>
+  <div class="info"><span><b>Data:</b> ${h(br)} (${h(ext.split(',')[0])})</span><span><b>Total de refeições:</b> ${L.length}</span></div>
+  <table><thead><tr><th>Nº</th><th>Nome do colaborador</th><th>Cargo</th><th>Registro</th><th>Rubrica</th></tr></thead><tbody>${lin || '<tr><td colspan="5" style="text-align:center">Nenhum registro neste dia.</td></tr>'}</tbody></table>
+  <div class="tot">Total de refeições: ${L.length}</div>
+  ${L.some(x => x.fora) ? '<div class="obs">Registros identificados como “Fora da lista” foram incluídos pelo restaurante somente neste dia.</div>' : ''}
+  <div class="ass"><div>Responsável pelo restaurante</div><div>Recursos Humanos</div></div>
+  <script>setTimeout(function(){try{window.print()}catch(e){}},500)</script></body></html>`;
+}
+function almMesHTML(mes, dias) {
+  const [a, m] = mes.split('-').map(Number), n = new Date(a, m, 0).getDate();
+  let tot = 0;
+  const lin = Array.from({ length: n }, (_, i) => { const iso = mes + '-' + String(i + 1).padStart(2, '0'), q = +(dias[iso] || 0); tot += q; const d = parseISO(iso); return `<tr${q ? '' : ' class="z"'}><td>${d.toLocaleDateString('pt-BR')}</td><td>${h(d.toLocaleDateString('pt-BR', { weekday: 'long' }))}</td><td class="q">${q}</td></tr>`; }).join('');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Resumo de refeições · ${ESC_MESES[m - 1]} de ${a}</title><style>
+  @page{size:A4 portrait;margin:14mm 14mm}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:11.5px;margin:0}h1{font-size:16px;text-align:center;margin:0}.sub{text-align:center;margin:4px 0 12px;font-size:12.5px}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #333;padding:5px 8px}th{background:#e8e8e8;font-size:10.5px;text-transform:uppercase;text-align:left}td.q{text-align:center;width:120px;font-weight:bold}tr.z td{color:#777}td{text-transform:capitalize}
+  .tot{margin-top:10px;font-size:13px;font-weight:bold;text-align:right}.ass{display:flex;gap:40px;margin-top:46px}.ass div{flex:1;border-top:1px solid #111;text-align:center;padding-top:5px}</style></head><body>
+  <h1>RESUMO MENSAL DE REFEIÇÕES</h1><div class="sub">Grupo R Center – Recursos Humanos · ${ESC_MESES[m - 1]} de ${a}</div>
+  <table><thead><tr><th>Data</th><th>Dia da semana</th><th style="text-align:center">Refeições</th></tr></thead><tbody>${lin}</tbody></table>
+  <div class="tot">Total do mês: ${tot} refeiç${tot === 1 ? 'ão' : 'ões'}</div>
+  <div class="ass"><div>Recursos Humanos</div><div>Financeiro</div></div>
+  <script>setTimeout(function(){try{window.print()}catch(e){}},500)</script></body></html>`;
+}
+function almAbrir_(html) { const w = window.open('', '_blank'); if (!w) return toast('Permita pop-ups para gerar o PDF', true); w.document.open(); w.document.write(html); w.document.close(); }
+
+async function pgAlmoco(arg) {
+  setTitle('Controle de almoço', 'Restaurante · registro diário e ficha para assinatura');
+  const v = $('#view'), f = getF('almoco');
+  if (!f.aba) f.aba = 'dia';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(arg || '')) { f.aba = 'dia'; f.dia = arg; }
+  v.innerHTML = `<div class="card"><div class="sk" style="height:120px"></div></div>`;
+  let C;
+  try { C = await api('almGet', {}, { silent: true }); } catch (e) { v.innerHTML = `<div class="empty">${ic('alert')}<div>${h(e.message)}</div></div>`; return; }
+  const rt = S.rt;
+  if (!f.dia) f.dia = C.hoje; if (!f.mes) f.mes = C.hoje.slice(0, 7);
+  const url = almUrl_(C.token);
+  v.innerHTML = `
+  <div class="card"><div class="card-h" style="flex-wrap:wrap"><div><h3>${ic('link')} Link do restaurante</h3><div class="sub">Abre direto no celular, sem login, sempre no dia de hoje. Só marca e desmarca o dia atual.</div></div><span class="spacer"></span>${isAdmin() ? `<button class="btn sm" id="alAc">${ic('shield')} Acesso</button>` : ''}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="input" readonly value="${h(url)}" style="flex:1 1 260px;font-size:12.5px" onclick="this.select()">
+      <button class="btn primary" id="alCp">${ic('copy')} Copiar link</button><a class="btn" href="${h(url)}" target="_blank" rel="noopener">${ic('eye')} Abrir</a><button class="btn ghost" id="alNovo" title="O link atual para de funcionar">${ic('refresh')} Gerar novo link</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px"><div class="field" style="flex:1 1 260px;margin:0"><label>E-mail que recebe a ficha do dia (mais de um: separe com vírgula)</label><input class="input" id="alEm" value="${h((C.emails || []).join(', '))}" placeholder="nome@empresa.com.br"></div><button class="btn" id="alEmOk">${ic('check')} Salvar e-mail</button></div>
+  </div>
+  <div class="seg" id="alAba" style="margin:16px 0;flex-wrap:wrap"><button data-v="dia" class="${f.aba === 'dia' ? 'on' : ''}">${ic('calendar')} Por dia</button><button data-v="mes" class="${f.aba === 'mes' ? 'on' : ''}">${ic('table')} Resumo do mês</button><button data-v="cad" class="${f.aba === 'cad' ? 'on' : ''}">${ic('users')} Cadastro (${C.pessoas.filter(p => p.ativo).length})</button></div>
+  <div id="alBody"></div>`;
+  $('#alCp').onclick = () => copiar_(url, 'Link do restaurante copiado');
+  $('#alNovo').onclick = async e => { if (!await confirmBox('Gerar um link novo? <b>O link atual para de funcionar</b> e o restaurante vai precisar do novo.', 'Gerar novo link', true)) return; run(e.currentTarget, async () => { await api('almNovoLink', {}); toast('Link novo gerado. Envie ao restaurante.'); route(true); }); };
+  $('#alEmOk').onclick = e => run(e.currentTarget, async () => { const j = await api('almEmail', { emails: $('#alEm').value }); $('#alEm').value = (j.emails || []).join(', '); toast('E-mail salvo'); });
+  if ($('#alAc')) $('#alAc').onclick = openAlmAcesso;
+  $$('#alAba button').forEach(b => b.onclick = () => { f.aba = b.dataset.v; saveF(); route(true); });
+  const B = $('#alBody');
+  if (f.aba === 'cad') return almCadastro(B, C, f);
+  if (f.aba === 'mes') {
+    B.innerHTML = `<div class="card"><div class="card-h" style="flex-wrap:wrap"><div><h3>Resumo do mês</h3><div class="sub">Refeições por dia, para o financeiro</div></div><span class="spacer"></span><input class="input" type="month" id="alMes" value="${h(f.mes)}" style="width:auto"><button class="btn" id="alMesP">${ic('file')} Imprimir / PDF</button></div><div id="alMesT"><div class="sk" style="height:200px"></div></div></div>`;
+    $('#alMes').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { f.mes = e.target.value; saveF(); route(true); } };
+    let dias = {};
+    try { dias = (await api('almMes', { mes: f.mes }, { silent: true })).dias || {}; } catch (e) { $('#alMesT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; }
+    if (rt !== S.rt) return;
+    const [a, m] = f.mes.split('-').map(Number), n = new Date(a, m, 0).getDate(), L = Array.from({ length: n }, (_, i) => f.mes + '-' + String(i + 1).padStart(2, '0'));
+    const tot = sum(L.map(d => +(dias[d] || 0)));
+    $('#alMesT').innerHTML = `<div class="grid g3" style="margin-bottom:14px">${kpi({ lbl: 'Total do mês', val: String(tot), sub: ESC_MESES[m - 1] + ' de ' + a, icon: 'check', c: 'c-green' })}${kpi({ lbl: 'Dias com refeição', val: String(L.filter(d => +(dias[d] || 0)).length), icon: 'calendar', c: 'c-cyan' })}${kpi({ lbl: 'Média por dia', val: fmt(tot / Math.max(1, L.filter(d => +(dias[d] || 0)).length), 1), icon: 'trend', c: 'c-violet' })}</div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Dia</th><th style="text-align:right">Refeições</th></tr></thead><tbody>${L.map(d => { const q = +(dias[d] || 0); return `<tr style="cursor:pointer${q ? '' : ';opacity:.5'}" data-d="${d}"><td><b>${isoToBR(d)}</b></td><td style="text-transform:capitalize">${h(parseISO(d).toLocaleDateString('pt-BR', { weekday: 'long' }))}</td><td style="text-align:right"><b>${q}</b></td></tr>`; }).join('')}<tr><td colspan="2"><b>Total do mês</b></td><td style="text-align:right"><b>${tot}</b></td></tr></tbody></table></div>`;
+    $$('#alMesT [data-d]').forEach(r => r.onclick = () => { f.aba = 'dia'; f.dia = r.dataset.d; saveF(); route(true); });
+    $('#alMesP').onclick = () => almAbrir_(almMesHTML(f.mes, dias));
+    return;
+  }
+  // por dia
+  B.innerHTML = `<div class="card"><div class="card-h" style="flex-wrap:wrap"><div><h3>Quem almoçou</h3><div class="sub" id="alSub">${h(almExt_(f.dia))}</div></div><span class="spacer"></span><input class="input" type="date" id="alDia" value="${h(f.dia)}" max="${h(C.hoje)}" style="width:auto"><button class="btn primary" id="alPdf">${ic('file')} Ficha / PDF</button></div><div id="alDiaT"><div class="sk" style="height:160px"></div></div></div>`;
+  $('#alDia').onchange = e => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) { f.dia = e.target.value; saveF(); route(true); } };
+  let dd;
+  try { dd = await api('almDia', { data: f.dia }, { silent: true }); } catch (e) { $('#alDiaT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; }
+  if (rt !== S.rt) return;
+  const it = almOrd_(dd.itens || []);
+  $('#alPdf').onclick = () => it.length ? almAbrir_(almFichaHTML(f.dia, it)) : toast('Nenhum registro neste dia.', true);
+  $('#alDiaT').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><span class="badge b-ok" style="font-size:13px;padding:6px 10px">${it.length} refeiç${it.length === 1 ? 'ão' : 'ões'}</span>${dd.enviado ? `<span class="badge b-info" style="font-size:13px;padding:6px 10px">Relação enviada pelo restaurante às ${h(dd.enviado.hora)}</span>` : f.dia === C.hoje ? '<span class="badge b-warn" style="font-size:13px;padding:6px 10px">Relação ainda não enviada</span>' : ''}</div>
+    ${it.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nº</th><th>Colaborador</th><th>Cargo</th><th>Registro</th></tr></thead><tbody>${it.map((x, i) => `<tr><td>${i + 1}</td><td><b>${h(x.nome)}</b>${x.fora ? ' <span class="badge b-warn">fora da lista</span>' : ''}</td><td>${h(x.cargo || '')}</td><td>✓ ${h(x.hora || '')}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('calendar')}<div>Nenhum registro neste dia.</div></div>`}`;
+}
+function almCadastro(B, C, f) {
+  const desenhar = () => {
+    const q = norm(f.q || ''), L = almOrd_(C.pessoas).filter(p => !q || norm(p.nome + ' ' + p.cargo).includes(q)).sort((a, b) => (b.ativo ? 1 : 0) - (a.ativo ? 1 : 0));
+    B.innerHTML = `<div class="card"><div class="card-h"><div><h3>Colaboradores do almoço</h3><div class="sub">Quem é desativado some da lista do restaurante; o histórico continua.</div></div></div>
+      <form id="alAdd" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px"><input class="input" name="nome" placeholder="Nome completo" style="flex:2 1 220px" required><input class="input" name="cargo" placeholder="Cargo (opcional)" style="flex:1 1 160px"><button class="btn primary">${ic('plus')} Adicionar</button></form>
+      <div class="input-icon search" style="margin-bottom:10px">${ic('search')}<input class="input" id="alQ" placeholder="Buscar" value="${h(f.q || '')}" style="width:100%"></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nome</th><th>Cargo</th><th>Situação</th><th></th></tr></thead><tbody>${L.map(p => `<tr ${p.ativo ? '' : 'style="opacity:.55"'}><td><b>${h(p.nome)}</b></td><td>${p.cargo ? h(p.cargo) : '<span class="faint">—</span>'}</td><td>${p.ativo ? '<span class="badge b-ok">Ativo</span>' : '<span class="badge">Desativado</span>'}</td><td style="white-space:nowrap;text-align:right"><button class="btn sm ghost" data-ed="${h(p.id)}" title="Editar">${ic('edit')}</button><button class="btn sm" data-tg="${h(p.id)}">${p.ativo ? 'Desativar' : 'Reativar'}</button></td></tr>`).join('')}</tbody></table></div></div>`;
+    const qi = $('#alQ'); qi.oninput = () => { f.q = qi.value; saveF(); const p = qi.selectionStart; desenhar(); const n = $('#alQ'); n.focus(); try { n.setSelectionRange(p, p); } catch (e) {} };
+    $('#alAdd').onsubmit = e => { e.preventDefault(); const fm = e.target, nome = fm.nome.value.trim(); if (nome.split(/\s+/).length < 2) return toast('Informe nome e sobrenome', true); salvar({ nome, cargo: fm.cargo.value.trim(), ativo: true }, fm.querySelector('button')); };
+    $$('[data-tg]', B).forEach(b => b.onclick = () => { const p = C.pessoas.find(x => x.id === b.dataset.tg); salvar(Object.assign({}, p, { ativo: !p.ativo }), b); });
+    $$('[data-ed]', B).forEach(b => b.onclick = () => { const p = C.pessoas.find(x => x.id === b.dataset.ed); modal({ title: 'Editar colaborador', icon: 'edit', body: `<div class="field"><label>Nome completo</label><input class="input" id="aeN" value="${h(p.nome)}"></div><div class="field"><label>Cargo</label><input class="input" id="aeC" value="${h(p.cargo || '')}"></div>`, foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="aeOk">Salvar</button>`, onMount: m => { $('#aeOk', m.el).onclick = ev => { const nome = $('#aeN', m.el).value.trim(); if (nome.split(/\s+/).length < 2) return toast('Informe nome e sobrenome', true); m.close(); salvar(Object.assign({}, p, { nome, cargo: $('#aeC', m.el).value.trim() })); }; } }); });
+  };
+  const salvar = (p, btn) => run(btn || null, async () => { const j = await api('almPessoa', { pessoa: p }); C.pessoas = j.pessoas || C.pessoas; desenhar(); toast('Cadastro salvo'); });
+  desenhar();
+}
+function openAlmAcesso() {
+  modal({
+    title: 'Acesso ao Controle de almoço', icon: 'shield',
+    body: `<p class="muted" style="margin-top:0">Administradores sempre têm acesso. Marque quem mais pode ver o histórico, o resumo do mês, o cadastro e o link do restaurante.</p><div id="alAcL"><div class="sk" style="height:80px"></div></div>`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="alAcOk">Salvar</button>`,
+    onMount: async m => {
+      const el = $('#alAcL', m.el);
+      try {
+        const us = (usersCache_() || await usersBuscar_()).filter(u => u.perfil !== 'ADMIN' && u.ativo);
+        const ids = (await api('almAcesso', {}, { silent: true })).ids || [];
+        if (!$('#alAcL', m.el)) return;
+        el.innerHTML = us.length ? chipPicker('alac', us.map(u => u.id), ids.join(', ')) : '<span class="muted">Nenhum usuário sem perfil de administrador.</span>';
+        bindPickers(el);
+        $$('[data-picker=alac] .chip', el).forEach(c => { const u = us.find(x => x.id === c.dataset.v); c.textContent = u ? u.nome + (u.cargo ? ' · ' + u.cargo : '') : c.dataset.v; });
+      } catch (e) { el.innerHTML = `<span class="muted">${h(e.message)}</span>`; }
+      $('#alAcOk', m.el).onclick = ev => run(ev.currentTarget, async () => { await api('setAlmAcesso', { ids: splitMulti(pickVal(el, 'alac')) }); m.close(); toast('Acesso salvo. A pessoa vê o módulo ao entrar de novo ou atualizar a página.'); });
+    }
+  });
+}
+
 /* ---------------- router ---------------- */
 function route(keep) {
   S.rt = (S.rt || 0) + 1;
@@ -4340,6 +4616,7 @@ function route(keep) {
     else if (page === 'historico' && isAdmin()) pgLog();
     else if (page === 'perfil') pgPerfil();
     else if (page === 'desligamentos') pgDesl();
+    else if (page === 'almoco' && podeAlmoco()) pgAlmoco(arg);
     else if (page === 'mobilidade' && temMob()) pgMob();
     else if (page === 'escalas' && podeEscala()) pgEscala();
     else if (page === 'pesquisa' && podePesq()) pgPesq();

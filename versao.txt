@@ -1,1 +1,1 @@
-versao: escala 5x2 viva (encaixe de novatos sem mexer na equipe) 2026-11-17
+versao: controle de almoco (link do restaurante + ficha do dia) 2026-11-17

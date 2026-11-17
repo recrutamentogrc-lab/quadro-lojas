@@ -12,8 +12,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Quadro GRC">
+<script>/* link do restaurante: o atalho na tela inicial (iPhone/Android) abre direto no almoço, com o link completo */
+try{if(/[?&]almoco=/.test(location.search)){var m=document.querySelector('link[rel=manifest]');if(m)m.remove();document.querySelector('meta[name=apple-mobile-web-app-title]').setAttribute('content','Almoço GRC');}}catch(e){}</script>
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
-<link rel="stylesheet" href="styles.css?v=20261117alm">
+<link rel="stylesheet" href="styles.css?v=20261117alm2">
 <script>try{document.documentElement.dataset.theme=localStorage.getItem('grc_theme')||'dark'}catch(e){}</script>
 </head>
 <body>
@@ -25,7 +27,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="config.js?v=20261014b"></script>
-<script src="mock.js?v=20261117alm"></script>
-<script src="app.js?v=20261117alm"></script>
+<script src="mock.js?v=20261117alm2"></script>
+<script src="app.js?v=20261117alm2"></script>
 </body>
 </html>

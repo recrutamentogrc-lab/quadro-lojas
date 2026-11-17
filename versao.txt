@@ -1,1 +1,1 @@
-versao: controle de almoco (link do restaurante + ficha do dia) 2026-11-17
+versao: almoco - atalho do celular abre direto no link do restaurante 2026-11-17

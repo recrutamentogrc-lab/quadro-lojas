@@ -3489,6 +3489,186 @@ function escMinimo5x2(dem, N, opt) {
   return { P: lb + 8, lb, semente: 0, aprox: true };
 }
 
+/* ---------------- 5x2: ESCALA VIVA ----------------
+ * A escala fixada vira um padrão de folgas por pessoa (ciclo de C semanas, C = regra do domingo), ancorado numa segunda-feira.
+ * Ela continua igual de um mês para o outro. Quem entra é ENCAIXADO sem mexer em ninguém: herda as folgas de quem saiu
+ * (se couber nas regras dele) ou recebe as folgas que mais equilibram a cobertura que já existe.
+ * padrão: string de 7*C caracteres, '1' = folga, '0' = trabalha (dia 0 = segunda da semana 1 do ciclo) */
+const escVivaKey = (l, sec) => escParKey(l.key, sec.nome) + '|VIVA';
+const escViva = (l, sec) => escParTodos()[escVivaKey(l, sec)] || null;
+const escSegunda_ = d => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return x; };
+const escIso_ = d => d.toLocaleDateString('sv-SE');
+const escDt_ = s => { const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; };
+function escCicloDia_(V, d) { const T = V.C * 7, k = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - escDt_(V.ini)) / 864e5); return ((k % T) + T) % T; }
+const escVivaFix_ = (fix, N) => { const s = new Set(fix || []); if (N <= 1) s.add(6); return s; };
+// confere um padrão de folgas pelas regras (em ciclo, emendando o fim no começo)
+function escVivaOk(pat, C, N, fix) {
+  const T = 7 * C; if (!pat || pat.length !== T) return 'padrão inválido';
+  for (let w = 0; w < C; w++) {
+    const s = pat.slice(w * 7, w * 7 + 7), nf = s.split('').filter(x => x === '1').length, need = Math.max(2, [...fix].length);
+    if (nf !== need) return `semana ${w + 1} com ${nf} folga(s)`;
+  }
+  for (const d of fix) for (let w = 0; w < C; w++) if (pat[w * 7 + d] !== '1') return 'trabalha num dia em que não pode (' + ESC_DIAS[d] + ')';
+  const pp = pat + pat; let run = 0, mr = 0, fo = 0, mf = 0;
+  for (const ch of pp) { if (ch === '0') { run++; fo = 0; } else { fo++; run = 0; } mr = Math.max(mr, run); mf = Math.max(mf, fo); }
+  if (mr > 6) return `${mr} dias seguidos de trabalho`;
+  if (mf > 2 && fix.size < 2) return `${mf} folgas seguidas`;
+  if (!fix.has(6) && N > 1 && ![...Array(C).keys()].some(w => pat[w * 7 + 6] === '1')) return 'sem domingo de folga no ciclo';
+  return '';
+}
+// melhor padrão para UMA pessoa, dado o que os outros já cobrem (cov) e o necessário (dem por dia da semana)
+function escVivaMelhor(cov, dem, C, N, fix, folgas, rnd) {
+  const need = Math.max(2, fix.size), T = 7 * C, junta = folgas === 'juntas';
+  const opts = []; // combinações de folga de uma semana
+  const rec = (i, acc) => { if (acc.length === need) { if ([...fix].every(d => acc.includes(d))) opts.push(acc.slice()); return; } for (let d = i; d < 7; d++) { acc.push(d); rec(d + 1, acc); acc.pop(); } };
+  rec(0, []);
+  const custoDia = (c, trab) => { const x = cov[c] + trab - dem[c % 7]; return x < 0 ? 3 * x * x : x * x; };
+  const custoSem = (w, o) => { let s = 0; for (let d = 0; d < 7; d++) s += custoDia(w * 7 + d, o.includes(d) ? 0 : 1); for (let k = 1; k < o.length; k++) if (o[k] - o[k - 1] === 1) s += junta ? -.35 : .35; return s + (rnd ? rnd() * .01 : 0); };
+  const info = opts.map(o => { const s = [0, 1, 2, 3, 4, 5, 6].map(d => o.includes(d) ? '1' : '0').join(''); let lead = 0; while (lead < 7 && s[lead] === '0') lead++; let tr = 0; while (tr < 7 && s[6 - tr] === '0') tr++; let r = 0, mi = 0; for (const ch of s) { r = ch === '0' ? r + 1 : 0; mi = Math.max(mi, r); } return { o, s, lead, tr, mi }; });
+  let beam = [{ p: '', c: 0, tr: 0 }];
+  for (let w = 0; w < C; w++) {
+    const nb = [], cs = info.map(x => custoSem(w, x.o));
+    for (const b of beam) for (let k = 0; k < info.length; k++) {
+      const x = info[k];
+      if (x.mi > 6 || b.tr + x.lead > 6) continue;
+      nb.push({ p: b.p + x.s, c: b.c + cs[k], tr: x.lead === 7 ? b.tr + 7 : x.tr });
+    }
+    nb.sort((a, b) => a.c - b.c); beam = nb.slice(0, 300);
+  }
+  const ok = beam.filter(b => !escVivaOk(b.p, C, N, fix));
+  return ok.length ? ok[0] : null;
+}
+const escVivaCov_ = (V, g, C, excl, ate) => { const cov = new Array(7 * C).fill(0); Object.keys(V.p).forEach(k => { const x = V.p[k]; if (x.s || x.t !== g || k === excl) return; for (let c = 0; c < 7 * C; c++) if (x.f[c] === '0') cov[c]++; }); return cov; };
+const escVivaCusto_ = (cov, dem) => sum(cov.map((x, c) => { const y = x - dem[c % 7]; return y < 0 ? 3 * y * y : y * y; }));
+// monta a escala viva inteira: encaixa uma pessoa de cada vez (as mais restritas primeiro) e fica com a melhor de várias tentativas
+function escVivaMontar(gente, grupos, C, N, folgas) {
+  let melhor = null;
+  for (let t = 0; t < 6; t++) {
+    let sd = 7 + t * 101; const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+    const V = { C, p: {} };
+    const ordem = gente.slice().sort((a, b) => (b.fix.size - a.fix.size) || (t ? rnd() - .5 : 0));
+    let falhou = 0;
+    ordem.forEach(x => {
+      const g = grupos.find(y => y.cod === x.t) || grupos[0];
+      const b = escVivaMelhor(escVivaCov_(V, g.cod, C), g.dem, C, N, x.fix, folgas, t ? rnd : null);
+      if (!b) { falhou++; return; }
+      V.p[norm(x.nome)] = { n: x.nome, t: g.cod, f: b.p };
+    });
+    const custo = falhou * 1e6 + sum(grupos, g => escVivaCusto_(escVivaCov_(V, g.cod, C), g.dem));
+    if (!melhor || custo < melhor.custo) melhor = { V, custo, falhou };
+  }
+  return melhor;
+}
+// encaixa quem entrou: herda a vaga de quem saiu (se servir) ou recebe as folgas que mais equilibram a cobertura
+function escVivaEncaixar(V, x, grupos, N, folgas) {
+  const C = V.C; let best = null;
+  grupos.forEach(g => {
+    const cov = escVivaCov_(V, g.cod, C), base = escVivaCusto_(cov, g.dem);
+    const cand = [];
+    Object.keys(V.p).forEach(k => { const y = V.p[k]; if (y.s && y.t === g.cod && !escVivaOk(y.f, C, N, x.fix)) cand.push({ p: y.f, herda: k }); });
+    const m = escVivaMelhor(cov, g.dem, C, N, x.fix, folgas); if (m) cand.push({ p: m.p });
+    cand.forEach(c => {
+      const cv = cov.map((v, i) => v + (c.p[i] === '0' ? 1 : 0)), custo = escVivaCusto_(cv, g.dem) - base + (c.herda ? -.5 : 0);
+      if (!best || custo < best.custo) best = Object.assign({ g: g.cod, custo }, c);
+    });
+  });
+  return best;
+}
+const escVivaSig_ = res => [res.N, [...(res.fechado || [])].sort().join(''), res.grupos.map(g => g.cod).join(''), res.folgas].join('|');
+// situação da escala viva hoje: quem está nela, quem entrou no quadro e ainda não foi encaixado, quem saiu, quem teve a regra mudada
+function escVivaEstado(V, res, R) {
+  const C = V.C, N = res.N, fixOf = r => escVivaFix_(escFixDe(res, R, r), N);
+  const pess = res.dad.pessoas, nomes = new Set(pess.map(r => norm(r.nome)));
+  const ativos = [], novos = [], quebr = [];
+  pess.forEach(r => {
+    const k = norm(r.nome), x = V.p[k];
+    if (!x || x.s || !res.grupos.some(g => g.cod === x.t)) { novos.push(r); return; }
+    const msg = escVivaOk(x.f, C, N, fixOf(r));
+    ativos.push({ r, k, x, msg });
+    if (msg) quebr.push({ r, k, msg });
+  });
+  const saidas = Object.keys(V.p).filter(k => !V.p[k].s && !nomes.has(k));
+  return { V, C, N, ativos, novos, quebr, saidas, fixOf, sigMudou: V.sig && V.sig !== escVivaSig_(res) };
+}
+function escGradeViva(E, res, ano, mes, R) {
+  const { dias, ini, fim } = escDiasMes(ano, mes), V = E.V, ordG = res.grupos.map(g => g.cod);
+  const ls = E.ativos.slice().sort((a, b) => (ordG.indexOf(a.x.t) - ordG.indexOf(b.x.t)) || String(a.r.funcao).localeCompare(b.r.funcao) || String(a.r.nome).localeCompare(b.r.nome));
+  const linhas = ls.map(a => {
+    const g = res.grupos.find(y => y.cod === a.x.t), e = escDt_(a.x.e);
+    const rg = R ? escRegraTxt(escRegraDe(R, a.r)) : '';
+    return { nome: a.r.nome, funcao: a.r.funcao, k: a.k, real: true, tipo: '', rg, turno: g.cod === 'T' ? '' : 'Turno ' + g.cod + (g.ini ? ' · ' + g.ini + '–' + g.fim : ''), cells: dias.map(d => e && d < e ? '·' : a.x.f[escCicloDia_(V, d)] === '1' ? 'F' : g.cod), ent: a.x.e || '' };
+  });
+  const dem = dias.map(d => sum(res.grupos, g => g.dem[(d.getDay() + 6) % 7]));
+  const cov = dias.map((d, i) => linhas.filter(x => x.cells[i] !== 'F' && x.cells[i] !== '·').length);
+  const conf = E.quebr.map(q => ({ l: linhas.findIndex(x => x.k === q.k), t: q.msg }));
+  const leg = []; res.grupos.forEach(g => leg.push([g.cod, g.cod === 'T' ? 'Trabalha' : 'Turno ' + g.cod + (g.ini ? ' (' + g.ini + '–' + g.fim + ')' : '')]));
+  leg.push(['F', 'Folga']); if (linhas.some(x => x.ent)) leg.push(['·', 'Ainda não tinha entrado']);
+  return { dias, ini, fim, noMes: d => d >= ini && d <= fim, linhas, conf, dem, cov, excedentes: [], legenda: leg, vis: 'atual', viva: true };
+}
+const escPrim_ = n => String(n || '').split(' ').slice(0, 2).join(' ');
+function escVivaAvisos(E) {
+  if (!E) return escEdita() ? `<div class="esc-viva"><div><span><b>${ic('calendar')} Fixar como escala viva</b><br><span class="faint">Hoje esta escala é recalculada sempre que algo muda no setor. Fixada, cada pessoa passa a ter folgas que se repetem em ciclo, a escala continua igual de um mês para o outro, e quem entrar depois é encaixado sem mexer em ninguém.</span></span><button class="btn primary sm" id="vFix">${ic('check')} Fixar esta escala</button></div></div>` : '';
+  const V = E.V, em = V.em ? new Date(V.em) : null, it = [];
+  it.push(`<div><span><b>${ic('check')} Escala viva</b> · ciclo de ${E.C} semana(s)${em && !isNaN(em) ? ' · atualizada em ' + em.toLocaleDateString('pt-BR') : ''}${V.por ? ' por ' + h(V.por) : ''}</span>${escEdita() ? `<button class="btn sm" id="vRef" title="Monta tudo de novo: as folgas de todos podem mudar">${ic('refresh')} Refazer</button><button class="btn sm ghost" id="vDel" title="Volta a recalcular sempre">Desfixar</button>` : ''}</div>`);
+  if (E.novos.length) it.push(`<div style="border-color:var(--warn)"><span><span class="badge b-warn">${E.novos.length} novo(s)</span> Entraram no quadro e ainda não estão na escala: <b>${h(E.novos.map(r => escPrim_(r.nome)).join(', '))}</b>. O encaixe não mexe em mais ninguém.</span>${escEdita() ? `<button class="btn primary sm" id="vEnc">${ic('plus')} Encaixar na escala</button>` : ''}</div>`);
+  if (E.saidas.length) it.push(`<div><span><span class="badge b-info">${E.saidas.length} saída(s)</span> Saíram do quadro: <b>${h(E.saidas.map(k => escPrim_(E.V.p[k].n)).join(', '))}</b>. As folgas ficam guardadas: quem entrar no lugar herda sem mexer no resto da equipe.</span></div>`);
+  if (E.quebr.length) it.push(`<div style="border-color:var(--bad)"><span><span class="badge b-bad">Regra mudou</span> ${h(E.quebr.map(q => escPrim_(q.r.nome) + ': ' + q.msg).join(' · '))}</span>${escEdita() ? `<button class="btn sm" id="vReq">${ic('refresh')} Reencaixar só ${E.quebr.length > 1 ? 'essas pessoas' : 'essa pessoa'}</button>` : ''}</div>`);
+  if (E.sigMudou) it.push(`<div style="border-color:var(--warn)"><span><span class="badge b-warn">Parâmetros mudaram</span> Regra do domingo, dias de funcionamento, turnos ou tipo de folga mudaram depois que a escala foi fixada. A escala continua valendo como está; para aplicar as mudanças, use <b>Refazer</b>.</span></div>`);
+  if (escEdita()) it.push(`<div class="faint" style="background:none;border:0;padding:0 2px">${ic('settings')} Para trocar uma folga de alguém: toque na folga (F) e depois no dia da mesma semana em que a pessoa vai folgar.${E.C > 1 ? ` A troca vale para essa semana do ciclo (repete a cada ${E.C} semanas).` : ''}</div>`);
+  return `<div class="esc-viva">${it.join('')}</div>`;
+}
+function escVivaEventos(l, sec, res, R, E, gr) {
+  const key = escVivaKey(l, sec), C = res.N > 1 ? res.N : 1;
+  const salvar = V2 => { V2.em = new Date().toISOString(); V2.por = S.user.nome; return escParEnviar(key, V2); };
+  const copia = () => JSON.parse(JSON.stringify(E.V));
+  const gente = () => { // distribui o quadro atual entre os turnos, igual à escala automática
+    const pess = res.dad.pessoas, Ps = res.grupos.map(g => g.P), n = pess.length, T = sum(Ps) || 1;
+    const q = Ps.map(p => n * p / T), b = q.map(Math.floor); let r = n - sum(b);
+    q.map((x, i) => [x - b[i], i]).sort((a, z) => z[0] - a[0]).forEach(([, i]) => { if (r > 0) { b[i]++; r--; } });
+    const out = []; let k = 0;
+    res.grupos.forEach((g, gi) => { for (let j = 0; j < b[gi]; j++) { const rr = pess[k++]; if (rr) out.push({ nome: rr.nome, t: g.cod, fix: escVivaFix_(escFixDe(res, R, rr), res.N) }); } });
+    return out;
+  };
+  const montar = async () => {
+    const m = escVivaMontar(gente(), res.grupos, C, res.N, res.folgas);
+    if (!m || m.falhou) throw new Error('Não foi possível montar a escala com as regras atuais' + (m && m.falhou ? ` (${m.falhou} pessoa(s) sem combinação de folgas possível)` : '') + '. Revise as regras individuais.');
+    await salvar({ v: 1, ini: escIso_(escSegunda_(new Date())), C, sig: escVivaSig_(res), p: m.V.p });
+  };
+  const entrada = r => { const hj = escIso_(new Date()), d = String(r.desde || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(d) && d > hj ? d : hj; };
+  const encaixar = (V2, r, e) => { const b = escVivaEncaixar(V2, { nome: r.nome, fix: E.fixOf(r) }, res.grupos, res.N, res.folgas); if (!b) return null; const her = b.herda && b.herda !== norm(r.nome) ? V2.p[b.herda].n : ''; if (b.herda) delete V2.p[b.herda]; V2.p[norm(r.nome)] = { n: r.nome, t: b.g, f: b.p, e: e || '' }; return { her }; };
+  if ($('#vFix')) $('#vFix').onclick = ev => run(ev.currentTarget, async () => { await montar(); toast('Escala fixada: a partir de agora ela é viva'); route(true); });
+  if (!E) return;
+  if ($('#vRef')) $('#vRef').onclick = async ev => { if (!await confirmBox('Montar a escala viva de novo? <b>As folgas de todos podem mudar.</b> Para incluir só quem entrou, use “Encaixar na escala”.', 'Refazer', true)) return; run(ev.currentTarget, async () => { await montar(); toast('Escala refeita'); route(true); }); };
+  if ($('#vDel')) $('#vDel').onclick = async () => { if (!await confirmBox('Desfixar a escala? Ela volta a ser recalculada sempre que algo mudar no setor.', 'Desfixar', true)) return; escParEnviar(key, null); toast('Escala desfixada'); route(true); };
+  if ($('#vEnc')) $('#vEnc').onclick = ev => run(ev.currentTarget, async () => {
+    const V2 = copia(); E.saidas.forEach(k => { V2.p[k].s = 1; });
+    const msg = [], nao = [];
+    E.novos.forEach(r => { const x = encaixar(V2, r, entrada(r)); if (!x) nao.push(escPrim_(r.nome)); else msg.push(escPrim_(r.nome) + (x.her ? ' herdou as folgas de ' + escPrim_(x.her) : ' encaixado(a) sem mexer em ninguém')); });
+    await salvar(V2); route(true);
+    toast(msg.join(' · ') + (nao.length ? ' · Sem combinação possível: ' + nao.join(', ') : ''), !!nao.length);
+  });
+  if ($('#vReq')) $('#vReq').onclick = ev => run(ev.currentTarget, async () => {
+    const V2 = copia(); E.saidas.forEach(k => { V2.p[k].s = 1; });
+    E.quebr.forEach(q => { const old = V2.p[q.k]; delete V2.p[q.k]; if (!encaixar(V2, q.r, old && old.e)) V2.p[q.k] = old; });
+    await salvar(V2); route(true); toast('Reencaixado sem mexer no resto da equipe');
+  });
+  let sel = null;
+  $$('#eGrade [data-sw]').forEach(td => td.onclick = ev => {
+    ev.stopPropagation();
+    const [k, si] = td.dataset.sw.split('|'), i = +si;
+    if (!sel || sel.k !== k || sel.i === i) { $$('#eGrade td.sel').forEach(x => x.classList.remove('sel')); if (sel && sel.k === k && sel.i === i) { sel = null; return; } sel = { k, i }; td.classList.add('sel'); return; }
+    const i0 = sel.i; sel = null; $$('#eGrade td.sel').forEach(x => x.classList.remove('sel'));
+    if (Math.floor(i0 / 7) !== Math.floor(i / 7)) return toast('Troque a folga dentro da mesma semana (segunda a domingo).', true);
+    const x = E.V.p[k], a = E.ativos.find(y => y.k === k); if (!x || !a) return;
+    const c1 = escCicloDia_(E.V, gr.dias[i0]), c2 = escCicloDia_(E.V, gr.dias[i]);
+    if (x.f[c1] === x.f[c2]) return toast('Toque numa folga (F) e depois num dia de trabalho da mesma semana.', true);
+    const fa = x.f.split(''); [fa[c1], fa[c2]] = [fa[c2], fa[c1]]; const nf = fa.join('');
+    const erro = escVivaOk(nf, E.C, E.N, E.fixOf(a.r)); if (erro) return toast('Essa troca quebra a regra: ' + erro, true);
+    const V2 = copia(); V2.p[k].f = nf; salvar(V2); route(true);
+    toast(E.C > 1 ? `Folga trocada. Vale para essa semana do ciclo (repete a cada ${E.C} semanas).` : 'Folga trocada para todas as semanas.');
+  });
+}
+
 /* ---------------- 12x36 ---------------- */
 // postos: p24 (24h: diurno + noturno), p12 (12h diurno). h = horas por plantão (12 com intervalo indenizado; 11 com intervalo de 1h)
 function esc12Calc(p24, p12, h, L) {
@@ -3789,6 +3969,12 @@ function escCss() {
   .esc-tbl td.cF{background:#FCE4D6;color:#C00000}
   .esc-tbl td.cFE{background:#FFE0B2;color:#9a3412;font-size:10px}
   .esc-tbl td.cW{background:color-mix(in srgb,var(--ok) 12%,transparent);color:var(--ok)}
+  .esc-tbl td.cX{color:var(--faint);font-weight:400}
+  .esc-tbl td[data-sw]{cursor:pointer}
+  .esc-tbl td.sel{outline:2px solid var(--accent);outline-offset:-2px}
+  .esc-viva{display:flex;flex-direction:column;gap:8px;margin:4px 0 12px;font-size:12.5px}
+  .esc-viva>div{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 12px;border-radius:12px;background:var(--surface2);border:1px solid var(--border)}
+  .esc-viva>div>span{flex:1 1 260px;min-width:0}
   .esc-tbl td.cW.dom{background:#FFE0B2;color:#375623}
   .esc-tbl tr.desc td.cW{background:var(--bad-bg);color:var(--bad)}
   .esc-tbl tr.cov td{font-weight:800;font-size:11px;background:var(--surface2)}
@@ -3901,7 +4087,10 @@ function escSetor(l, sec, f) {
   if (par.alvo === '12x36' && f.et !== 'hoje') alt = escCalc(l, sec, Object.assign({}, par, { alvo: '5x2', atual: '12x36', modo: par.modo === 'manual' ? 'auto' : par.modo }), f.et);
   const [ano, mes] = f.mes.split('-').map(Number);
   const R = escRegras(l);
-  const gr = escGrade(res, par, ano, mes - 1, f.vis, R);
+  let gr = escGrade(res, par, ano, mes - 1, f.vis, R);
+  const vivaPode = !!gr && res.alvo === '5x2' && res.esc === '5x2' && f.vis === 'atual';
+  const V = vivaPode ? escViva(l, sec) : null, E = V && V.p ? escVivaEstado(V, res, R) : null;
+  if (E) gr = escGradeViva(E, res, ano, mes - 1, R);
   if (gr && f.pes && !gr.linhas.some(x => x.nome === f.pes)) f.pes = '';
   const grV = gr && f.pes ? Object.assign({}, gr, { linhas: gr.linhas.filter(x => x.nome === f.pes) }) : gr; // escala de uma pessoa só
   const domFolga = par.domN > 1 ? `um domingo de folga a cada ${par.domN} semanas` : 'folga em todos os domingos';
@@ -3917,8 +4106,8 @@ function escSetor(l, sec, f) {
   // "com o quadro atual": monta a escala com quem existe, sem tratar como falta de gente
   const montar = f.vis === 'atual' && gr && res.alvo !== '12x36';
   const nReal = gr ? gr.linhas.filter(x => x.real).length : 0, diasAbaixo = gr ? gr.dias.filter((d, i) => gr.noMes(d) && gr.cov[i] < gr.dem[i]).length : 0;
-  const vtF = montar ? `Escala montada com as ${nReal} pessoa(s) do quadro atual` : vt, vcF = montar ? 'c-green' : vc, viF = montar ? 'check' : vi;
-  const vtxtF = montar ? `Folgas distribuídas para equilibrar a equipe que existe hoje: 2 folgas por semana ${res.folgas === 'juntas' ? 'juntas' : 'espaçadas'}, nunca mais de 2 folgas emendadas, no máximo 6 dias seguidos de trabalho e ${h(domFolga)}${res.fechado && res.fechado.size ? `; setor fechado ${[...res.fechado].sort().map(d => ESC_DIAS[d]).join('/')}` : ''}. ${diasAbaixo ? `Em ${diasAbaixo} dia(s) do mês a equipe fica abaixo do ideal calculado (linha “Trabalhando / ideal”); para ver quantas pessoas seriam necessárias, use “Simular necessário”.` : 'Todos os dias ficam dentro do ideal calculado.'}` : vtxt;
+  const vtF = E ? `Escala viva com ${nReal} pessoa(s): fixa e contínua de um mês para o outro` : montar ? `Escala montada com as ${nReal} pessoa(s) do quadro atual` : vt, vcF = montar ? 'c-green' : vc, viF = montar ? 'check' : vi;
+  const vtxtF = E ? `Cada pessoa tem um padrão de folgas que se repete a cada ${E.C} semana(s), sem recalcular: quem já está na escala não muda de folga sozinho. Quem entra no quadro é encaixado sem mexer no resto da equipe: herda as folgas de quem saiu (quando servem nas regras dele) ou recebe as folgas que mais equilibram a cobertura do setor. ${diasAbaixo ? `Em ${diasAbaixo} dia(s) do mês a equipe fica abaixo do ideal calculado.` : 'Todos os dias ficam dentro do ideal calculado.'}` : montar ? `Folgas distribuídas para equilibrar a equipe que existe hoje: 2 folgas por semana ${res.folgas === 'juntas' ? 'juntas' : 'espaçadas'}, nunca mais de 2 folgas emendadas, no máximo 6 dias seguidos de trabalho e ${h(domFolga)}${res.fechado && res.fechado.size ? `; setor fechado ${[...res.fechado].sort().map(d => ESC_DIAS[d]).join('/')}` : ''}. ${diasAbaixo ? `Em ${diasAbaixo} dia(s) do mês a equipe fica abaixo do ideal calculado (linha “Trabalhando / ideal”); para ver quantas pessoas seriam necessárias, use “Simular necessário”.` : 'Todos os dias ficam dentro do ideal calculado.'}` : vtxt;
   const tipoTxt = { auto: 'Automático pelo quadro', manual: 'Horários e postos informados' };
   const hr = (k, lbl) => `<div class="esc-hr" style="margin-bottom:6px"><span style="grid-column:1/-1">${lbl}</span><small class="faint">Abre</small><small class="faint">Fecha</small><small class="faint">Postos</small><input class="input" type="time" data-h="${k}.a" value="${h(par.h[k].a)}"><input class="input" type="time" data-h="${k}.f" value="${h(par.h[k].f)}"><input class="input" type="number" min="0" data-p="${k}" value="${h(par.p[k])}" title="Pessoas trabalhando ao mesmo tempo (postos)"></div>`;
   body.innerHTML = `
@@ -3987,13 +4176,14 @@ function escSetor(l, sec, f) {
   </div>
 
   <div class="card" style="margin-top:16px">
-    <div class="card-h" style="flex-wrap:wrap"><div><h3>Escala do mês</h3><div class="sub">${gr ? `${ESC_MESES[mes - 1]} de ${ano} · montada automaticamente` : 'Selecione a etapa de 15/12/2026 ou dez/2027 para montar a 5x2'}</div></div>
+    <div class="card-h" style="flex-wrap:wrap"><div><h3>Escala do mês</h3><div class="sub">${gr ? `${ESC_MESES[mes - 1]} de ${ano} · ${E ? 'escala viva (fixa)' : 'montada automaticamente'}` : 'Selecione a etapa de 15/12/2026 ou dez/2027 para montar a 5x2'}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input class="input" type="month" id="eMes" value="${h(f.mes)}" style="width:auto;padding:7px 10px">
         <div class="seg" id="eVis"><button data-v="atual" class="${f.vis === 'atual' ? 'on' : ''}" title="Monta a escala só com quem já está no quadro">Com o quadro atual</button><button data-v="nec" class="${f.vis === 'nec' ? 'on' : ''}" title="Mostra quantas pessoas a escala ideal pede">Simular necessário</button></div>
         ${gr ? `<select class="input" id="ePes" style="width:auto;max-width:230px;padding:7px 10px" title="Escala de uma pessoa só"><option value="">Toda a equipe</option>${gr.linhas.filter(x => x.real).map(x => `<option ${x.nome === f.pes ? 'selected' : ''}>${h(x.nome)}</option>`).join('')}</select>` : ''}
         ${gr ? `<button class="btn" id="eXls" title="Excel">${ic('download')}</button><button class="btn" id="ePdf" title="PDF para o quadro de avisos">${ic('file')} PDF</button>` : ''}
       </div></div>
+    ${vivaPode ? escVivaAvisos(E) : ''}
     <div id="eGrade">${gr ? escGradeHTML(grV) : `<div class="empty">${ic('calendar')}<div>A grade de folgas é montada para a escala nova.</div></div>`}</div>
     ${gr ? `<div class="esc-leg">${gr.legenda.map(([c, t]) => `<span><i style="${escCorLeg(c)}">${h(c)}</i>${h(t)}</span>`).join('')}</div>` : ''}
     ${gr ? escConfHTML(gr, res, f) : ''}
@@ -4043,6 +4233,7 @@ function escSetor(l, sec, f) {
     $$('[data-rp]', body).forEach(c => c.onclick = () => openEscRegraPes(l, { nome: c.dataset.rp, funcao: c.dataset.rpf }));
     $$('#eGrade [data-pn]').forEach(c => c.onclick = () => openEscRegraPes(l, { nome: c.dataset.pn, funcao: c.dataset.pf }));
   }
+  if (vivaPode && escEdita()) escVivaEventos(l, sec, res, R, E, gr);
   if (gr) {
     const nomeArq = 'escala_' + l.key + '_' + norm(sec.nome).replace(/[^A-Z0-9]+/g, '_') + '_' + f.mes;
     const diasM = gr.dias.map((d, i) => [d, i]).filter(([d]) => gr.noMes(d));
@@ -4083,7 +4274,7 @@ function escGradeHTML(gr) {
   const rows = gr.linhas.map(x => {
     const sep = ultimoTurno !== null && x.turno !== ultimoTurno ? `<tr class="sep"><td class="nm"></td>${idx.map(() => '<td></td>').join('')}</tr>` : '';
     ultimoTurno = x.turno;
-    return sep + `<tr class="${x.tipo}"><td class="nm ${x.real && escEdita() ? 'pick' : ''}" ${x.real ? `data-pn="${h(x.nome)}" data-pf="${h(x.funcao)}"` : ''}><b title="${h(x.nome)}">${h(x.nome)}</b><small>${h([x.funcao, x.turno].filter(Boolean).join(' · '))}</small>${x.rg ? `<small class="rg">${h(x.rg)}</small>` : ''}</td>${idx.map(([d, i]) => { const c = x.cells[i]; const k = c === 'F' ? 'cF' : c === 'FE' ? 'cFE' : 'cW'; return `<td class="c ${k} ${d.getDay() === 0 ? 'dom' : ''}">${h(c)}</td>`; }).join('')}</tr>`;
+    return sep + `<tr class="${x.tipo}"><td class="nm ${x.real && escEdita() ? 'pick' : ''}" ${x.real ? `data-pn="${h(x.nome)}" data-pf="${h(x.funcao)}"` : ''}><b title="${h(x.nome)}">${h(x.nome)}</b><small>${h([x.funcao, x.turno].filter(Boolean).join(' · '))}</small>${x.rg ? `<small class="rg">${h(x.rg)}</small>` : ''}</td>${idx.map(([d, i]) => { const c = x.cells[i]; const k = c === 'F' ? 'cF' : c === 'FE' ? 'cFE' : c === '·' ? 'cX' : 'cW'; return `<td class="c ${k} ${d.getDay() === 0 ? 'dom' : ''}" ${gr.viva && x.k && c !== '·' && escEdita() ? `data-sw="${h(x.k)}|${i}"` : ''}>${h(c)}</td>`; }).join('')}</tr>`;
   }).join('');
   const cov = `<tr class="cov"><td class="nm"><b>Trabalhando / ${gr.vis === 'atual' ? 'ideal' : 'necessário'}</b></td>${idx.map(([, i]) => `<td class="${gr.cov[i] < gr.dem[i] ? (gr.vis === 'atual' ? 'abaixo' : 'falta') : ''}" title="${gr.cov[i]} de ${gr.dem[i]}">${gr.cov[i]}<span class="faint">/${gr.dem[i]}</span></td>`).join('')}</tr>`;
   return `<div class="tbl-wrap" style="max-height:70vh"><table class="esc-tbl"><thead>${head}</thead><tbody>${rows}${cov}</tbody></table></div>`;

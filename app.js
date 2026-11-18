@@ -4556,10 +4556,42 @@ async function pgAlmoco(arg) {
   let dd;
   try { dd = await api('almDia', { data: f.dia }, { silent: true }); } catch (e) { $('#alDiaT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; }
   if (rt !== S.rt) return;
-  const it = almOrd_(dd.itens || []);
+  let it = almOrd_(dd.itens || []);
   $('#alPdf').onclick = () => it.length ? almAbrir_(almFichaHTML(f.dia, it)) : toast('Nenhum registro neste dia.', true);
-  $('#alDiaT').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><span class="badge b-ok" style="font-size:13px;padding:6px 10px">${it.length} refeiç${it.length === 1 ? 'ão' : 'ões'}</span>${dd.enviado ? `<span class="badge b-info" style="font-size:13px;padding:6px 10px">Relação enviada pelo restaurante às ${h(dd.enviado.hora)}</span>` : f.dia === C.hoje ? '<span class="badge b-warn" style="font-size:13px;padding:6px 10px">Relação ainda não enviada</span>' : ''}</div>
-    ${it.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nº</th><th>Colaborador</th><th>Cargo</th><th>Registro</th></tr></thead><tbody>${it.map((x, i) => `<tr><td>${i + 1}</td><td><b>${h(x.nome)}</b>${x.fora ? ' <span class="badge b-warn">fora da lista</span>' : ''}</td><td>${h(x.cargo || '')}</td><td>✓ ${h(x.hora || '')}</td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('calendar')}<div>Nenhum registro neste dia.</div></div>`}`;
+  const rh = async payload => { const j = await api('almRh', Object.assign({ data: f.dia }, payload)); dd.itens = j.itens || []; dd.enviado = j.enviado; it = almOrd_(dd.itens); desenhar(); return j; };
+  const desenhar = () => {
+    const nRh = it.filter(x => x.rh).length;
+    $('#alDiaT').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span class="badge b-ok" style="font-size:13px;padding:6px 10px">${it.length} refeiç${it.length === 1 ? 'ão' : 'ões'}</span>${dd.enviado ? `<span class="badge b-info" style="font-size:13px;padding:6px 10px">Relação enviada pelo restaurante às ${h(dd.enviado.hora)}</span>` : f.dia === C.hoje ? '<span class="badge b-warn" style="font-size:13px;padding:6px 10px">Relação ainda não enviada</span>' : ''}${nRh ? `<span class="badge" style="font-size:13px;padding:6px 10px">${nRh} incluída(s) pelo RH</span>` : ''}<span class="spacer"></span><button class="btn" id="alInc">${ic('plus')} Incluir pessoa</button></div>
+    ${it.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nº</th><th>Colaborador</th><th>Cargo</th><th>Registro</th><th></th></tr></thead><tbody>${it.map((x, i) => `<tr><td>${i + 1}</td><td><b>${h(x.nome)}</b>${x.fora ? ' <span class="badge b-warn">fora da lista</span>' : ''}${x.rh ? ` <span class="badge" title="${h(x.por ? 'Incluído por ' + x.por : 'Incluído pelo RH')}">incluído pelo RH</span>` : ''}</td><td>${h(x.cargo || '')}</td><td>✓ ${h(x.hora || '')}</td><td style="text-align:right"><button class="btn sm ghost" data-rm="${h(x.id)}" title="Retirar da relação">${ic('x')}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('calendar')}<div>Nenhum registro neste dia.</div></div>`}`;
+    $('#alInc').onclick = incluir;
+    $$('#alDiaT [data-rm]').forEach(b => b.onclick = async () => { const x = it.find(y => y.id === b.dataset.rm); if (!x || !await confirmBox(`Retirar <b>${h(x.nome)}</b> da relação de ${h(isoToBR(f.dia))}?`, 'Retirar', true)) return; run(b, async () => { await rh({ op: 'desmarcar', id: x.id }); toast('Retirado da relação'); }); });
+  };
+  const incluir = () => {
+    const ja = new Set(it.map(x => x.pid).filter(Boolean)), L = almOrd_(C.pessoas.filter(p => p.ativo && !ja.has(p.id)));
+    modal({
+      title: 'Incluir na relação de ' + isoToBR(f.dia), icon: 'plus',
+      body: `<p class="muted" style="margin-top:0">Para quem almoçou e não foi marcado pelo restaurante. Marque uma ou mais pessoas do cadastro${L.length ? '' : ' (todos do cadastro já estão na relação)'} ou informe alguém fora da lista. A ficha do dia é atualizada na hora.</p>
+        <div class="field"><label>Horário (opcional)</label><input class="input" id="aiH" type="time" style="width:auto"></div>
+        ${L.length ? `<div class="input-icon search" style="margin-bottom:8px">${ic('search')}<input class="input" id="aiQ" placeholder="Buscar no cadastro" style="width:100%"></div>
+        <div id="aiL" style="max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:12px;padding:4px 10px;margin-bottom:12px">${L.map(p => `<label class="ai-p" style="display:flex;gap:10px;align-items:center;padding:8px 0;cursor:pointer;border-bottom:1px solid var(--border)" data-n="${h(norm(p.nome + ' ' + (p.cargo || '')))}"><input type="checkbox" value="${h(p.id)}"><span><b>${h(p.nome)}</b>${p.cargo ? `<br><small class="faint">${h(p.cargo)}</small>` : ''}</span></label>`).join('')}</div>` : ''}
+        <div class="field"><label>Pessoa fora da lista (opcional)</label><div style="display:flex;gap:8px;flex-wrap:wrap"><input class="input" id="aiN" placeholder="Nome completo" style="flex:2 1 200px"><input class="input" id="aiC" placeholder="Cargo ou setor" style="flex:1 1 140px"></div></div>`,
+      foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="aiOk">${ic('check')} Incluir</button>`,
+      onMount: m => {
+        const q = $('#aiQ', m.el); if (q) q.oninput = () => { const k = norm(q.value); $$('.ai-p', m.el).forEach(l => l.style.display = !k || l.dataset.n.includes(k) ? '' : 'none'); };
+        $('#aiOk', m.el).onclick = ev => run(ev.currentTarget, async () => {
+          const hora = $('#aiH', m.el).value, ids = $$('#aiL input:checked', m.el).map(c => c.value), nome = $('#aiN', m.el).value.trim(), cargo = $('#aiC', m.el).value.trim();
+          if (!ids.length && !nome) return toast('Marque alguém do cadastro ou informe o nome.', true);
+          if (nome && nome.split(/\s+/).length < 2) return toast('Informe nome e sobrenome da pessoa fora da lista.', true);
+          let n = 0; const erros = [];
+          for (const pid of ids) { try { await rh({ op: 'marcar', pid, hora }); n++; } catch (e) { erros.push(e.message); } }
+          if (nome) { try { await rh({ op: 'fora', nome, cargo, hora }); n++; } catch (e) { erros.push(e.message); } }
+          m.close();
+          toast(n ? `${n} pessoa(s) incluída(s). A ficha já está atualizada.` + (erros.length ? ' ' + erros.join(' ') : '') : erros.join(' '), !!erros.length);
+        });
+      }
+    });
+  };
+  desenhar();
 }
 function almCadastro(B, C, f) {
   const desenhar = () => {

@@ -7248,7 +7248,7 @@ function pgContr() {
     <span class="spacer"></span>
     <div class="seg" id="cvw"><button data-v="sem">${ic('calendar')}<span class="desk-only">Por semana</span></button><button data-v="tbl">${ic('table')}<span class="desk-only">Tabela</span></button></div>
     <button class="btn" id="cExp" title="Exportar Excel / PDF">${ic('download')}</button>
-    ${canEdit() && !isGestor() ? `<button class="btn" id="cCruz" title="Marca como alocado quem já está no quadro e como desligado quem já saiu">${ic('swap')} Cruzar com o quadro</button>` : ''}
+    ${canEdit() && !isGestor() ? `<button class="btn" id="cCruz" title="Junta duplicadas, coloca no quadro quem ainda não entrou, marca alocado quem já está e desligado quem já saiu">${ic('swap')} Cruzar com o quadro</button>` : ''}
     ${canContr() ? `<button class="btn primary" id="cNew">${ic('plus')} Nova contratação</button>` : ''}
   </div>
   <div id="cBulk" class="bulk hidden"></div>
@@ -8494,6 +8494,7 @@ function openContr(r) {
           const data = {}; $$('[data-k]', m.el).forEach(i => { let v = i.value; if (v === '__outro') v = ''; if (i.dataset.k !== K.data) v = v.trim(); if (i.dataset.k === K.colab || i.dataset.k === K.funcao || i.dataset.k === K.setor) v = v.toUpperCase(); data[i.dataset.k] = v; });
           if (!data[K.colab]) throw new Error('Informe o colaborador');
           if (novo && !data[K.loja]) throw new Error('Selecione a loja');
+          if (!r) { const lk = lojaKey(data[K.loja]), dn = parseISO(data[K.data]) || parseBR(data[K.data]), ja = (S.data.contratacoes.rows || []).find(x => norm(x[K.colab]) === norm(data[K.colab]) && x._loja === lk && (!x._data || !dn || Math.abs(x._data - dn) <= 60 * 864e5)); if (ja) throw new Error(`${data[K.colab]} já tem contratação lançada nesta loja (${ja[K.data] || 'sem data'}). Abra a existente para editar.`); }
           if (r) { await api('saveContratacao', { row: r.row, expectNome: r[K.colab], data }); m.close(); toast('Contratação atualizada'); }
           else {
             let vaga = null;
@@ -8511,22 +8512,67 @@ function openContr(r) {
 }
 
 
+// vaga sugerida para uma contratação pendente (mesma lógica da alocação automática)
+function alocSug_(c, usadas) {
+  const K = S.ck, l = lojaBy(c._loja); if (!l) return null;
+  const vagas = l.rows.filter(r => r.isVaga && r.vagaAberta && !(usadas && usadas.has(l.key + '|' + r.row))); if (!vagas.length) return null;
+  const nf = x => norm(x).replace(/[^A-Z]/g, ''), cf = nf(c[K.funcao]), cs = nf(K.setor ? c[K.setor] : '');
+  const score = r => { const rf = nf(r.funcao), rs = nf(r.setor); let sc = 0; if (cf && rf === cf) sc += 4; else if (cf && (rf.startsWith(cf.slice(0, 5)) || cf.startsWith(rf.slice(0, 5)))) sc += 2; if (cs && rs && (rs === cs || rs.includes(cs) || cs.includes(rs))) sc += 3; return sc; };
+  const L = vagas.map(r => ({ r, sc: score(r) })).filter(x => x.sc >= 2).sort((a, b) => b.sc - a.sc || (b.r.dias || 0) - (a.r.dias || 0));
+  return L.length ? L[0].r : null;
+}
+// Assistente de contratações: junta duplicadas, marca quem já está no quadro / já saiu e aloca quem ainda não entrou no quadro
 async function openCruzar(btn) {
-  const j = await run(btn, () => api('cruzarContr', { simular: true }));
-  const A = j.alocados || [], D = j.desligados || [];
-  if (!A.length && !D.length) return toast('Tudo certo: nenhuma contratação pendente a ajustar.');
+  const K = S.ck, rows = (S.data.contratacoes.rows || []).filter(r => r[K.colab]);
+  // 1) duplicadas: mesmo nome + mesma loja com até 60 dias de diferença
+  const dia = r => r._data ? r._data.getTime() : null, grupos = {};
+  rows.forEach(r => { const k = norm(r[K.colab]) + '|' + (r._loja || norm(r[K.loja])); (grupos[k] = grupos[k] || []).push(r); });
+  const dups = [];
+  Object.values(grupos).forEach(g => {
+    if (g.length < 2) return;
+    const ord = g.slice().sort((a, b) => (a._pend ? 1 : 0) - (b._pend ? 1 : 0) || (b._chkOk || 0) - (a._chkOk || 0) || a.row - b.row);
+    const fica = [];
+    ord.forEach(r => { const par = fica.find(x => dia(x) == null || dia(r) == null || Math.abs(dia(x) - dia(r)) <= 60 * 864e5); if (par) dups.push({ r, fica: par }); else fica.push(r); });
+  });
+  const sai = new Set(dups.map(x => x.r.row));
+  // 2) quem já está no quadro / já saiu (servidor)
+  let j = { alocados: [], desligados: [] };
+  try { j = await run(btn, () => api('cruzarContr', { simular: true })); } catch (e) { return; }
+  const A = (j.alocados || []).filter(x => !sai.has(x.row)), D = (j.desligados || []).filter(x => !sai.has(x.row));
+  const ja = new Set(A.map(x => x.row).concat(D.map(x => x.row)));
+  // 3) pendentes que NÃO estão no quadro: sugere a vaga
+  const pend = rows.filter(r => r._pend && !r._consta && !r._noQuadro && !sai.has(r.row) && !ja.has(r.row));
+  const usadas = new Set(), P = pend.map(c => { const sug = alocSug_(c, usadas); if (sug) usadas.add(c._loja + '|' + sug.row); return { c, l: lojaBy(c._loja), sug }; });
+  const tot = dups.length + A.length + D.length + P.length;
+  if (!tot) return toast('Conferi tudo: não há duplicadas, e todas as contratações estão certas no quadro.');
+  const ex = r => `${h(r[K.funcao] || '')} · ${h(LOJA_NOMES[r._loja] || r[K.loja] || '')} · ${h(r[K.data] || '')}`;
+  const opcV = (x) => { if (!x.l) return ''; const vs = x.l.rows.filter(r => r.isVaga && r.vagaAberta); return `<select class="input" data-aloc="${x.c.row}" style="margin-top:6px;width:100%"><option value="">Não alocar agora</option>${vs.map(r => `<option value="${r.row}" ${x.sug && x.sug.row === r.row ? 'selected' : ''}>${h(r.funcao)} · ${h(r.setor)}${r.contrato && norm(r.contrato) !== 'INTEGRAL' ? ' · ' + h(r.contrato) : ''}</option>`).join('')}</select>`; };
+  const bloco = (titulo, icon, cls, n, sub, itens) => n ? `<div class="card" style="background:var(--surface2);margin-bottom:12px"><div class="card-h"><h3>${ic(icon)} ${titulo}</h3><span class="badge ${cls}">${n}</span></div><div class="muted" style="font-size:12px;margin-bottom:8px">${sub}</div><div class="alist" style="max-height:260px">${itens}</div></div>` : '';
   modal({
-    title: 'Cruzar contratações com o quadro', icon: 'swap', wide: true,
-    body: `<p class="muted" style="margin-top:0">O sistema comparou os nomes pendentes da aba CONTRATAÇÕES com o quadro das lojas e com o histórico de desligados.</p>
-      <div class="grid g2">
-        <div class="card" style="background:var(--surface2)"><div class="card-h"><h3>${ic('check')} Já estão no quadro</h3><span class="badge b-ok">${A.length}</span></div><div class="muted" style="font-size:12px;margin-bottom:8px">Serão marcados como <b>Alocado</b></div><div class="alist" style="max-height:300px">${A.map(x => `<div class="aitem"><div><b>${h(x.nome)}</b><span>${h(x.onde)}</span></div></div>`).join('') || '<div class="faint">Nenhum</div>'}</div></div>
-        <div class="card" style="background:var(--surface2)"><div class="card-h"><h3>${ic('door')} Já saíram</h3><span class="badge b-bad">${D.length}</span></div><div class="muted" style="font-size:12px;margin-bottom:8px">Serão marcados como <b>Desligado</b></div><div class="alist" style="max-height:300px">${D.map(x => `<div class="aitem"><div><b>${h(x.nome)}</b></div></div>`).join('') || '<div class="faint">Nenhum</div>'}</div></div>
-      </div>
-      <p class="muted" style="font-size:12px">O cruzamento também roda automaticamente quando o sistema é aberto (no máximo a cada 30 minutos).</p>`,
-    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="crOk">${ic('check')} Aplicar ${A.length + D.length} ajuste(s)</button>`,
+    title: 'Assistente de contratações', icon: 'swap', wide: true,
+    body: `<p class="muted" style="margin-top:0">Conferi as contratações com o quadro das lojas e com os desligados. Revise e clique em <b>Resolver</b>.</p>
+      ${bloco('Contratações duplicadas', 'copy', 'b-bad', dups.length, 'A mesma pessoa lançada mais de uma vez na mesma loja. Fica a mais completa; as repetidas são excluídas (não viram desligamento e não mexem no quadro).', dups.map(x => `<div class="aitem"><div><b>${h(x.r[K.colab])}</b><span>${ex(x.r)} · repetida (${x.r._chkOk || 0}/4) — fica a de ${x.fica._chkOk || 0}/4${x.fica._pend ? '' : ', já alocada'}</span></div></div>`).join(''))}
+      ${bloco('Não entraram no quadro', 'swap', 'b-warn', P.length, 'Estão pendentes e o nome não aparece em nenhuma linha do quadro. Já deixei escolhida a vaga aberta mais compatível (mesma função e setor); troque se precisar.', P.map(x => `<div class="aitem" style="display:block"><b>${h(x.c[K.colab])}</b><span style="display:block">${ex(x.c)}${x.sug ? '' : ` · <b style="color:var(--warn)">${x.l ? 'nenhuma vaga aberta compatível' : 'loja não reconhecida'}</b>`}</span>${opcV(x)}</div>`).join(''))}
+      ${bloco('Já estão no quadro', 'check', 'b-ok', A.length, 'Serão marcados como <b>Alocado</b>.', A.map(x => `<div class="aitem"><div><b>${h(x.nome)}</b><span>${h(x.onde || '')}</span></div></div>`).join(''))}
+      ${bloco('Já saíram', 'door', 'b-bad', D.length, 'Serão marcados como <b>Desligado</b>.', D.map(x => `<div class="aitem"><div><b>${h(x.nome)}</b></div></div>`).join(''))}`,
+    foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="crOk">${ic('check')} Resolver</button>`,
     onMount: m => $('#crOk', m.el).onclick = e => run(e.currentTarget, async () => {
-      const r = await api('cruzarContr', {});
-      m.close(); if (!r.pendente) toast(`${(r.alocados || []).length} marcada(s) como alocada(s) e ${(r.desligados || []).length} como desligada(s)`); bgReload();
+      const escolha = {}; $$('[data-aloc]', m.el).forEach(s => { if (s.value) escolha[s.dataset.aloc] = +s.value; });
+      const feito = [], erros = [];
+      if (dups.length) { await api('contrBulkSet', { rows: dups.map(x => ({ row: x.r.row, nome: x.r[K.colab] })), campo: K.status, valor: 'Excluído' }); dups.forEach(x => { x.r[K.status] = 'Excluído'; }); feito.push(dups.length + ' duplicada(s) excluída(s)'); }
+      if (A.length || D.length) { const r = await api('cruzarContr', {}); if (!r.pendente) feito.push(`${(r.alocados || []).length} marcada(s) como alocada(s), ${(r.desligados || []).length} como desligada(s)`); }
+      const statusOpc = (S.data.contratacoes.opcoes || {})[K.status] || [], stAl = statusOpc.find(x => /ALOCAD/i.test(x)) || 'Alocado';
+      let na = 0;
+      for (const x of P) {
+        const row = escolha[x.c.row]; if (!row || !x.l) continue;
+        const r = x.l.rows.find(y => y.row === row); if (!r || !r.vagaAberta) { erros.push(x.c[K.colab] + ': a vaga escolhida não está mais aberta'); continue; }
+        const ct = x.c[K.contrato] && opc(x.l, 'contrato').includes(x.c[K.contrato]) ? x.c[K.contrato] : r.contrato;
+        try { await api('alocar', { loja: x.l.key, row, expect: expectOf(r), setor: r.setor, nome: x.c[K.colab], contrato: ct, tag: /APRENDIZ/.test(norm(ct)) ? 'APRENDIZ' : '', contrRow: x.c.row, statusAlocado: stAl }); r.vagaAberta = false; na++; } catch (er) { erros.push(x.c[K.colab] + ': ' + er.message); }
+      }
+      if (na) feito.push(na + ' colocada(s) no quadro');
+      derive(); updateShell(); route(true); m.close();
+      toast((feito.join(' · ') || 'Nada aplicado') + (erros.length ? ' · Atenção: ' + erros.join(' · ') : ''), !!erros.length);
+      bgReload();
     })
   });
 }

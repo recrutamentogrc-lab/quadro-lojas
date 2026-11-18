@@ -128,7 +128,7 @@
      * (08h às 12h e 13h às 17h). Marcações no Firestore: /agenda/{recrutador}_{AAAAMMDD} (só o servidor lê). */
     const AG_TZ_ = 'America/Fortaleza';
     function agPasso_(dia) { return String(dia || '9999-12-31') >= '2026-11-12' ? 30 : 20; }
-    function agHorarios_(dia) { const out = [], passo = agPasso_(dia); [[8, 12], [13, 17]].forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += passo) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; }
+    function agHorarios_(dia) { const out = [], passo = agPasso_(dia); (dia && agDiaSem_(dia) === 6 ? [[9, 12], [13, 16]] : [[8, 12], [13, 17]]).forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += passo) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; }
     function agPode_(u) { return !!u && (isAdmin_(u) || testePode_(u) || fichaPode_(u)); }
     function mustAgenda_(u) { if (!agPode_(u)) throw new Error('Sem permissão para a agenda de entrevistas.'); }
     function agLinksLer_() { return parseJ_(PropertiesService.getScriptProperties().getProperty('AGENDALINKS'), []); }
@@ -148,7 +148,13 @@
       return F;
     }
     function agFeriado_(dia) { return agFeriados_(Number(dia.slice(0, 4)))[dia] || ''; }
-    function agUtil_(dia) { const w = agDiaSem_(dia); return w !== 0 && w !== 6 && !agFeriado_(dia); }
+    function agUtil_(dia) { const w = agDiaSem_(dia); return w !== 0 && (w !== 6 || agSab_()) && !agFeriado_(dia); }
+    var AG_CTX_REC_ = '';
+    // sábado: liga por recrutador (lista em AG_SAB); horário 09h-12h e 13h-16h
+    function agSabIds_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('AG_SAB') || '[]'); } catch (e) { return []; } }
+    function agSab_(rec) { rec = agRec_(rec || AG_CTX_REC_); return !!rec && agSabIds_().indexOf(rec) >= 0; }
+    function agCtxCod_(cod) { const l = agLinksLer_().find(x => x.codigo === String(cod || '')); AG_CTX_REC_ = l ? agRec_(l.rec) : ''; }
+    function agendaSab_(req, user) { mustAgenda_(user); const rec = agRec_(agMeuLink_(user).rec); const L = agSabIds_().filter(x => x !== rec); if (req.on) L.push(rec); PropertiesService.getScriptProperties().setProperty('AG_SAB', JSON.stringify(L)); return { sab: !!req.on }; }
     function agProxUtil_(dia) { let d = agSoma_(dia, 1); while (!agUtil_(d)) d = agSoma_(d, 1); return d; }
     // dias que o candidato pode escolher: hoje (se dia útil) e o próximo dia útil (sexta → segunda; pula feriados)
     function agDiasCand_() { const h = agHoje_(); const L = []; if (agUtil_(h)) L.push(h); L.push(agProxUtil_(h)); return L; }
@@ -181,6 +187,7 @@
     }
     // público (candidato)
     function agendaInfo_(req) {
+  agCtxCod_(req.codigo);
       const l = agLinksLer_().find(x => x.codigo === String(req.codigo || ''));
       if (!l || !l.ativo) return { ok: false, error: 'Este link de agendamento não está mais ativo. Peça um novo link ao RH.' };
       const hoje = agHoje_();
@@ -189,6 +196,7 @@
       return { ok: true, rec: l.nome, foto: agFoto_(l.rec), hoje: hoje, dias: dias, ficha: 'demoficha' };
     }
     function agendaMarcar_(req) {
+  agCtxCod_(req.codigo);
       const cache = CacheService.getScriptCache(), rk = 'ag_' + String(req.codigo || '').slice(0, 20), nt = Number(cache.get(rk) || 0);
       if (nt >= 60) return { ok: false, error: 'Muitas tentativas em pouco tempo. Tente de novo em alguns minutos.' };
       cache.put(rk, String(nt + 1), 600);
@@ -235,14 +243,14 @@
       mustAgenda_(user);
       const meu = agMeuLink_(user), links = agLinksLer_().filter(x => x.ativo);
       let rec = agRec_(req.rec || meu.rec);
-      if (rec !== meu.rec && !isAdmin_(user)) rec = meu.rec;
+      if (rec !== meu.rec && !isAdmin_(user)) rec = meu.rec; AG_CTX_REC_ = rec;
       const de = /^\d{4}-\d{2}-\d{2}$/.test(String(req.de || '')) ? req.de : agHoje_();
       const n = Math.max(1, Math.min(7, Number(req.n) || 1)), dias = [];
       const lista = []; for (let i = 0; i < n; i++) lista.push(agSoma_(de, i));
       agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); x.horarios = agHorarios_(x.dia); dias.push(x); });
       let recs = [{ rec: meu.rec, nome: meu.nome }];
       if (isAdmin_(user)) { try { recs = agRecs_(); } catch (e) { recs = links.map(x => ({ rec: x.rec, nome: x.nome })); } if (!recs.some(x => x.rec === meu.rec)) recs.unshift({ rec: meu.rec, nome: meu.nome }); }
-      return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), candDias: agDiasCand_(), horarios: agHorarios_() };
+      return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), sab: agSab_(rec), candDias: agDiasCand_(), horarios: agHorarios_() };
     }
     function agDoUser_(req, user) { mustAgenda_(user); const meu = agMeuLink_(user); const rec = agRec_(req.rec || meu.rec); if (rec !== meu.rec && !isAdmin_(user)) throw new Error('Você só pode alterar a sua agenda.'); return rec; }
     function agTurno_(d, turno, bloq, user) {
@@ -253,6 +261,7 @@
       });
     }
     function agendaSalvar_(req, user) {
+  AG_CTX_REC_ = agDoUser_(req, user);
       const rec = agDoUser_(req, user), dia = String(req.dia || ''), hh = String(req.h || '');
       if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) throw new Error('Dia inválido.');
       return withLock_(() => {
@@ -299,6 +308,7 @@
     }
     // remarcar: move a entrevista para outro dia/horário (mesmo recrutador)
     function agendaMover_(req, user) {
+  AG_CTX_REC_ = agDoUser_(req, user);
       const rec = agDoUser_(req, user), de = req.de || {}, para = req.para || {};
       const ok = x => /^\d{4}-\d{2}-\d{2}$/.test(String(x.dia || '')) && agHorarios_().indexOf(String(x.h || '')) >= 0;
       if (!ok(de) || !ok(para)) throw new Error('Dia ou horário inválido.');
@@ -361,7 +371,7 @@
       withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
       return { meu: agMeuLink_(user) };
     }
-    return { agendaInfo_, agendaMarcar_, agendaList_, agendaRelatorio_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
+    return { agendaSab_, agendaInfo_, agendaMarcar_, agendaList_, agendaRelatorio_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
   })();
   window.GRC_MOCK = {
     call: async function (action, p) {
@@ -416,7 +426,7 @@
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'agendaInfo': return AGM.agendaInfo_(p);
         case 'agendaMarcar': return AGM.agendaMarcar_(p);
-        case 'agendaList': case 'agendaRelatorio': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
+        case 'agendaSab': case 'agendaList': case 'agendaRelatorio': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [

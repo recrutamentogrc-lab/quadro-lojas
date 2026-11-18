@@ -1548,7 +1548,7 @@ const agDdMm_ = d => d.slice(8, 10) + '/' + d.slice(5, 7);
 const agExt_ = d => { const x = agDt_(d); return AG_SEM_[x.getDay()] + ', ' + x.getDate() + ' de ' + ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][x.getMonth()]; };
 const AG_30_DESDE_ = '2026-11-12';
 const agPasso_ = dia => String(dia || '9999-12-31') >= AG_30_DESDE_ ? 30 : 20;
-const agHorariosF_ = dia => { const out = [], p = agPasso_(dia); [[8, 12], [13, 17]].forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += p) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; };
+const agHorariosF_ = dia => { const out = [], p = agPasso_(dia); (dia && agDt_(dia).getDay() === 6 ? [[9, 12], [13, 16]] : [[8, 12], [13, 17]]).forEach(([a, b]) => { for (let m = a * 60; m < b * 60; m += p) out.push(('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2)); }); return out; };
 // horários do dia + qualquer entrevista já marcada fora da grade (ex.: marcada no formato antigo de 20 min)
 const agHorariosDia_ = D => { const base = (D && D.horarios && D.horarios.length && typeof D.horarios[0] === 'string') ? D.horarios : agHorariosF_(D && D.dia); const extra = Object.keys((D && D.s) || {}).filter(x => base.indexOf(x) < 0 && D.s[x] && D.s[x].st !== 'cancelado' && D.s[x].st !== 'bloqueado'); return extra.length ? base.concat(extra).sort() : base; };
 const agFim_ = (hh, dia) => { const [a, b] = hh.split(':').map(Number), m = a * 60 + b + agPasso_(dia); return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
@@ -1730,11 +1730,11 @@ async function pgAgenda() {
   const draw = () => {
     const A = S.agenda;
     if (!A || agSegunda_(f.dia) !== (A.dias[0] || {}).dia || (f.rec && A.rec !== f.rec)) { v.innerHTML = `<div class="sk" style="height:360px"></div>`; return; }
-    const hoje = A.hoje, semana = A.dias.slice(0, 5), D = A.dias.find(d => d.dia === f.dia) || semana[0], meu = A.rec === A.meu.rec;
+    const hoje = A.hoje, semana = A.dias.slice(0, A.sab ? 6 : 5), D = A.dias.find(d => d.dia === f.dia) || semana[0], meu = A.rec === A.meu.rec;
     const agoraMin = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
     const passado = hh => D.dia < hoje || (D.dia === hoje && Number(hh.slice(0, 2)) * 60 + Number(hh.slice(3)) + 20 <= agoraMin);
     const qtd = d => Object.values(d.s || {}).filter(o => o && o.st !== 'bloqueado' && o.st !== 'cancelado').length;
-    const fim = d => d.fechado || d.feriado || [0, 6].includes(agDt_(d.dia).getDay());
+    const fim = d => d.fechado || d.feriado || agDt_(d.dia).getDay() === 0 || (agDt_(d.dia).getDay() === 6 && !A.sab);
     const slot = hh => {
       const o = D.s[hh], pas = passado(hh);
       if (!o || o.st === 'cancelado') return `<button class="ar-sl livre ${pas || fim(D) ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span>${fim(D) ? '—' : pas ? '' : 'Livre'}</span>${o ? `<em class="faint">cancelada: ${h(o.nome)}</em>` : ''}</button>`;
@@ -1753,22 +1753,23 @@ async function pgAgenda() {
     v.innerHTML = `
     <div class="toolbar">
       <button class="btn icon" id="arAnt" title="Semana anterior">${ic('chevl')}</button>
-      <b class="ar-sem">${agDdMm_(ini)} a ${agDdMm_(agSomaF_(ini, 4))}</b>
+      <b class="ar-sem">${agDdMm_(ini)} a ${agDdMm_(agSomaF_(ini, A.sab ? 5 : 4))}</b>
       <button class="btn icon" id="arProx" title="Próxima semana" style="transform:scaleX(-1)">${ic('chevl')}</button>
       <button class="btn" id="arHoje">Hoje</button>
       <button class="btn icon ghost" id="arRef" title="Atualizar">${ic('refresh')}</button>
       <button class="btn" id="arRel" title="Relatório: marcadas, realizadas, faltas, canceladas · PDF e Excel">${ic('trend')} Relatório</button>
       <span class="spacer"></span>
+      ${meu ? `<button class="btn ${A.sab ? '' : 'ghost'}" id="arSab" title="Liga ou desliga os horários de sábado (09h–12h e 13h–16h) no link do candidato">${A.sab ? ic('check') + ' Sábado ativo' : ic('calendar') + ' Atender aos sábados'}</button>` : ''}
       ${meu ? `<button class="btn primary" id="arLink">${ic('share')} Mandar link ao candidato</button>` : `<span class="badge">Agenda de ${h((A.recs.find(r => r.rec === A.rec) || {}).nome || '')}</span>`}
     </div>
     ${A.recs.length > 1 ? `<div class="ar-recs"><span>${ic('users')} Ver agenda de:</span>${A.recs.map(r => `<button class="ar-rec ${r.rec === A.rec ? 'sel' : ''}" data-rec="${h(r.rec)}">${r.rec === A.meu.rec ? 'Minha agenda' : h(r.nome.split(' - ')[0])}</button>`).join('')}</div>` : ''}
     <div class="ar-week">${semana.map(d => { const n = qtd(d); return `<button class="ar-day ${d.dia === D.dia ? 'sel' : ''} ${d.dia === hoje ? 'hoje' : ''} ${fim(d) ? 'fech' : ''}" data-d="${d.dia}"><small>${AG_SEM_[agDt_(d.dia).getDay()].replace('-feira', '')}${d.dia === hoje ? ' · hoje' : ''}</small><b>${agDdMm_(d.dia)}</b><em>${d.feriado ? '🎉 ' + h(d.feriado) : d.fechado ? '🔒 fechado' : n ? n + ' entrevista' + (n > 1 ? 's' : '') : 'livre'}</em>${(A.candDias || []).includes(d.dia) && meu ? '<i title="O candidato pode escolher este dia pelo link">link</i>' : ''}</button>`; }).join('')}</div>
     <div class="card ar-diac">
       <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + HD.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
-        ${!D.feriado && ![0, 6].includes(agDt_(D.dia).getDay()) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
+        ${!D.feriado && agDt_(D.dia).getDay() !== 0 && (agDt_(D.dia).getDay() !== 6 || A.sab) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
       <div class="ar-cols"><div>${turnoH('m')}${HD.filter(x => x < '12:00').map(slot).join('')}</div><div>${turnoH('t')}${HD.filter(x => x >= '13:00').map(slot).join('')}</div></div>
     </div>
-    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (sexta → segunda), sem fins de semana e feriados. Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
+    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (${A.sab ? 'sexta → sábado → segunda; sábado das 09h às 12h e das 13h às 16h' : 'sexta → segunda'}), sem domingos e feriados. Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
     const troca = () => { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; draw(); buscar(); };
     const ir = d => { const mudou = agSegunda_(d) !== (S.agenda.dias[0] || {}).dia; f.dia = d; saveF(); if (mudou) troca(); else draw(); };
     $$('.ar-rec').forEach(b => b.onclick = () => { if (b.dataset.rec === S.agenda.rec) return; f.rec = b.dataset.rec; saveF(); troca(); });
@@ -1779,6 +1780,7 @@ async function pgAgenda() {
     $('#arRel').onclick = () => openAgendaRelatorio();
     $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
     if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
+    if ($('#arSab')) $('#arSab').onclick = async e => { const on = !A.sab; if (!await confirmBox(on ? 'Abrir a sua agenda aos <b>sábados</b>, das 09h às 12h e das 13h às 16h? O candidato passa a ver o sábado no link (na sexta, o próximo dia passa a ser o sábado).' : 'Tirar o sábado da sua agenda? Entrevistas já marcadas no sábado continuam valendo.', on ? 'Abrir sábados' : 'Tirar sábado', !on)) return; run(e.currentTarget, async () => { await api('agendaSab', { on }); toast(on ? 'Sábado aberto na sua agenda' : 'Sábado retirado da sua agenda'); await buscar(); }); };
     $$('[data-turno]', v).forEach(b => b.onclick = async () => {
       const t = b.dataset.turno, bloq = !!b.dataset.bloq, nm = t === 'm' ? 'Manhã' : 'Tarde';
       const go = () => { agSalvar_({ rec: A.rec, dia: D.dia, turno: t, bloq }, d => { hsT(t).forEach(x => { const o = d.s[x]; if (bloq) { if (!o || o.st === 'cancelado') d.s[x] = { st: 'bloqueado', motivo: nm + ' fechada', turno: t, em: new Date().toISOString() }; } else if (o && o.st === 'bloqueado') delete d.s[x]; }); }, draw); toast(bloq ? nm + ' fechada: o candidato não vê esses horários' : nm + ' aberta para agendamentos'); };
@@ -2043,7 +2045,7 @@ function openAgendaMover(rec, D, hh, done) {
         if (!doc) { el.innerHTML = '<div class="sk" style="height:140px"></div>'; return; }
         const hoje = new Date().toLocaleDateString('sv-SE'), w = agDt_(dd).getDay();
         if (dd < hoje) { el.innerHTML = '<div class="ag-vazio">Escolha uma data a partir de hoje.</div>'; return; }
-        if (doc.feriado || w === 0 || w === 6) { el.innerHTML = `<div class="ag-vazio">${doc.feriado ? '🎉 Feriado: ' + h(doc.feriado) : 'Fim de semana'}. Escolha outro dia.</div>`; return; }
+        if (doc.feriado || w === 0 || (w === 6 && !(S.agenda && S.agenda.sab))) { el.innerHTML = `<div class="ag-vazio">${doc.feriado ? '🎉 Feriado: ' + h(doc.feriado) : 'Fim de semana'}. Escolha outro dia.</div>`; return; }
         const livre = x => (!doc.s[x] || doc.s[x].st === 'cancelado') && !(dd === D.dia && x === hh) && !(dd === hoje && Number(x.slice(0, 2)) * 60 + Number(x.slice(3)) <= agoraMin());
         const bt = x => { const L = livre(x), oc = doc.s[x] && doc.s[x].st !== 'cancelado'; return `<button class="ar-mv-h ${sel === x ? 'sel' : ''} ${x === hh && dd === D.dia ? 'atual' : ''}" data-h="${x}" ${L ? '' : 'disabled'} title="${oc ? h(doc.s[x].st === 'bloqueado' ? 'Bloqueado' : doc.s[x].nome) : ''}">${x}</button>`; };
         const H = agHorariosF_(dd);

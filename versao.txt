@@ -1,1 +1,1 @@
-versao: almoco - link do financeiro (consulta sem login) 2026-11-19
+versao: almoco - mais rapido (lote, cache, mes inteiro no financeiro) 2026-11-19

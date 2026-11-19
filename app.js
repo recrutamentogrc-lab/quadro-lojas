@@ -4493,12 +4493,20 @@ async function renderAlmFin(token) {
   .af-bt button.pri{background:#2563eb;border-color:#2563eb;color:#fff}
   .af-it{display:flex;gap:10px;padding:9px 2px;border-bottom:1px solid #eef2f7;font-size:14.5px}.af-it span{flex:1}.af-it em{font-style:normal;color:#15803d;font-weight:800}`; document.head.appendChild(st); }
   let mes = '', dia = '';
-  const pedir = p => sendRaw_('almFin', Object.assign({ token }, p)).then(j => { if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível carregar.'); return j; });
+  const cache = {}; // mês -> resposta (com a relação de todos os dias); também fica guardado no aparelho para abrir na hora
+  const ck = m => 'grc_almfin_' + token.slice(0, 8) + '_' + m;
+  const lsLe = m => { try { return JSON.parse(localStorage.getItem(ck(m)) || 'null'); } catch (e) { return null; } };
+  const lsGrava = (m, j) => { try { localStorage.setItem(ck(m), JSON.stringify(j)); } catch (e) {} };
+  const pedir = p => sendRaw_('almFin', Object.assign({ token }, p)).then(j => { if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível carregar.'); cache[j.mes] = j; lsGrava(j.mes, j); return j; });
   const casca = corpo => { $('#root').innerHTML = `<div class="alm"><div class="alm-wrap"><div class="alm-top"><small>Grupo R Center · Financeiro</small><h1>Controle de refeições</h1><div class="alm-dia">Consulta das refeições registradas pelo restaurante</div></div>${corpo}</div></div>`; };
   const erro = m => casca(`<div class="alm-vazio" style="margin-top:20px"><b>Link indisponível</b><br>${h(m)}</div>`);
-  const verMes = async () => {
-    casca(`<div class="af-card"><div class="sk" style="height:200px"></div></div>`);
-    let j; try { j = await pedir({ mes }); } catch (e) { return erro(e.message); }
+  const verMes = async (jPronto) => {
+    let j = jPronto || cache[mes] || (mes && lsLe(mes)) || (!mes && lsLe(new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Fortaleza' }).slice(0, 7)));
+    if (!jPronto) {
+      const pr = pedir({ mes });
+      if (!j) { casca(`<div class="af-card"><div class="sk" style="height:200px"></div></div>`); try { j = await pr; } catch (e) { return erro(e.message); } }
+      else { const velho = JSON.stringify(j.dias) + JSON.stringify(j.rel || {}); pr.then(n => { if (!dia && n.mes === (mes || n.mes) && JSON.stringify(n.dias) + JSON.stringify(n.rel || {}) !== velho) verMes(n); }).catch(e => { if (/link/i.test(e.message)) erro(e.message); }); }
+    }
     mes = j.mes; const [a, m] = mes.split('-').map(Number), n = new Date(a, m, 0).getDate();
     const L = Array.from({ length: n }, (_, i) => mes + '-' + String(i + 1).padStart(2, '0')).filter(d => d <= j.hoje), q = d => +(j.dias[d] || 0);
     const tot = L.reduce((s, d) => s + q(d), 0), comR = L.filter(d => q(d)).length;
@@ -4508,15 +4516,17 @@ async function renderAlmFin(token) {
     $('#afM').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { mes = e.target.value; verMes(); } };
     $('#afP').onclick = () => almAbrir_(almMesHTML(mes, j.dias));
     $$('.af-row[data-d]').forEach(r => { if (!r.classList.contains('z')) r.onclick = () => { dia = r.dataset.d; verDia(); }; });
+    dia = '';
   };
   const verDia = async () => {
-    casca(`<div class="af-card"><div class="sk" style="height:200px"></div></div>`);
-    let j; try { j = await pedir({ data: dia }); } catch (e) { return erro(e.message); }
+    const cm = cache[dia.slice(0, 7)];
+    let j = cm && cm.rel ? Object.assign({ itens: [], enviado: null }, cm.rel[dia] || {}) : null; // já veio junto com o mês: abre na hora
+    if (!j) { casca(`<div class="af-card"><div class="sk" style="height:200px"></div></div>`); try { j = await pedir({ data: dia }); } catch (e) { return erro(e.message); } }
     const it = almOrd_(j.itens || []);
     casca(`<div class="af-card"><div class="af-bt"><button id="afV">← Voltar ao mês</button><button class="pri" id="afF">Ficha do dia (PDF)</button></div></div>
       <div class="af-card"><b style="display:block">${h(almExt_(dia))}</b><span style="color:#475569;font-size:14px">${it.length} refeição(ões)${j.enviado ? ' · relação enviada pelo restaurante às ' + h(j.enviado.hora) : ''}</span>
       <div style="margin-top:8px">${it.map((x, i) => `<div class="af-it"><b>${i + 1}</b><span>${h(x.nome)}${x.cargo ? ` <small style="color:#64748b">· ${h(x.cargo)}</small>` : ''}${x.fora ? ' <small style="color:#9a3412;font-weight:800">fora da lista</small>' : ''}</span><em>✓ ${h(x.hora || '')}</em></div>`).join('') || '<div class="alm-vazio">Nenhum registro neste dia.</div>'}</div></div>`);
-    $('#afV').onclick = verMes;
+    $('#afV').onclick = () => { dia = ''; verMes(); };
     $('#afF').onclick = () => it.length ? almAbrir_(almFichaHTML(dia, it)) : almToast_('Nenhum registro neste dia.', true);
   };
   verMes();
@@ -4559,14 +4569,20 @@ function almMesHTML(mes, dias) {
 }
 function almAbrir_(html) { const w = window.open('', '_blank'); if (!w) return toast('Permita pop-ups para gerar o PDF', true); w.document.open(); w.document.write(html); w.document.close(); }
 
+const ALM_ = { C: null, dia: {}, mes: {} }; // cache da tela (abre na hora e atualiza em segundo plano)
 async function pgAlmoco(arg) {
   setTitle('Controle de almoço', 'Restaurante · registro diário e ficha para assinatura');
   const v = $('#view'), f = getF('almoco');
   if (!f.aba) f.aba = 'dia';
   if (/^\d{4}-\d{2}-\d{2}$/.test(arg || '')) { f.aba = 'dia'; f.dia = arg; }
   v.innerHTML = `<div class="card"><div class="sk" style="height:120px"></div></div>`;
-  let C;
-  try { C = await api('almGet', {}, { silent: true }); } catch (e) { v.innerHTML = `<div class="empty">${ic('alert')}<div>${h(e.message)}</div></div>`; return; }
+  let C = ALM_.C;
+  const hojeL = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Fortaleza' });
+  if (!f.dia && !C) { f.dia = hojeL; } // busca o dia junto com a configuração
+  const pDia = f.aba === 'dia' && f.dia && !ALM_.dia[f.dia] ? api('almDia', { data: f.dia }, { silent: true }).then(j => (ALM_.dia[f.dia] = j)).catch(() => null) : null;
+  if (!C) { try { C = ALM_.C = await api('almGet', {}, { silent: true }); } catch (e) { v.innerHTML = `<div class="empty">${ic('alert')}<div>${h(e.message)}</div></div>`; return; } }
+  else api('almGet', {}, { silent: true }).then(j => { const mud = JSON.stringify(j) !== JSON.stringify(ALM_.C); ALM_.C = j; if (mud && S.rt === rtG && !$('.overlay')) route(true); }).catch(() => {});
+  const rtG = S.rt;
   const rt = S.rt;
   if (!f.dia) f.dia = C.hoje; if (!f.mes) f.mes = C.hoje.slice(0, 7);
   const url = almUrl_(C.token);
@@ -4593,8 +4609,10 @@ async function pgAlmoco(arg) {
   if (f.aba === 'mes') {
     B.innerHTML = `<div class="card"><div class="card-h" style="flex-wrap:wrap"><div><h3>Resumo do mês</h3><div class="sub">Refeições por dia, para o financeiro</div></div><span class="spacer"></span><input class="input" type="month" id="alMes" value="${h(f.mes)}" style="width:auto"><button class="btn" id="alMesP">${ic('file')} Imprimir / PDF</button></div><div id="alMesT"><div class="sk" style="height:200px"></div></div></div>`;
     $('#alMes').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { f.mes = e.target.value; saveF(); route(true); } };
-    let dias = {};
-    try { dias = (await api('almMes', { mes: f.mes }, { silent: true })).dias || {}; } catch (e) { $('#alMesT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; }
+    let dias = ALM_.mes[f.mes];
+    const pM = api('almMes', { mes: f.mes }, { silent: true }).then(j => j.dias || {});
+    if (!dias) { try { dias = ALM_.mes[f.mes] = await pM; } catch (e) { $('#alMesT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; } }
+    else pM.then(d => { const mud = JSON.stringify(d) !== JSON.stringify(dias); ALM_.mes[f.mes] = d; if (mud && rt === S.rt && !$('.overlay')) route(true); }).catch(() => {});
     if (rt !== S.rt) return;
     const [a, m] = f.mes.split('-').map(Number), n = new Date(a, m, 0).getDate(), L = Array.from({ length: n }, (_, i) => f.mes + '-' + String(i + 1).padStart(2, '0'));
     const tot = sum(L.map(d => +(dias[d] || 0)));
@@ -4607,18 +4625,28 @@ async function pgAlmoco(arg) {
   // por dia
   B.innerHTML = `<div class="card"><div class="card-h" style="flex-wrap:wrap"><div><h3>Quem almoçou</h3><div class="sub" id="alSub">${h(almExt_(f.dia))}</div></div><span class="spacer"></span><input class="input" type="date" id="alDia" value="${h(f.dia)}" max="${h(C.hoje)}" style="width:auto"><button class="btn primary" id="alPdf">${ic('file')} Ficha / PDF</button></div><div id="alDiaT"><div class="sk" style="height:160px"></div></div></div>`;
   $('#alDia').onchange = e => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) { f.dia = e.target.value; saveF(); route(true); } };
-  let dd;
-  try { dd = await api('almDia', { data: f.dia }, { silent: true }); } catch (e) { $('#alDiaT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; }
+  let dd = ALM_.dia[f.dia];
+  if (!dd && pDia) dd = await pDia;
+  if (!dd) { try { dd = ALM_.dia[f.dia] = await api('almDia', { data: f.dia }, { silent: true }); } catch (e) { $('#alDiaT').innerHTML = `<div class="muted">${h(e.message)}</div>`; return; } }
+  else if (!pDia) api('almDia', { data: f.dia }, { silent: true }).then(j => { if (rt !== S.rt || pendRh) return; const mud = JSON.stringify(j.itens) !== JSON.stringify(dd.itens); ALM_.dia[f.dia] = dd = j; if (mud && !$('.overlay')) { it = almOrd_(dd.itens || []); desenhar(); } }).catch(() => {});
+  let pendRh = 0;
   if (rt !== S.rt) return;
   let it = almOrd_(dd.itens || []);
   $('#alPdf').onclick = () => it.length ? almAbrir_(almFichaHTML(f.dia, it)) : toast('Nenhum registro neste dia.', true);
-  const rh = async payload => { const j = await api('almRh', Object.assign({ data: f.dia }, payload)); dd.itens = j.itens || []; dd.enviado = j.enviado; it = almOrd_(dd.itens); desenhar(); return j; };
+  // gravação otimista: a tela muda na hora e o servidor confirma em segundo plano
+  const rh = async (payload, otim) => {
+    const antes = dd.itens.slice(); pendRh++;
+    if (otim) { otim(); it = almOrd_(dd.itens); desenhar(); }
+    try { const j = await api('almRh', Object.assign({ data: f.dia }, payload), { silent: true }); dd.itens = j.itens || []; dd.enviado = j.enviado; ALM_.dia[f.dia] = dd; if (ALM_.mes[f.dia.slice(0, 7)]) ALM_.mes[f.dia.slice(0, 7)][f.dia] = dd.itens.length; return j; }
+    catch (e) { dd.itens = antes; throw e; }
+    finally { pendRh--; if (rt === S.rt) { it = almOrd_(dd.itens); desenhar(); } }
+  };
   const desenhar = () => {
     const nRh = it.filter(x => x.rh).length;
     $('#alDiaT').innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span class="badge b-ok" style="font-size:13px;padding:6px 10px">${it.length} refeiç${it.length === 1 ? 'ão' : 'ões'}</span>${dd.enviado ? `<span class="badge b-info" style="font-size:13px;padding:6px 10px">Relação enviada pelo restaurante às ${h(dd.enviado.hora)}</span>` : f.dia === C.hoje ? '<span class="badge b-warn" style="font-size:13px;padding:6px 10px">Relação ainda não enviada</span>' : ''}${nRh ? `<span class="badge" style="font-size:13px;padding:6px 10px">${nRh} incluída(s) pelo RH</span>` : ''}<span class="spacer"></span><button class="btn" id="alInc">${ic('plus')} Incluir pessoa</button></div>
-    ${it.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nº</th><th>Colaborador</th><th>Cargo</th><th>Registro</th><th></th></tr></thead><tbody>${it.map((x, i) => `<tr><td>${i + 1}</td><td><b>${h(x.nome)}</b>${x.fora ? ' <span class="badge b-warn">fora da lista</span>' : ''}${x.rh ? ` <span class="badge" title="${h(x.por ? 'Incluído por ' + x.por : 'Incluído pelo RH')}">incluído pelo RH</span>` : ''}</td><td>${h(x.cargo || '')}</td><td>✓ ${h(x.hora || '')}</td><td style="text-align:right"><button class="btn sm ghost" data-rm="${h(x.id)}" title="Retirar da relação">${ic('x')}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('calendar')}<div>Nenhum registro neste dia.</div></div>`}`;
+    ${it.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nº</th><th>Colaborador</th><th>Cargo</th><th>Registro</th><th></th></tr></thead><tbody>${it.map((x, i) => `<tr ${x._pend ? 'style="opacity:.55" title="Gravando…"' : ''}><td>${i + 1}</td><td><b>${h(x.nome)}</b>${x._pend ? ' <span class="badge">gravando…</span>' : ''}${x.fora ? ' <span class="badge b-warn">fora da lista</span>' : ''}${x.rh ? ` <span class="badge" title="${h(x.por ? 'Incluído por ' + x.por : 'Incluído pelo RH')}">incluído pelo RH</span>` : ''}</td><td>${h(x.cargo || '')}</td><td>✓ ${h(x.hora || '')}</td><td style="text-align:right"><button class="btn sm ghost" data-rm="${h(x.id)}" title="Retirar da relação">${ic('x')}</button></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('calendar')}<div>Nenhum registro neste dia.</div></div>`}`;
     $('#alInc').onclick = incluir;
-    $$('#alDiaT [data-rm]').forEach(b => b.onclick = async () => { const x = it.find(y => y.id === b.dataset.rm); if (!x || !await confirmBox(`Retirar <b>${h(x.nome)}</b> da relação de ${h(isoToBR(f.dia))}?`, 'Retirar', true)) return; run(b, async () => { await rh({ op: 'desmarcar', id: x.id }); toast('Retirado da relação'); }); });
+    $$('#alDiaT [data-rm]').forEach(b => b.onclick = async () => { const x = it.find(y => y.id === b.dataset.rm); if (!x || !await confirmBox(`Retirar <b>${h(x.nome)}</b> da relação de ${h(isoToBR(f.dia))}?`, 'Retirar', true)) return; rh({ op: 'desmarcar', id: x.id }, () => { dd.itens = dd.itens.filter(y => y.id !== x.id); }).then(() => toast('Retirado da relação')).catch(er => toast(er.message, true)); });
   };
   const incluir = () => {
     const ja = new Set(it.map(x => x.pid).filter(Boolean)), L = almOrd_(C.pessoas.filter(p => p.ativo && !ja.has(p.id)));
@@ -4632,16 +4660,18 @@ async function pgAlmoco(arg) {
       foot: `<button class="btn" data-close>Cancelar</button><button class="btn primary" id="aiOk">${ic('check')} Incluir</button>`,
       onMount: m => {
         const q = $('#aiQ', m.el); if (q) q.oninput = () => { const k = norm(q.value); $$('.ai-p', m.el).forEach(l => l.style.display = !k || l.dataset.n.includes(k) ? '' : 'none'); };
-        $('#aiOk', m.el).onclick = ev => run(ev.currentTarget, async () => {
+        $('#aiOk', m.el).onclick = () => {
           const hora = $('#aiH', m.el).value, ids = $$('#aiL input:checked', m.el).map(c => c.value), nome = $('#aiN', m.el).value.trim(), cargo = $('#aiC', m.el).value.trim();
           if (!ids.length && !nome) return toast('Marque alguém do cadastro ou informe o nome.', true);
           if (nome && nome.split(/\s+/).length < 2) return toast('Informe nome e sobrenome da pessoa fora da lista.', true);
-          let n = 0; const erros = [];
-          for (const pid of ids) { try { await rh({ op: 'marcar', pid, hora }); n++; } catch (e) { erros.push(e.message); } }
-          if (nome) { try { await rh({ op: 'fora', nome, cargo, hora }); n++; } catch (e) { erros.push(e.message); } }
           m.close();
-          toast(n ? `${n} pessoa(s) incluída(s). A ficha já está atualizada.` + (erros.length ? ' ' + erros.join(' ') : '') : erros.join(' '), !!erros.length);
-        });
+          // tudo numa chamada só; a lista já mostra as pessoas enquanto grava
+          rh({ op: 'lote', pids: ids, fora: nome ? { nome, cargo } : null, hora }, () => {
+            ids.forEach(pid => { const p = C.pessoas.find(x => x.id === pid); if (p) dd.itens.push({ id: p.id, pid: p.id, nome: p.nome, cargo: p.cargo || '', hora, rh: true, _pend: 1 }); });
+            if (nome) dd.itens.push({ id: 'tmp' + Date.now(), nome: nome.toUpperCase(), cargo, fora: true, hora, rh: true, _pend: 1 });
+          }).then(j => toast(j.n ? `${j.n} pessoa(s) incluída(s). A ficha já está atualizada.` + ((j.avisos || []).length ? ' ' + j.avisos.join(' ') : '') : (j.avisos || []).join(' ') || 'Nada a incluir.', !j.n))
+            .catch(er => toast('Não foi possível gravar: ' + er.message, true));
+        };
       }
     });
   };

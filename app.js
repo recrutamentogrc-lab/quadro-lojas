@@ -346,6 +346,7 @@ function init() {
   else if (QS.get('teste')) { renderTeste(QS.get('teste')); refreshPublicCfg(); }
   else if (QS.get('agenda')) { renderAgenda(QS.get('agenda')); refreshPublicCfg(); }
   else if (QS.get('almoco')) { renderAlmoco(QS.get('almoco')); }
+  else if (QS.get('almfin')) { renderAlmFin(QS.get('almfin')); }
   else if (S.token) {
     const cache = DEMO ? null : ls.get('grc_data', null);
     if (cache && cache.data && cache.data.user) {
@@ -4332,6 +4333,7 @@ function escPDF(gr, res, l, sec, ano, mes) {
  * ===================================================================== */
 const podeAlmoco = () => !!(S.user && (isAdmin() || S.user.podeAlmoco));
 const almUrl_ = t => (cfgv('siteUrl', '') || (location.origin + location.pathname)).replace(/index\.html$/, '').replace(/\/+$/, '') + '/?almoco=' + t;
+const almFinUrl_ = t => almUrl_('x').replace(/\?almoco=x$/, '?almfin=' + t);
 const almExt_ = iso => { const d = parseISO(iso); return d ? d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).replace(/^./, c => c.toUpperCase()) : ''; };
 const almOrd_ = L => L.slice().sort((a, b) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'));
 function almCss() {
@@ -4475,6 +4477,51 @@ async function renderAlmoco(token) {
   document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible' && !ocupado) { await carregar(); desenhar(); } });
 }
 
+// Financeiro: link só de consulta (sem login) — resumo do mês, dia a dia e fichas
+async function renderAlmFin(token) {
+  document.documentElement.dataset.theme = 'light';
+  document.title = 'Refeições · Financeiro · Grupo R Center';
+  almCss();
+  if (!document.getElementById('almFinCss')) { const st = document.createElement('style'); st.id = 'almFinCss'; st.textContent = `
+  .af-card{background:#fff;border:1.5px solid #e2e8f0;border-radius:16px;padding:14px;margin:14px}
+  .af-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px}
+  .af-kpis div{background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;padding:10px;text-align:center}
+  .af-kpis b{display:block;font-size:26px;color:#1e3a8a}.af-kpis small{color:#64748b;font-size:12px}
+  .af-row{display:flex;align-items:center;gap:10px;padding:11px 4px;border-bottom:1px solid #eef2f7;cursor:pointer}
+  .af-row:last-child{border-bottom:0}.af-row span{flex:1;text-transform:capitalize}.af-row b{font-size:17px}.af-row.z{opacity:.45;cursor:default}
+  .af-bt{display:flex;gap:8px;flex-wrap:wrap}.af-bt button,.af-bt input{flex:1 1 140px;padding:12px;border-radius:12px;border:1.5px solid #cbd5e1;background:#fff;font-size:15px;font-weight:700;color:#334155}
+  .af-bt button.pri{background:#2563eb;border-color:#2563eb;color:#fff}
+  .af-it{display:flex;gap:10px;padding:9px 2px;border-bottom:1px solid #eef2f7;font-size:14.5px}.af-it span{flex:1}.af-it em{font-style:normal;color:#15803d;font-weight:800}`; document.head.appendChild(st); }
+  let mes = '', dia = '';
+  const pedir = p => sendRaw_('almFin', Object.assign({ token }, p)).then(j => { if (!j || !j.ok) throw new Error((j && j.error) || 'Não foi possível carregar.'); return j; });
+  const casca = corpo => { $('#root').innerHTML = `<div class="alm"><div class="alm-wrap"><div class="alm-top"><small>Grupo R Center · Financeiro</small><h1>Controle de refeições</h1><div class="alm-dia">Consulta das refeições registradas pelo restaurante</div></div>${corpo}</div></div>`; };
+  const erro = m => casca(`<div class="alm-vazio" style="margin-top:20px"><b>Link indisponível</b><br>${h(m)}</div>`);
+  const verMes = async () => {
+    casca(`<div class="af-card"><div class="sk" style="height:200px"></div></div>`);
+    let j; try { j = await pedir({ mes }); } catch (e) { return erro(e.message); }
+    mes = j.mes; const [a, m] = mes.split('-').map(Number), n = new Date(a, m, 0).getDate();
+    const L = Array.from({ length: n }, (_, i) => mes + '-' + String(i + 1).padStart(2, '0')).filter(d => d <= j.hoje), q = d => +(j.dias[d] || 0);
+    const tot = L.reduce((s, d) => s + q(d), 0), comR = L.filter(d => q(d)).length;
+    casca(`<div class="af-card"><div class="af-bt"><input type="month" id="afM" value="${h(mes)}" max="${h(j.hoje.slice(0, 7))}"><button class="pri" id="afP">Imprimir resumo do mês</button></div></div>
+      <div class="af-kpis"><div><b>${tot}</b><small>refeições no mês</small></div><div><b>${comR}</b><small>dias com refeição</small></div><div><b>${comR ? (tot / comR).toFixed(1).replace('.', ',') : '0'}</b><small>média por dia</small></div></div>
+      <div class="af-card"><b style="display:block;margin-bottom:6px">${ESC_MESES[m - 1]} de ${a} · toque no dia para ver quem almoçou</b>${L.slice().reverse().map(d => `<div class="af-row ${q(d) ? '' : 'z'}" data-d="${d}"><span>${h(isoToBR(d))} · ${h(parseISO(d).toLocaleDateString('pt-BR', { weekday: 'long' }))}</span><b>${q(d)}</b></div>`).join('') || '<div class="alm-vazio">Sem registros.</div>'}</div>`);
+    $('#afM').onchange = e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { mes = e.target.value; verMes(); } };
+    $('#afP').onclick = () => almAbrir_(almMesHTML(mes, j.dias));
+    $$('.af-row[data-d]').forEach(r => { if (!r.classList.contains('z')) r.onclick = () => { dia = r.dataset.d; verDia(); }; });
+  };
+  const verDia = async () => {
+    casca(`<div class="af-card"><div class="sk" style="height:200px"></div></div>`);
+    let j; try { j = await pedir({ data: dia }); } catch (e) { return erro(e.message); }
+    const it = almOrd_(j.itens || []);
+    casca(`<div class="af-card"><div class="af-bt"><button id="afV">← Voltar ao mês</button><button class="pri" id="afF">Ficha do dia (PDF)</button></div></div>
+      <div class="af-card"><b style="display:block">${h(almExt_(dia))}</b><span style="color:#475569;font-size:14px">${it.length} refeição(ões)${j.enviado ? ' · relação enviada pelo restaurante às ' + h(j.enviado.hora) : ''}</span>
+      <div style="margin-top:8px">${it.map((x, i) => `<div class="af-it"><b>${i + 1}</b><span>${h(x.nome)}${x.cargo ? ` <small style="color:#64748b">· ${h(x.cargo)}</small>` : ''}${x.fora ? ' <small style="color:#9a3412;font-weight:800">fora da lista</small>' : ''}</span><em>✓ ${h(x.hora || '')}</em></div>`).join('') || '<div class="alm-vazio">Nenhum registro neste dia.</div>'}</div></div>`);
+    $('#afV').onclick = verMes;
+    $('#afF').onclick = () => it.length ? almAbrir_(almFichaHTML(dia, it)) : almToast_('Nenhum registro neste dia.', true);
+  };
+  verMes();
+}
+
 // ficha do dia (A4 vertical) para imprimir e colher a rubrica
 function almFichaHTML(dia, itens) {
   const L = almOrd_(itens), br = isoToBR(dia), ext = almExt_(dia);
@@ -4529,12 +4576,17 @@ async function pgAlmoco(arg) {
       <button class="btn primary" id="alCp">${ic('copy')} Copiar link</button><a class="btn" href="${h(url)}" target="_blank" rel="noopener">${ic('eye')} Abrir</a><button class="btn ghost" id="alNovo" title="O link atual para de funcionar">${ic('refresh')} Gerar novo link</button></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px"><div class="field" style="flex:1 1 260px;margin:0"><label>E-mail que recebe a ficha do dia (mais de um: separe com vírgula)</label><input class="input" id="alEm" value="${h((C.emails || []).join(', '))}" placeholder="nome@empresa.com.br"></div><button class="btn" id="alEmOk">${ic('check')} Salvar e-mail</button></div>
   </div>
+  <div class="card" style="margin-top:16px"><div class="card-h" style="flex-wrap:wrap"><div><h3>${ic('table')} Link do financeiro</h3><div class="sub">Só consulta, sem login: resumo do mês, quantidade por dia, quem almoçou e as fichas em PDF. Não altera nada.</div></div></div>
+    ${C.tokenFin ? `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input class="input" readonly value="${h(almFinUrl_(C.tokenFin))}" style="flex:1 1 260px;font-size:12.5px" onclick="this.select()"><button class="btn primary" id="alFCp">${ic('copy')} Copiar link</button><a class="btn" href="${h(almFinUrl_(C.tokenFin))}" target="_blank" rel="noopener">${ic('eye')} Abrir</a><button class="btn ghost" id="alFNovo" title="O link atual para de funcionar">${ic('refresh')} Gerar novo link</button></div>` : `<button class="btn primary" id="alFNovo">${ic('link')} Criar link do financeiro</button>`}
+  </div>
   <div class="seg" id="alAba" style="margin:16px 0;flex-wrap:wrap"><button data-v="dia" class="${f.aba === 'dia' ? 'on' : ''}">${ic('calendar')} Por dia</button><button data-v="mes" class="${f.aba === 'mes' ? 'on' : ''}">${ic('table')} Resumo do mês</button><button data-v="cad" class="${f.aba === 'cad' ? 'on' : ''}">${ic('users')} Cadastro (${C.pessoas.filter(p => p.ativo).length})</button></div>
   <div id="alBody"></div>`;
   $('#alCp').onclick = () => copiar_(url, 'Link do restaurante copiado');
   $('#alNovo').onclick = async e => { if (!await confirmBox('Gerar um link novo? <b>O link atual para de funcionar</b> e o restaurante vai precisar do novo.', 'Gerar novo link', true)) return; run(e.currentTarget, async () => { await api('almNovoLink', {}); toast('Link novo gerado. Envie ao restaurante.'); route(true); }); };
   $('#alEmOk').onclick = e => run(e.currentTarget, async () => { const j = await api('almEmail', { emails: $('#alEm').value }); $('#alEm').value = (j.emails || []).join(', '); toast('E-mail salvo'); });
   if ($('#alAc')) $('#alAc').onclick = openAlmAcesso;
+  if ($('#alFCp')) $('#alFCp').onclick = () => copiar_(almFinUrl_(C.tokenFin), 'Link do financeiro copiado');
+  $('#alFNovo').onclick = async e => { if (C.tokenFin && !await confirmBox('Gerar um link novo para o financeiro? <b>O link atual para de funcionar.</b>', 'Gerar novo link', true)) return; run(e.currentTarget, async () => { const j = await api('almFinLink', {}); C.tokenFin = j.tokenFin; copiar_(almFinUrl_(j.tokenFin), 'Link do financeiro criado e copiado'); route(true); }); };
   $$('#alAba button').forEach(b => b.onclick = () => { f.aba = b.dataset.v; saveF(); route(true); });
   const B = $('#alBody');
   if (f.aba === 'cad') return almCadastro(B, C, f);

@@ -148,7 +148,11 @@
       return F;
     }
     function agFeriado_(dia) { return agFeriados_(Number(dia.slice(0, 4)))[dia] || ''; }
-    function agUtil_(dia) { const w = agDiaSem_(dia); return w !== 0 && (w !== 6 || agSab_()) && !agFeriado_(dia); }
+    function agUtil_(dia) { const w = agDiaSem_(dia); return w !== 0 && (w !== 6 || agSab_()) && (!agFeriado_(dia) || agFerAberto_(dia)); }
+    // feriado aberto: cada recrutador pode abrir um feriado específico na própria agenda (lista em AG_FER_AB)
+    function agFerMap_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('AG_FER_AB') || '{}'); } catch (e) { return {}; } }
+    function agFerAberto_(dia, rec) { rec = agRec_(rec || AG_CTX_REC_); return !!rec && (agFerMap_()[rec] || []).indexOf(dia) >= 0; }
+    function agendaFeriado_(req, user) { const rec = agDoUser_(req, user), dia = String(req.dia || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(dia) || !agFeriado_(dia)) throw new Error('Este dia não é feriado.'); const M = agFerMap_(), hoje = agHoje_(); const L = (M[rec] || []).filter(x => x !== dia && x >= hoje); if (req.on) L.push(dia); M[rec] = L; PropertiesService.getScriptProperties().setProperty('AG_FER_AB', JSON.stringify(M)); return { ferAberto: !!req.on }; }
     var AG_CTX_REC_ = '';
     // sábado: liga por recrutador (lista em AG_SAB); horário 09h-12h e 13h-16h
     function agSabIds_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('AG_SAB') || '[]'); } catch (e) { return []; } }
@@ -247,7 +251,7 @@
       const de = /^\d{4}-\d{2}-\d{2}$/.test(String(req.de || '')) ? req.de : agHoje_();
       const n = Math.max(1, Math.min(7, Number(req.n) || 1)), dias = [];
       const lista = []; for (let i = 0; i < n; i++) lista.push(agSoma_(de, i));
-      agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); x.horarios = agHorarios_(x.dia); dias.push(x); });
+      agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); x.ferAberto = !!x.feriado && agFerAberto_(x.dia, rec); x.horarios = agHorarios_(x.dia); dias.push(x); });
       let recs = [{ rec: meu.rec, nome: meu.nome }];
       if (isAdmin_(user)) { try { recs = agRecs_(); } catch (e) { recs = links.map(x => ({ rec: x.rec, nome: x.nome })); } if (!recs.some(x => x.rec === meu.rec)) recs.unshift({ rec: meu.rec, nome: meu.nome }); }
       return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), sab: agSab_(rec), candDias: agDiasCand_(), horarios: agHorarios_() };
@@ -371,7 +375,7 @@
       withLock_(() => { const L = agLinksLer_(); L.forEach(x => { if (x.rec === rec) x.ativo = false; }); agLinksGravar_(L); });
       return { meu: agMeuLink_(user) };
     }
-    return { agendaSab_, agendaInfo_, agendaMarcar_, agendaList_, agendaRelatorio_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
+    return { agendaFeriado_, agendaSab_, agendaInfo_, agendaMarcar_, agendaList_, agendaRelatorio_, agendaSalvar_, agendaVisto_, agendaNovoLink_, agendaFoto_, agendaMover_, agendaMeet_ };
   })();
   window.GRC_MOCK = {
     call: async function (action, p) {
@@ -426,7 +430,7 @@
         case 'fichaMarcar': (window.__fi || []).forEach(x => { if (p.ids.includes(x.id)) x.visto = true; }); return { ok: true, fichas: clone(window.__fi || []) };
         case 'agendaInfo': return AGM.agendaInfo_(p);
         case 'agendaMarcar': return AGM.agendaMarcar_(p);
-        case 'agendaSab': case 'agendaList': case 'agendaRelatorio': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
+        case 'agendaFeriado': case 'agendaSab': case 'agendaList': case 'agendaRelatorio': case 'agendaSalvar': case 'agendaVisto': case 'agendaNovoLink': case 'agendaFoto': case 'agendaMover': case 'agendaMeet': { const uu = { ID: me.id, NOME: me.nome }; try { return Object.assign({ ok: true }, AGM[action + '_'](p, uu)); } catch (e) { return { ok: false, error: e.message }; } }
         case 'testeInfo': return { ok: true, link: { titulo: 'Operador de caixa · Eusébio', testes: ['disc', 'forcas', 'situacional', 'fit'] }, recrutadores: ['Aleff Palacio', 'Luis Guilherme', 'Gustavo Vitor', 'Juliana Nóbrega'] };
         case 'testeEnviar': { window.__te = window.__te || []; const d = p.data; window.__te.unshift({ id: 't' + Date.now() + Math.random().toString(36).slice(2, 6), link: p.codigo, titulo: d.vaga || 'Operador de caixa · Eusébio', teste: d.teste, nome: d.nome.toUpperCase(), cpf: d.cpf, tel: d.tel, recrutador: d.recrutador, resp: d.resp, seg: d.seg, em: new Date().toISOString(), visto: false, obs: '' }); return { ok: true }; }
         case 'testesList': { if (!window.__te) { const rnd = (n, f) => Array.from({ length: n }, (_, i) => f(i)); window.__te = [

@@ -1735,7 +1735,7 @@ async function pgAgenda() {
     const agoraMin = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
     const passado = hh => D.dia < hoje || (D.dia === hoje && Number(hh.slice(0, 2)) * 60 + Number(hh.slice(3)) + 20 <= agoraMin);
     const qtd = d => Object.values(d.s || {}).filter(o => o && o.st !== 'bloqueado' && o.st !== 'cancelado').length;
-    const fim = d => d.fechado || d.feriado || agDt_(d.dia).getDay() === 0 || (agDt_(d.dia).getDay() === 6 && !A.sab);
+    const fim = d => d.fechado || (d.feriado && !d.ferAberto) || agDt_(d.dia).getDay() === 0 || (agDt_(d.dia).getDay() === 6 && !A.sab);
     const slot = hh => {
       const o = D.s[hh], pas = passado(hh);
       if (!o || o.st === 'cancelado') return `<button class="ar-sl livre ${pas || fim(D) ? 'pas' : ''}" data-h="${hh}"><b>${hh}</b><span>${fim(D) ? '—' : pas ? '' : 'Livre'}</span>${o ? `<em class="faint">cancelada: ${h(o.nome)}</em>` : ''}</button>`;
@@ -1766,11 +1766,12 @@ async function pgAgenda() {
     ${A.recs.length > 1 ? `<div class="ar-recs"><span>${ic('users')} Ver agenda de:</span>${A.recs.map(r => `<button class="ar-rec ${r.rec === A.rec ? 'sel' : ''}" data-rec="${h(r.rec)}">${r.rec === A.meu.rec ? 'Minha agenda' : h(r.nome.split(' - ')[0])}</button>`).join('')}</div>` : ''}
     <div class="ar-week">${semana.map(d => { const n = qtd(d); return `<button class="ar-day ${d.dia === D.dia ? 'sel' : ''} ${d.dia === hoje ? 'hoje' : ''} ${fim(d) ? 'fech' : ''}" data-d="${d.dia}"><small>${AG_SEM_[agDt_(d.dia).getDay()].replace('-feira', '')}${d.dia === hoje ? ' · hoje' : ''}</small><b>${agDdMm_(d.dia)}</b><em>${d.feriado ? '🎉 ' + h(d.feriado) : d.fechado ? '🔒 fechado' : n ? n + ' entrevista' + (n > 1 ? 's' : '') : 'livre'}</em>${(A.candDias || []).includes(d.dia) && meu ? '<i title="O candidato pode escolher este dia pelo link">link</i>' : ''}</button>`; }).join('')}</div>
     <div class="card ar-diac">
-      <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : qtd(D) + ' entrevista(s) · ' + HD.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
-        ${!D.feriado && agDt_(D.dia).getDay() !== 0 && (agDt_(D.dia).getDay() !== 6 || A.sab) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
+      <div class="ar-dh"><div><b>${h(agExt_(D.dia).replace(/^./, c => c.toUpperCase()))}</b><small>${D.feriado && !D.ferAberto ? 'Feriado: ' + h(D.feriado) + ' · o link não oferece este dia' : D.feriado && D.fechado ? 'Feriado (' + h(D.feriado) + ') aberto, mas o dia está fechado' : D.fechado ? 'Dia fechado: o link não oferece horários neste dia' : (D.feriado ? '🎉 ' + h(D.feriado) + ' (aberto) · ' : '') + qtd(D) + ' entrevista(s) · ' + HD.filter(hh => !D.s[hh] || D.s[hh].st === 'cancelado').length + ' horário(s) livre(s)'}</small></div>
+        ${D.feriado && D.dia >= hoje && (meu || isAdmin()) ? `<button class="btn sm ${D.ferAberto ? '' : 'primary'}" id="arFer" title="${D.ferAberto ? 'Volta a fechar o feriado no link do candidato' : 'Libera os horários deste feriado no link do candidato'}">${D.ferAberto ? '🔒 Fechar o feriado' : ic('check') + ' Abrir este feriado'}</button>` : ''}
+        ${(!D.feriado || D.ferAberto) && agDt_(D.dia).getDay() !== 0 && (agDt_(D.dia).getDay() !== 6 || A.sab) ? `<button class="btn sm" id="arFech">${D.fechado ? ic('check') + ' Abrir o dia' : '🔒 Fechar o dia'}</button>` : ''}</div>
       <div class="ar-cols"><div>${turnoH('m')}${HD.filter(x => x < '12:00').map(slot).join('')}</div><div>${turnoH('t')}${HD.filter(x => x >= '13:00').map(slot).join('')}</div></div>
     </div>
-    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (${A.sab ? 'sexta → sábado → segunda; sábado das 09h às 12h e das 13h às 16h' : 'sexta → segunda'}), sem domingos e feriados. Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
+    <div class="faint" style="font-size:12px;margin-top:10px">O candidato só vê os horários livres de hoje e do próximo dia útil (${A.sab ? 'sexta → sábado → segunda; sábado das 09h às 12h e das 13h às 16h' : 'sexta → segunda'}), sem domingos e feriados (um feriado pode ser aberto no próprio dia, com o botão “Abrir este feriado”). Ao marcar, o link do Google Meet é criado na hora e o convite vai para o e-mail do candidato.</div>`;
     const troca = () => { const c = agCache_(f.rec, agSegunda_(f.dia)); if (c) S.agenda = c; draw(); buscar(); };
     const ir = d => { const mudou = agSegunda_(d) !== (S.agenda.dias[0] || {}).dia; f.dia = d; saveF(); if (mudou) troca(); else draw(); };
     $$('.ar-rec').forEach(b => b.onclick = () => { if (b.dataset.rec === S.agenda.rec) return; f.rec = b.dataset.rec; saveF(); troca(); });
@@ -1781,6 +1782,7 @@ async function pgAgenda() {
     $('#arRel').onclick = () => openAgendaRelatorio();
     $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
     if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
+    if ($('#arFer')) $('#arFer').onclick = e => { const on = !D.ferAberto; run(e.currentTarget, async () => { await api('agendaFeriado', { rec: A.rec, dia: D.dia, on }); D.ferAberto = on; toast(on ? `Feriado aberto: o link do candidato passa a oferecer ${agDdMm_(D.dia)}` : 'Feriado fechado novamente'); await buscar(); }); };
     if ($('#arSab')) $('#arSab').onclick = async e => { const on = !A.sab; if (!await confirmBox(on ? 'Abrir a sua agenda aos <b>sábados</b>, das 09h às 12h e das 13h às 16h? O candidato passa a ver o sábado no link (na sexta, o próximo dia passa a ser o sábado).' : 'Tirar o sábado da sua agenda? Entrevistas já marcadas no sábado continuam valendo.', on ? 'Abrir sábados' : 'Tirar sábado', !on)) return; run(e.currentTarget, async () => { await api('agendaSab', { on }); toast(on ? 'Sábado aberto na sua agenda' : 'Sábado retirado da sua agenda'); await buscar(); }); };
     $$('[data-turno]', v).forEach(b => b.onclick = async () => {
       const t = b.dataset.turno, bloq = !!b.dataset.bloq, nm = t === 'm' ? 'Manhã' : 'Tarde';
@@ -2046,7 +2048,7 @@ function openAgendaMover(rec, D, hh, done) {
         if (!doc) { el.innerHTML = '<div class="sk" style="height:140px"></div>'; return; }
         const hoje = new Date().toLocaleDateString('sv-SE'), w = agDt_(dd).getDay();
         if (dd < hoje) { el.innerHTML = '<div class="ag-vazio">Escolha uma data a partir de hoje.</div>'; return; }
-        if (doc.feriado || w === 0 || (w === 6 && !(S.agenda && S.agenda.sab))) { el.innerHTML = `<div class="ag-vazio">${doc.feriado ? '🎉 Feriado: ' + h(doc.feriado) : 'Fim de semana'}. Escolha outro dia.</div>`; return; }
+        if ((doc.feriado && !doc.ferAberto) || w === 0 || (w === 6 && !(S.agenda && S.agenda.sab))) { el.innerHTML = `<div class="ag-vazio">${doc.feriado ? '🎉 Feriado: ' + h(doc.feriado) : 'Fim de semana'}. Escolha outro dia.</div>`; return; }
         const livre = x => (!doc.s[x] || doc.s[x].st === 'cancelado') && !(dd === D.dia && x === hh) && !(dd === hoje && Number(x.slice(0, 2)) * 60 + Number(x.slice(3)) <= agoraMin());
         const bt = x => { const L = livre(x), oc = doc.s[x] && doc.s[x].st !== 'cancelado'; return `<button class="ar-mv-h ${sel === x ? 'sel' : ''} ${x === hh && dd === D.dia ? 'atual' : ''}" data-h="${x}" ${L ? '' : 'disabled'} title="${oc ? h(doc.s[x].st === 'bloqueado' ? 'Bloqueado' : doc.s[x].nome) : ''}">${x}</button>`; };
         const H = agHorariosF_(dd);

@@ -814,6 +814,7 @@ function openFichaLinks(done) {
 /* ================= TESTES DE AVALIAÇÃO (DISC · forças · situações de loja · fit cultural) ================= */
 // Questionários próprios do Grupo R Center (não reproduzem testes comerciais). Ferramenta de apoio à entrevista.
 const TESTE_INFO = {
+  grc: { nome: 'Avaliação GRC', curto: 'Avaliação', icone: '🎯', min: 15, cor: '#ff5a14', desc: 'Uma avaliação só, feita para a função da vaga: seu jeito de trabalhar, situações do dia a dia e a sua experiência.' },
   disc: { nome: 'Perfil comportamental', curto: 'DISC', icone: '🧭', min: 6, cor: '#3b82f6', desc: 'Como você costuma agir, decidir e se relacionar no dia a dia.' },
   forcas: { nome: 'Forças pessoais', curto: 'Forças', icone: '💪', min: 7, cor: '#16a34a', desc: 'Descubra as qualidades que mais aparecem em você.' },
   situacional: { nome: 'Jornada GRC', curto: 'Jogo', icone: '🗺️', min: 12, cor: '#ff5a14', desc: 'Jogo de aventura: crie seu personagem, explore as cidades do Grupo R Center e conquiste os selos.' },
@@ -993,7 +994,8 @@ const LIKERT_ = ['Discordo totalmente', 'Discordo', 'Neutro', 'Concordo', 'Conco
 // ordem embaralhada (estável por item) das alternativas
 const embaralha_ = (n, seed) => { const o = [...Array(n).keys()]; let s = seed * 7919 + 13; for (let i = n - 1; i > 0; i--) { s = (s * 9301 + 49297) % 233280; const j = Math.floor(s / 233280 * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } return o; };
 // perguntas de cada teste no formato da tela
-function testePerguntas_(t) {
+function testePerguntas_(t, titulo) {
+  if (t === 'grc') return grcLayout_(grcFunc_(titulo));
   if (t === 'disc') return DISC_Q.map((q, i) => ({ tipo: 'esc', titulo: 'Qual frase MAIS combina com você?', ops: embaralha_(4, i + 1).map(k => ({ v: 'DISC'[k], t: q[k] })) }));
   if (t === 'forcas') return FORCAS_ORDEM_.map(k => ({ tipo: 'lik', titulo: FORCAS_ITENS[k].t, k }));
   if (t === 'situacional') return SIT_Q.map((q, i) => ({ tipo: 'esc', fase: true, emoji: q[1], titulo: q[2], ops: embaralha_(4, i + 3).map(k => ({ v: String(k), t: q[3][k][0] })) }));
@@ -1003,6 +1005,7 @@ function testePerguntas_(t) {
 // ---- correção e parecer (feito no Quadro, a partir das respostas brutas)
 const media_ = L => L.length ? L.reduce((a, b) => a + b, 0) / L.length : 0;
 function testeCorrigir_(r) {
+  if (r.teste === 'grc') return grcCorrigir_(r);
   const R = r.resp || [], pct = (a, b) => b ? Math.round(a / b * 100) : 0, vg = vagaCat_(r.titulo), min_ = Math.round((r.seg || 0) / 60);
   if (r.teste === 'disc') {
     const n = { D: 0, I: 0, S: 0, C: 0 }; R.forEach(x => { if (n[x] != null) n[x]++; });
@@ -1092,6 +1095,149 @@ function testeCorrigir_(r) {
     return { tipo: 'fit', vals, nota, cls, incoer, lik, abN, ab, temAb, pen, abaixo, alertas, perg, rotulo: nota + '% · ' + cls, txt };
   }
   return { txt: '', alertas: [], perg: [] };
+}
+/* ================= AVALIAÇÃO GRC (teste único, direcionado à função) → base do PDI de integração =================
+ * Um só link, cerca de 15 minutos, 4 blocos: jeito de trabalhar (perfil), situações da função, como você é no trabalho
+ * (frases com checagem de coerência) e 2 perguntas abertas. Gera o mapa de competências da função, os pontos de atenção
+ * e o Plano de Desenvolvimento Individual (PDI) com metas e acompanhamento de 30 e 90 dias (contrato de experiência). */
+const GRC_COMP = {
+  etica: { nome: 'Ética e integridade', ic: '🛡️' },
+  atend: { nome: 'Atendimento ao cliente', ic: '🛒' },
+  equipe: { nome: 'Trabalho em equipe', ic: '🤝' },
+  org: { nome: 'Organização e padrão', ic: '🧺' },
+  prob: { nome: 'Calma e resolução de problemas', ic: '🧯' },
+  res: { nome: 'Foco no resultado', ic: '🎯' },
+  aprend: { nome: 'Aprendizagem e feedback', ic: '🌱' },
+  atenc: { nome: 'Atenção e precisão', ic: '🔎' },
+  lider: { nome: 'Liderança de equipe', ic: '🧭' }
+};
+// funções avaliadas: competências (as 2 primeiras são essenciais e pesam o dobro) e situações (ids do banco abaixo)
+const GRC_FUNC = {
+  caixa: { nome: 'Operador(a) de caixa', comp: ['etica', 'atenc', 'atend', 'prob', 'equipe', 'aprend'], sit: ['E1', 'T1', 'A1', 'P1', 'Q1', 'L1', 'A2', 'R1', 'Q2', 'T4'] },
+  atend: { nome: 'Atendimento / balconista', comp: ['atend', 'etica', 'prob', 'equipe', 'res', 'aprend'], sit: ['A1', 'A2', 'E2', 'P1', 'Q1', 'R1', 'L1', 'Q2', 'O2', 'L2'] },
+  prev: { nome: 'Prevenção de perdas', comp: ['etica', 'atenc', 'prob', 'equipe', 'org', 'aprend'], sit: ['E3', 'E2', 'P2', 'T3', 'T4', 'Q2', 'O2', 'L1', 'Q1', 'L2'] },
+  lider: { nome: 'Liderança (encarregado, supervisor, gerente)', comp: ['lider', 'etica', 'prob', 'res', 'equipe', 'aprend'], sit: ['D1', 'D3', 'P4', 'E2', 'R2', 'Q2', 'L1', 'O2', 'Q1', 'P1'] },
+  prod: { nome: 'Produção (açougue, padaria, frios, hortifrúti)', comp: ['org', 'atenc', 'equipe', 'etica', 'res', 'aprend'], sit: ['O3', 'O1', 'T2', 'Q1', 'E2', 'R2', 'L1', 'P3', 'O2', 'L2'] },
+  estoque: { nome: 'Reposição e estoque', comp: ['org', 'atenc', 'equipe', 'etica', 'res', 'aprend'], sit: ['O1', 'T2', 'T3', 'Q1', 'E2', 'R2', 'L1', 'P3', 'O2', 'Q2'] },
+  adm: { nome: 'Administrativo', comp: ['atenc', 'etica', 'org', 'prob', 'aprend', 'equipe'], sit: ['T3', 'T4', 'E2', 'O2', 'P1', 'L1', 'L2', 'Q2', 'Q1', 'R2'] },
+  limp: { nome: 'Limpeza e serviços gerais', comp: ['org', 'equipe', 'etica', 'aprend', 'prob', 'res'], sit: ['O2', 'Q1', 'E2', 'L1', 'P3', 'R2', 'Q2', 'L2', 'A2', 'O1'] },
+  geral: { nome: 'Outra função de loja', comp: ['etica', 'equipe', 'atend', 'org', 'prob', 'aprend'], sit: ['E1', 'A1', 'O1', 'Q1', 'P1', 'L1', 'R1', 'Q2', 'A2', 'T2'] }
+};
+const GRC_FUNC_ORD = ['caixa', 'atend', 'prev', 'estoque', 'prod', 'lider', 'adm', 'limp', 'geral'];
+// função pela vaga do link: usa o trecho antes do " · " (ex.: "Operador(a) de caixa · Eusébio")
+const grcFunc_ = titulo => { const p = String(titulo || '').split(' · ')[0]; const k = GRC_FUNC_ORD.find(x => norm(GRC_FUNC[x].nome) === norm(p)); return k || (vagaCat_(p).id in GRC_FUNC ? vagaCat_(p).id : 'geral'); };
+// banco de situações: [competência, emoji, situação, [[alternativa, pontos 0 a 3], ...]]
+const GRC_SIT = {
+  E1: ['etica', '💵', 'Ao fechar o caixa, você percebe que sobrou R$ 50,00 a mais do que deveria.', [['Informo o fiscal ou a liderança e registro a diferença.', 3], ['Guardo o valor para cobrir alguma falta futura.', 0], ['Deixo no caixa e não comento com ninguém.', 1], ['Divido com o colega que me ajudou no turno.', 0]]],
+  E2: ['etica', '🕒', 'Você percebe que um colega registrou o ponto por outro, que ainda não tinha chegado.', [['Falo com o colega e, se continuar, comunico a liderança.', 3], ['Ignoro, porque não é problema meu.', 0], ['Comento o caso com os outros colegas.', 0], ['Aviso a liderança sem falar com o colega.', 2]]],
+  E3: ['etica', '🎒', 'Um colega próximo pede para você "não ver" quando ele passar com um produto sem registrar.', [['Recuso e comunico a liderança, conforme o procedimento.', 3], ['Recuso, mas não comunico para não prejudicar a amizade.', 1], ['Deixo passar só desta vez.', 0], ['Converso com ele depois para não repetir.', 1]]],
+  A1: ['atend', '🛒', 'Um cliente chega irritado no caixa reclamando que o preço da gôndola está diferente do preço cobrado.', [['Escuto com calma, peço desculpas pelo transtorno e chamo o responsável para conferir e resolver.', 3], ['Explico que o preço certo é o do sistema e sigo o atendimento.', 1], ['Digo que não é culpa minha.', 0], ['Dou o desconto por conta própria para encerrar a discussão.', 1]]],
+  A2: ['atend', '👵', 'Uma cliente idosa pede ajuda para encontrar um produto, mas você está no meio de uma tarefa.', [['Acompanho a cliente até o produto ou chamo um colega para ajudá-la.', 3], ['Aponto o corredor de longe e volto para a tarefa.', 1], ['Digo que estou ocupado(a).', 0], ['Termino minha tarefa e depois procuro a cliente.', 1]]],
+  P1: ['prob', '🧾', 'O sistema trava com uma fila grande esperando.', [['Aviso o responsável imediatamente, informo os clientes com educação e sigo a orientação recebida.', 3], ['Fico tentando resolver sozinho(a), sem avisar ninguém.', 1], ['Saio do posto para procurar ajuda e deixo os clientes esperando sem explicação.', 0], ['Peço para os clientes irem para outra fila e não aviso ninguém.', 1]]],
+  P2: ['prob', '🚨', 'Você percebe um cliente escondendo um produto na bolsa.', [['Aviso discretamente a prevenção de perdas ou a liderança, sem abordar o cliente.', 3], ['Abordo o cliente na frente de todos.', 0], ['Finjo que não vi.', 0], ['Sigo o cliente pela loja até ele sair.', 1]]],
+  P3: ['prob', '⚙️', 'Um equipamento do setor (balança, câmara fria, máquina ou carrinho) apresenta defeito no meio do expediente.', [['Paro de usar, sinalizo e aviso o responsável na hora.', 3], ['Continuo usando com cuidado até o fim do turno.', 0], ['Tento consertar sozinho(a).', 1], ['Aviso só quando terminar o turno.', 1]]],
+  P4: ['lider', '💬', 'Dois colaboradores da sua equipe discutem na frente dos clientes.', [['Interrompo com calma, levo a conversa para um local reservado e ouço os dois.', 3], ['Dou uma bronca nos dois ali mesmo.', 0], ['Deixo que resolvam entre eles.', 0], ['Chamo o gerente para resolver.', 1]]],
+  Q1: ['equipe', '🤝', 'Um colega faltou e o setor ficou sobrecarregado. Seu líder pede ajuda além da sua tarefa.', [['Ajudo no que for preciso e me organizo para não deixar minha tarefa atrasar.', 3], ['Ajudo, mas reclamo o tempo todo.', 1], ['Digo que não é minha função.', 0], ['Ajudo só se me pagarem hora extra.', 1]]],
+  Q2: ['equipe', '🗣️', 'Você discorda da forma como seu líder pediu para organizar uma tarefa.', [['Faço o que foi pedido e depois apresento minha sugestão com respeito.', 3], ['Faço do meu jeito sem avisar.', 0], ['Reclamo com os colegas, mas faço.', 1], ['Me recuso a fazer até ele mudar de ideia.', 0]]],
+  O1: ['org', '🥛', 'Durante a reposição, você encontra produtos vencidos no fundo da gôndola.', [['Retiro os produtos, separo conforme o procedimento e aviso o responsável.', 3], ['Coloco os produtos novos na frente e deixo os vencidos atrás.', 0], ['Retiro e jogo no lixo sem registrar.', 1], ['Deixo para o próximo turno resolver.', 0]]],
+  O2: ['org', '🧹', 'Seu turno está acabando e o seu posto ainda está desorganizado.', [['Organizo o que for possível e passo as informações para o próximo turno.', 3], ['Vou embora no horário e deixo como está.', 1], ['Deixo um bilhete reclamando da bagunça.', 0], ['Peço para um colega organizar por mim.', 1]]],
+  O3: ['org', '🧤', 'Você vai manipular alimentos e percebe que acabaram a touca e as luvas descartáveis.', [['Paro e peço o material antes de continuar.', 3], ['Continuo sem, tomando cuidado.', 0], ['Improviso com o que tiver no setor.', 1], ['Aviso depois que terminar a tarefa.', 0]]],
+  R1: ['res', '📈', 'A loja está com uma campanha de vendas e você tem a chance de oferecer um produto em promoção.', [['Ofereço com naturalidade a todos os clientes, explicando a vantagem.', 3], ['Ofereço só quando lembro.', 1], ['Não ofereço porque acho chato.', 0], ['Ofereço só para quem parece que vai comprar.', 1]]],
+  R2: ['res', '📉', 'Seu setor tem a meta de reduzir perdas no mês.', [['Sigo os procedimentos, aviso sobre produtos perto do vencimento e sugiro melhorias.', 3], ['Faço meu trabalho normal; meta é problema da liderança.', 0], ['Só me preocupo no fim do mês.', 1], ['Escondo as perdas para o número ficar bom.', 0]]],
+  L1: ['aprend', '🧑‍🏫', 'Seu líder aponta um erro que você cometeu, na frente de um colega.', [['Escuto, peço orientação de como fazer certo e corrijo.', 3], ['Explico que a culpa não foi minha.', 0], ['Fico chateado(a) e evito o líder o resto do dia.', 0], ['Aceito, mas depois comento com os colegas que achei injusto.', 1]]],
+  L2: ['aprend', '📘', 'Você foi treinado(a) numa tarefa nova, mas ainda ficou com dúvida.', [['Pergunto de novo ou peço para acompanhar alguém até aprender.', 3], ['Faço do jeito que entendi para não incomodar.', 1], ['Espero alguém perceber o erro.', 0], ['Procuro na internet e faço do jeito que achar.', 1]]],
+  T1: ['atenc', '🪙', 'Uma compra deu R$ 32,40 e o cliente pagou com uma nota de R$ 50,00. Qual é o troco?', [['R$ 17,60', 3], ['R$ 18,60', 0], ['R$ 17,40', 0], ['R$ 27,60', 0]]],
+  T2: ['atenc', '📦', 'Na reposição de iogurtes, qual deve ficar na frente da gôndola?', [['O que vence primeiro.', 3], ['O que chegou por último.', 0], ['O de embalagem mais bonita.', 0], ['Tanto faz, desde que esteja na validade.', 0]]],
+  T3: ['atenc', '📋', 'A nota fiscal diz 24 caixas, mas você contou 22 no recebimento. O que você faz?', [['Registro a divergência e aviso o responsável antes de assinar.', 3], ['Assino, porque a diferença é pequena.', 0], ['Recebo e vejo depois.', 0], ['Recuso a entrega toda sem falar com ninguém.', 1]]],
+  T4: ['atenc', '🏷️', 'Ao conferir um produto, o código está certo, mas o preço do sistema é diferente do cartaz.', [['Aviso o responsável pela precificação e sinalizo para não cobrar errado.', 3], ['Deixo, porque o sistema cobra o certo.', 1], ['Troco o cartaz do meu jeito.', 0], ['Ignoro.', 0]]],
+  D1: ['lider', '⏰', 'Um colaborador antigo e bom começou a chegar atrasado com frequência.', [['Converso em particular, entendo o motivo, combino como resolver e acompanho.', 3], ['Advirto na frente da equipe para servir de exemplo.', 0], ['Deixo passar porque ele é bom.', 0], ['Encaminho direto ao RH para advertência.', 1]]],
+  D3: ['lider', '🚚', 'A loja recebe uma carga grande e falta gente no setor.', [['Reorganizo as tarefas, priorizo o mais importante e ajudo a equipe na execução.', 3], ['Cobro mais rapidez de todos.', 1], ['Deixo para o próximo turno.', 0], ['Faço tudo sozinho(a) para dar o exemplo.', 1]]]
+};
+// frases (escala de 1 a 5): para cada competência, uma direta e uma invertida (checa coerência)
+const GRC_FRASE = {
+  etica: ['Assumo meus erros, mesmo quando ninguém perceberia.', 'Pegar algo pequeno da empresa não faz mal a ninguém.'],
+  atend: ['Gosto de ajudar o cliente a encontrar o que precisa.', 'Cliente mal-educado merece ser tratado do mesmo jeito.'],
+  equipe: ['Ajudo um colega sobrecarregado, mesmo sem ser minha função.', 'Prefiro fazer só a minha parte e não me envolver com o resto.'],
+  org: ['Deixo meu espaço de trabalho organizado ao terminar uma tarefa.', 'Se ninguém vai ver, não precisa caprichar tanto.'],
+  prob: ['Consigo manter a calma quando tudo acontece ao mesmo tempo.', 'Quando algo dá errado, costumo perder a paciência.'],
+  res: ['Gosto de saber qual é a meta e acompanhar se estou chegando lá.', 'Meta é preocupação da liderança, não minha.'],
+  aprend: ['Gosto de receber feedback para melhorar.', 'Tenho dificuldade em aceitar quando alguém me corrige.'],
+  atenc: ['Confiro o que fiz antes de dar uma tarefa por terminada.', 'Pequenos erros não fazem diferença no resultado final.'],
+  lider: ['Consigo cobrar resultados das pessoas sem perder o respeito.', 'Prefiro não dar feedback negativo para não criar clima ruim.']
+};
+const GRC_DISC = [1, 2, 3, 5, 7, 8, 10, 12, 16, 19, 20, 22]; // 12 perguntas do perfil (do banco DISC)
+const GRC_ABERTAS = [FIT_ABERTAS[0], FIT_ABERTAS[1]];
+// PDI: o que observar, ações e metas de 30/90 dias para cada competência
+const GRC_PDI = {
+  etica: { obs: ['Fecha caixa, contagens e registros sem omissões', 'Segue os procedimentos mesmo sem supervisão', 'Comunica irregularidades à liderança'], acoes: ['Apresentar o Código de Ética e as regras de valores, consumo e uso de produtos na integração, com ciência assinada', 'Conversa individual do líder sobre as situações de risco da função'], m30: 'Conhecer e cumprir as normas de conduta e os procedimentos de valores e produtos da função', m90: 'Nenhuma ocorrência de conduta e relato espontâneo de qualquer irregularidade percebida', perg: 'Você presenciou alguma situação de risco (valores, produtos, ponto)? Como agiu?' },
+  atend: { obs: ['Cumprimenta, escuta e resolve ou encaminha o cliente', 'Mantém a educação com clientes difíceis', 'Elogios ou reclamações de clientes'], acoes: ['Acompanhar um colega de referência no atendimento nos primeiros dias', 'Simular com o líder 3 situações difíceis (preço divergente, troca, cliente irritado)'], m30: 'Atender seguindo o padrão do Grupo R Center: cumprimentar, ouvir, resolver ou encaminhar', m90: 'Resolver sozinho(a) as situações comuns de atendimento, sem reclamações procedentes', perg: 'Conte um atendimento difícil deste período. O que você fez?' },
+  equipe: { obs: ['Ajuda os colegas quando o setor aperta', 'Cumpre a sua parte e passa as informações na troca de turno', 'Relacionamento com a equipe e com a liderança'], acoes: ['Definir um padrinho ou madrinha no setor para o primeiro mês', 'Participar das reuniões rápidas do setor e conhecer os setores vizinhos'], m30: 'Integrar-se à equipe e conhecer a rotina do setor', m90: 'Ser reconhecido(a) pela equipe como alguém que colabora e cumpre o combinado', perg: 'Em que situação você ajudou a equipe além da sua tarefa?' },
+  org: { obs: ['Mantém o setor organizado e no padrão', 'Confere validade e segue o PEPS (primeiro que vence, primeiro que sai)', 'Deixa o posto em ordem ao final do turno'], acoes: ['Revisar com o líder o checklist do padrão do setor na primeira semana', 'Conferência rápida do líder uma vez por semana no primeiro mês'], m30: 'Aprender o padrão do setor (exposição, validade, higiene e limpeza)', m90: 'Manter o padrão do setor sem precisar de cobrança', perg: 'O que você faz para manter o seu setor no padrão até o fim do turno?' },
+  prob: { obs: ['Mantém a calma em fila, pico e imprevistos', 'Avisa a liderança rapidamente quando algo foge do normal', 'Segue a orientação recebida'], acoes: ['Apresentar o fluxo de "a quem chamar" (fiscal, líder, prevenção, manutenção)', 'Conversa com o líder depois do primeiro dia de muito movimento'], m30: 'Saber a quem recorrer e qual procedimento seguir nas situações mais comuns', m90: 'Resolver os imprevistos comuns com autonomia e calma', perg: 'Qual foi o imprevisto mais difícil até aqui e como você agiu?' },
+  res: { obs: ['Conhece as metas do setor', 'Executa as ações de campanha e ofertas', 'Busca reduzir perdas, erros e retrabalho'], acoes: ['Líder explica as metas do setor e como a função contribui para elas', 'Acompanhar junto um indicador simples (perdas, ofertas, filas ou abastecimento)'], m30: 'Conhecer as metas e os indicadores do setor', m90: 'Contribuir de forma visível para uma meta do setor', perg: 'Quais são as metas do seu setor e o que você faz para ajudar?' },
+  aprend: { obs: ['Pede ajuda quando tem dúvida', 'Aceita correções sem resistência e melhora', 'Evolução de uma semana para a outra'], acoes: ['Feedback curto do líder ao fim da 1ª e da 2ª semana', 'Concluir os treinamentos da função no primeiro mês'], m30: 'Concluir os treinamentos da função e tirar todas as dúvidas', m90: 'Executar a função sem acompanhamento e aplicar os feedbacks recebidos', perg: 'Qual feedback você recebeu neste período e o que mudou depois dele?' },
+  atenc: { obs: ['Erros de registro, troco, contagem ou digitação', 'Confere antes de concluir', 'Diferenças de caixa ou de estoque'], acoes: ['Mostrar os erros mais comuns da função e como conferir cada um', 'Conferência em dupla com o líder nas primeiras semanas'], m30: 'Aprender os pontos de conferência da função', m90: 'Trabalhar sem diferenças nem erros recorrentes', perg: 'Que tipo de erro você mais precisou corrigir e como passou a conferir?' },
+  lider: { obs: ['Organiza e distribui as tarefas da equipe', 'Dá feedback e cobra com respeito', 'Resolve os conflitos da equipe'], acoes: ['Acompanhamento semanal com o gerente nas primeiras 4 semanas', 'Conversa individual com cada liderado no primeiro mês'], m30: 'Conhecer a equipe, as rotinas e os indicadores da área', m90: 'Conduzir a equipe com feedbacks regulares e indicadores em dia', perg: 'Como está a sua equipe hoje e qual conversa difícil você precisou ter?' }
+};
+const GRC_NIV = p => p >= 80 ? ['Forte', '#16a34a'] : p >= 65 ? ['Adequado', '#22c55e'] : p >= 50 ? ['A desenvolver', '#f59e0b'] : ['Crítico', '#ef4444'];
+// layout fixo do teste da função (a correção usa a mesma ordem)
+function grcLayout_(fk) {
+  const F = GRC_FUNC[fk] || GRC_FUNC.geral, Q = [];
+  GRC_DISC.forEach((d, i) => Q.push({ bloco: 1, tipo: 'esc', titulo: 'Qual frase MAIS combina com você?', ops: embaralha_(4, d + 1).map(k => ({ v: 'DISC'[k], t: DISC_Q[d][k] })) }));
+  F.sit.forEach((id, i) => { const s = GRC_SIT[id]; Q.push({ bloco: 2, tipo: 'esc', id, comp: s[0], emoji: s[1], titulo: s[2], ops: embaralha_(4, i + 31).map(k => ({ v: String(k), t: s[3][k][0] })) }); });
+  const fr = []; F.comp.forEach(c => { fr.push({ c, inv: 0 }); fr.push({ c, inv: 1 }); });
+  embaralha_(fr.length, 77).forEach(j => Q.push({ bloco: 3, tipo: 'lik', comp: fr[j].c, inv: fr[j].inv, titulo: GRC_FRASE[fr[j].c][fr[j].inv] }));
+  GRC_ABERTAS.forEach((q, j) => Q.push({ bloco: 4, tipo: 'txt', titulo: q.t, n: j + 1, q }));
+  return Q;
+}
+const GRC_BLOCO = { 1: ['🧭', 'Seu jeito de trabalhar'], 2: ['🏪', 'Situações do dia a dia'], 3: ['🪞', 'Como você é no trabalho'], 4: ['✍️', 'Conte a sua experiência'] };
+function grcCorrigir_(r) {
+  const R = r.resp || [], fk = grcFunc_(r.titulo), F = GRC_FUNC[fk], Q = grcLayout_(fk), pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+  // perfil
+  const n = { D: 0, I: 0, S: 0, C: 0 }; Q.forEach((q, i) => { if (q.bloco === 1 && n[R[i]] != null) n[R[i]]++; });
+  const totD = Object.values(n).reduce((a, b) => a + b, 0) || 1, dp = {}; Object.keys(n).forEach(k => dp[k] = pct(n[k], totD));
+  const ord = Object.keys(dp).sort((a, b) => dp[b] - dp[a]), pri = ord[0], sec = dp[ord[1]] >= 25 ? ord[1] : '';
+  const vg = vagaCat_(F.nome), afin = vg.disc.split('').reduce((a, k) => a + dp[k], 0), afinTxt = afin >= vg.disc.length * 30 ? 'alta' : afin >= vg.disc.length * 22 ? 'média' : 'baixa';
+  // situações, frases e abertas por competência
+  const sj = {}, lk = {}, graves = []; let incoer = 0, n5 = 0, nDir = 0; const usados = {};
+  const DIR = [0, 0, 15, 40, 75, 100], INV = [0, 100, 75, 35, 5, 0];
+  Q.forEach((q, i) => {
+    if (q.bloco === 2) { const s = GRC_SIT[q.id], k = Number(R[i]), pt = s[3][k] ? s[3][k][1] : 0; (sj[q.comp] = sj[q.comp] || [0, 0]); sj[q.comp][0] += pt; sj[q.comp][1] += 3; if (s[3][k] && pt === 0) graves.push({ comp: q.comp, sit: s[2], esc: s[3][k][0] }); }
+    if (q.bloco === 3) { const v = Math.min(5, Math.max(1, Number(R[i]) || 3)); usados[v] = 1; (lk[q.comp] = lk[q.comp] || []).push(q.inv ? INV[v] : DIR[v]); if (q.inv && v >= 4) incoer++; if (!q.inv) { nDir++; if (v === 5) n5++; } }
+  });
+  const ab = Q.map((q, i) => q.bloco === 4 ? Object.assign({ q: q.titulo, txt: String(R[i] == null ? '' : R[i]) }, fitAberta_(R[i], q.q)) : null).filter(Boolean);
+  const abMap = { equipe: ab[0], res: ab[0], aprend: ab[1], etica: ab[1] };
+  const comps = F.comp.map((c, ix) => {
+    const s = sj[c] ? pct(sj[c][0], sj[c][1]) : null, l = lk[c] ? Math.round(media_(lk[c])) : null, a = abMap[c] ? abMap[c].p : null;
+    let p = s != null ? (l != null ? s * .65 + l * .35 : s) : (l != null ? l : 0);
+    if (a != null && a < 40) p -= 5; if (a != null && a >= 75) p += 3;
+    p = Math.max(0, Math.min(100, Math.round(p)));
+    return { k: c, nome: GRC_COMP[c].nome, ic: GRC_COMP[c].ic, p, sit: s, frase: l, essencial: ix < 2, niv: GRC_NIV(p) };
+  });
+  // alertas de confiabilidade e de conduta
+  const alertas = []; let pen = 0;
+  const gEtica = graves.filter(g => g.comp === 'etica');
+  if (gEtica.length) alertas.push('Escolheu atitude inadequada em situação de ética: "' + gEtica[0].esc + '"');
+  if (nDir && n5 / nDir >= .85) { pen += 6; alertas.push('Respostas idealizadas: concordou totalmente com ' + Math.round(n5 / nDir * 100) + '% das frases positivas'); }
+  if (incoer >= 3) { pen += 6; alertas.push('Concordou com ' + incoer + ' frases contrárias ao comportamento esperado'); }
+  if (Object.keys(usados).length === 1) { pen += 8; alertas.push('Marcou a mesma opção em todas as frases'); }
+  if (r.seg && r.seg < 240) { pen += 5; alertas.push('Respondeu rápido demais (' + Math.round(r.seg / 60 * 10) / 10 + ' min)'); }
+  ab.forEach((x, j) => { if (x.p < 40) alertas.push('Pergunta aberta ' + (j + 1) + ' fraca (' + x.p + '%)'); x.alerta.forEach(a => alertas.push('Pergunta aberta ' + (j + 1) + ': ' + a)); });
+  const pesoT = comps.reduce((a, c) => a + (c.essencial ? 2 : 1), 0);
+  const nota = Math.max(0, Math.round(comps.reduce((a, c) => a + c.p * (c.essencial ? 2 : 1), 0) / pesoT - pen));
+  const criticos = comps.filter(c => c.p < 50), essFraco = comps.filter(c => c.essencial && c.p < 65);
+  const parecer = gEtica.length || criticos.some(c => c.essencial) || nota < 55 ? 'Atenção' : nota >= 75 && !criticos.length && !essFraco.length ? 'Recomendado' : 'Recomendado com plano';
+  const cor = parecer === 'Recomendado' ? '#16a34a' : parecer === 'Atenção' ? '#ef4444' : '#f59e0b';
+  // PDI: focos (até 3 competências mais frágeis abaixo de 65; se nenhuma, a menor) e forças para aproveitar
+  const ordC = comps.slice().sort((a, b) => a.p - b.p || (b.essencial ? 1 : 0) - (a.essencial ? 1 : 0));
+  let focos = ordC.filter(c => c.p < 65).slice(0, 3); if (!focos.length) focos = ordC.slice(0, 1);
+  const fortes = comps.filter(c => c.p >= 80).sort((a, b) => b.p - a.p);
+  const X = DISC_MAIS[pri], FX = DISC_FATOR[pri];
+  const liderar = { perfil: pri + (sec || ''), nome: FX.nome + (sec ? ' + ' + DISC_FATOR[sec].nome : ''), resumo: FX.resumo, comunica: X.comunica, motiva: X.motiva, pressao: X.pressao, fortes: FX.fortes, atencao: FX.atencao };
+  const PE = Object.assign({ aprend: 'Conte a última crítica que você recebeu no trabalho. O que fez depois?', atenc: 'Como você confere o seu trabalho para não errar? Dê um exemplo real.', lider: 'Conte uma conversa difícil que você teve com alguém da sua equipe. Como conduziu?' }, SIT_PERG);
+  const perg = uniq(focos.map(c => PE[c.k]).concat(gEtica.length ? [SIT_PERG.etica] : [], afinTxt === 'baixa' ? [DISC_MAIS[vg.disc[0]].perg] : [])).slice(0, 5);
+  const txt = `Avaliação GRC · ${F.nome}\nResultado: ${nota}% · ${parecer}.\nCompetências: ${comps.map(c => c.nome + ' ' + c.p + '% (' + c.niv[0].toLowerCase() + ')').join('; ')}.\nPerfil de trabalho: ${liderar.perfil} (${liderar.nome}), afinidade ${afinTxt} com a função. ${FX.resumo}\nComo liderar: comunicação ${X.comunica}; motiva-se com ${X.motiva}; sob pressão ${X.pressao}.\nFocos do PDI: ${focos.map(c => c.nome).join(', ')}.${fortes.length ? '\nForças para aproveitar: ' + fortes.map(c => c.nome).join(', ') + '.' : ''}${alertas.length ? '\n\nAlertas:\n- ' + alertas.join('\n- ') : ''}\n\nPerguntas para a entrevista:\n- ${perg.join('\n- ')}`;
+  return { tipo: 'grc', fk, func: F.nome, comps, nota, parecer, cor, dp, pri, sec, afinTxt, vg, liderar, focos, fortes, graves, ab, alertas, perg, rotulo: nota + '% · ' + parecer, txt };
 }
 // parecer geral do candidato (junta todos os testes feitos)
 function testeGeral_(cand) {
@@ -1480,7 +1626,7 @@ async function renderTeste(codigo) {
   };
   // 3) responder um desafio (uma pergunta por tela)
   const rodar = t => {
-    const Q = testePerguntas_(t), T = TESTE_INFO[t];
+    const Q = testePerguntas_(t, (info && info.titulo) || st.vaga), T = TESTE_INFO[t];
     const k = 'r_' + t; let R = st[k] || [], t0 = Date.now() - (st['s_' + t] || 0) * 1000;
     let i = Math.min(R.length, Q.length - 1); if (R.length >= Q.length) i = Q.length - 1;
     const tela = () => {
@@ -1489,10 +1635,10 @@ async function renderTeste(codigo) {
       M.innerHTML = `<div class="tx-q" style="--c:${T.cor}">
         <div class="tx-qtop"><button class="tx-back" id="txV">‹</button><div class="tx-prog"><i style="width:${pr}%"></i></div><span>${i + 1}/${Q.length}</span></div>
         <div class="tx-qcard">
-          <div class="tx-tag">${T.icone} ${T.nome}${q.fase ? ` · Fase ${i + 1}` : ''}</div>
+          <div class="tx-tag">${q.bloco ? GRC_BLOCO[q.bloco][0] + ' ' + GRC_BLOCO[q.bloco][1] : T.icone + ' ' + T.nome}${q.fase ? ` · Fase ${i + 1}` : ''}</div>
           ${q.emoji ? `<div class="tx-emoji">${q.emoji}</div>` : ''}
           <h3>${h(q.titulo)}</h3>
-          ${t === 'situacional' ? '<p class="tx-sub">O que você faria?</p>' : t === 'forcas' || t === 'fit' ? '<p class="tx-sub">O quanto essa frase combina com você?</p>' : ''}
+          ${q.bloco === 2 ? `<p class="tx-sub">${q.comp === 'atenc' && /\?$/.test(q.titulo) ? 'Escolha a resposta certa.' : 'O que você faria?'}</p>` : q.bloco === 3 ? '<p class="tx-sub">O quanto essa frase combina com você?</p>' : q.bloco === 1 ? '' : t === 'situacional' ? '<p class="tx-sub">O que você faria?</p>' : t === 'forcas' || t === 'fit' ? '<p class="tx-sub">O quanto essa frase combina com você?</p>' : ''}
           <div class="tx-ops ${q.tipo === 'lik' ? 'lik' : ''}">${q.tipo === 'lik' ? LIKERT_.map((l, j) => `<button class="tx-op lk ${String(R[i]) === String(j + 1) ? 'sel' : ''}" data-v="${j + 1}"><i>${['😕', '🙁', '😐', '🙂', '😄'][j]}</i><span>${l}</span></button>`).join('') : q.ops.map((o, j) => `<button class="tx-op ${String(R[i]) === o.v ? 'sel' : ''}" data-v="${h(o.v)}"><i>${'ABCD'[j]}</i><span>${h(o.t)}</span></button>`).join('')}</div>
         </div></div>`;
       $('#txV').onclick = () => { if (i > 0) { i--; tela(); } else telaLista(); };
@@ -1508,7 +1654,7 @@ async function renderTeste(codigo) {
       M.innerHTML = `<div class="tx-q" style="--c:${T.cor}">
         <div class="tx-qtop"><button class="tx-back" id="txV">‹</button><div class="tx-prog"><i style="width:${pr}%"></i></div><span>${i + 1}/${Q.length}</span></div>
         <div class="tx-qcard">
-          <div class="tx-tag">${T.icone} ${T.nome} · Pergunta aberta ${q.n} de ${FIT_ABERTAS.length}</div>
+          <div class="tx-tag">${T.icone} ${T.nome} · Pergunta aberta ${q.n} de ${t === 'grc' ? GRC_ABERTAS.length : FIT_ABERTAS.length}</div>
           <h3>${h(q.titulo)}</h3>
           <p class="tx-sub">Escreva com as suas palavras. Conte um caso real: o que aconteceu, o que você fez e por quê.</p>
           <textarea class="input tx-txt" id="txA" rows="7" maxlength="1800" placeholder="Ex.: Uma vez, no meu trabalho anterior, ...">${h(R[i] || '')}</textarea>
@@ -2240,6 +2386,7 @@ function testePDF_(c) {
   w.document.open(); w.document.write(html); w.document.close();
 }
 function openTesteCand(c, done) {
+  if (c.testes.grc) return openGrcCand(c, done);
   const R = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean), G = testeGeral_(c);
   const textoTudo = () => `*${c.nome}* · CPF ${cpfFmt(c.cpf)}${c.titulo ? '\nVaga: ' + c.titulo : ''}\n\n*Parecer geral*\n${G.txt}\n\n` + R.map(r => `*${TESTE_INFO[r.teste].nome}*\n${testeCorrigir_(r).txt}${r.obs ? '\n_Parecer:_ ' + r.obs : ''}`).join('\n\n');
   modal({
@@ -2257,6 +2404,11 @@ function openTesteCand(c, done) {
       $('#tcCp', m.el).onclick = () => copiar_(textoTudo(), 'Relatório copiado');
       $('#tcPdf', m.el).onclick = () => testePDF_(c);
       $$('[data-cpp]', m.el).forEach(b => b.onclick = () => { const r = R.find(x => x.id === b.dataset.cpp); copiar_(`*${TESTE_INFO[r.teste].nome}* · ${c.nome}\n${testeCorrigir_(r).txt}`, 'Parecer copiado'); });
+      testeCandEventos_(m, c, done);
+    }
+  });
+}
+function testeCandEventos_(m, c, done) {
       $$('[data-obsok]', m.el).forEach(b => b.onclick = ev => run(ev.currentTarget, async () => {
         const id = b.dataset.obsok, obs = $(`[data-obs="${id}"]`, m.el).value;
         const j = await api('testeObs', { id, obs });
@@ -2267,11 +2419,106 @@ function openTesteCand(c, done) {
         const ids = (testesCache_().testes || []).filter(x => x.cpf === c.cpf).map(x => x.id);
         await api('testeApagar', { ids }); testesSet_({ testes: (testesCache_().testes || []).filter(x => x.cpf !== c.cpf) }); m.close(); if (done) done();
       };
+}
+// ---- Avaliação GRC: tela do resultado (RH) ----
+function grcResumoHTML_(r) {
+  const c = grcCorrigir_(r);
+  const bar = x => `<div class="tr-bar"><span>${x.ic} ${h(x.nome)}${x.essencial ? ' <em class="tr-ess">essencial</em>' : ''}</span><div><i style="width:${Math.max(2, x.p)}%;background:${x.niv[1]}"></i></div><b>${x.p}%</b><em class="tr-niv" style="color:${x.niv[1]}">${x.niv[0]}</em></div>`;
+  return `<div class="card tr-sec tr-geral" style="--c:${c.cor}">
+    <div class="tr-h"><span class="tr-ic">🎯</span><div><b>Avaliação GRC · <span style="color:${c.cor}">${c.parecer}</span></b><small>${h(c.func)} · ${dtHr_(r.em)} · ${Math.round((r.seg || 0) / 60)} min</small></div><button class="btn sm ghost" data-cpp="${h(r.id)}" title="Copiar parecer">${ic('copy')}</button></div>
+    <div class="tr-nota" style="--c:${c.cor}"><b>${c.nota}%</b><span>Aderência à função<br><small>competências essenciais pesam o dobro</small></span></div>
+    <div class="tr-sub">Mapa de competências da função</div>${c.comps.map(bar).join('')}
+    <div class="tr-sub">Como liderar esta pessoa · perfil ${h(c.liderar.perfil)} (${h(c.liderar.nome)}) · afinidade ${c.afinTxt} com a função</div>
+    <div class="tr-kv"><div><small>Comunicação</small><b style="text-transform:none;font-weight:600">${h(c.liderar.comunica)}</b></div><div><small>O que motiva</small><b style="text-transform:none;font-weight:600">${h(c.liderar.motiva)}</b></div><div><small>Sob pressão</small><b style="text-transform:none;font-weight:600">${h(c.liderar.pressao)}</b></div></div>
+    <div class="tr-sub">PDI de integração · focos para os 30 e 90 dias</div>
+    ${c.focos.map(f => `<div class="tr-req"><span class="tr-pos" style="--c:${f.niv[1]}">${f.p}%</span><div><b>${f.ic} ${h(f.nome)}</b><small>30 dias: ${h(GRC_PDI[f.k].m30)} · 90 dias: ${h(GRC_PDI[f.k].m90)}</small></div></div>`).join('')}
+    ${c.fortes.length ? `<div class="tr-sub">Forças para aproveitar</div><div class="tr-top">${c.fortes.map(f => `<span class="tr-chip">${f.ic} ${h(f.nome)}</span>`).join('')}</div>` : ''}
+    ${trLista_('⚠ Alertas', c.alertas, 'ruim')}${trLista_('💬 Perguntas para a entrevista', c.perg)}
+    ${c.graves.length ? `<details class="tr-det"><summary>Escolhas inadequadas nas situações (${c.graves.length})</summary>${c.graves.map(g => `<div class="tr-ab"><small>${h(g.sit)}</small><blockquote>${h(g.esc)}</blockquote></div>`).join('')}</details>` : ''}
+    <div class="tr-sub">Respostas abertas (com as palavras do candidato)</div>${c.ab.map((x, j) => `<div class="tr-ab"><div class="tr-ab-h"><small>${j + 1}. ${h(x.q)}</small><span class="badge" style="background:${corP_(x.p, 70)};color:#fff">${x.p}%</span></div><blockquote>${h(x.txt.trim() || '(em branco)').replace(/\n/g, '<br>')}</blockquote>${x.obs.length || x.alerta.length ? `<p class="faint" style="font-size:12px;margin:4px 0 0">${h(x.alerta.map(a => '⚠ ' + a + '. ').join('') + x.obs.join(' '))}</p>` : ''}</div>`).join('')}
+    <div class="field" style="margin:10px 0 0"><label>Parecer do psicólogo / RH</label><textarea class="input" rows="3" data-obs="${h(r.id)}" placeholder="Escreva sua análise...">${h(r.obs || '')}</textarea>${r.obsPor ? `<small class="faint">Último registro: ${h(r.obsPor)} · ${dtHr_(r.obsEm)}</small>` : ''}<div style="margin-top:6px"><button class="btn sm" data-obsok="${h(r.id)}">${ic('check')} Salvar parecer</button></div></div>
+  </div>`;
+}
+// ---- Avaliação GRC: relatório (modo 'rel') e PDI de integração 30/90 dias (modo 'pdi'), prontos para imprimir ----
+function grcDoc_(cand, modo) {
+  const r = cand.testes.grc, c = grcCorrigir_(r), esc = h, agora = new Date(), pdi = modo === 'pdi';
+  const bar = x => `<div class="br"><span>${esc(x.nome)}${x.essencial ? ' ★' : ''}</span><div><i style="width:${Math.max(2, x.p)}%;background:${x.niv[1]}"></i></div><b>${x.p}%</b><em style="color:${x.niv[1]}">${x.niv[0]}</em></div>`;
+  const lista = (t, L, cls) => L && L.length ? `<div class="lst ${cls || ''}"><b>${t}</b><ul>${L.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+  const chk = '<span class="ck"></span>';
+  const aval = dias => `<section class="ava"><h3>Acompanhamento de ${dias} dias <small>· preencher até ${dias === 30 ? 'o 25º' : 'o 80º'} dia de contrato · data: ____/____/______</small></h3>
+    <table><thead><tr><th>Competência</th><th class="c">Atende</th><th class="c">Em evolução</th><th class="c">Não atende</th><th>Evidências observadas (fatos, exemplos)</th></tr></thead>
+    <tbody>${c.comps.map(x => `<tr${c.focos.some(f => f.k === x.k) ? ' class="foco"' : ''}><td><b>${esc(x.nome)}</b>${c.focos.some(f => f.k === x.k) ? '<br><small>foco do PDI</small>' : ''}</td><td class="c">${chk}</td><td class="c">${chk}</td><td class="c">${chk}</td><td class="ev"></td></tr>`).join('')}</tbody></table>
+    <div class="lst"><b>Perguntas para a conversa com o(a) colaborador(a)</b><ul>${c.focos.map(f => `<li>${esc(GRC_PDI[f.k].perg)}</li>`).join('')}</ul></div>
+    <div class="dec"><b>${dias === 30 ? 'Situação aos 30 dias' : 'Decisão ao fim da experiência'}:</b> ${dias === 30 ? `${chk} Dentro do esperado ${chk} Precisa de reforço nos focos ${chk} Risco de não efetivação` : `${chk} Efetivar ${chk} Efetivar com plano de desenvolvimento ${chk} Não efetivar`}</div>
+    <div class="lin"><b>Pontos combinados para o próximo período:</b><p></p><p></p></div>
+    <div class="ass"><div>Colaborador(a)</div><div>Líder responsável</div><div>Recursos Humanos</div></div></section>`;
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${pdi ? 'PDI de integração' : 'Avaliação GRC'} · ${esc(cand.nome)}</title>
+  <style>
+  @page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:'Segoe UI',Arial,sans-serif;color:#0b1037;margin:0;font-size:10.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:860px;margin:0 auto;padding:18px}
+  header{display:flex;align-items:center;gap:16px;background:linear-gradient(135deg,#11159a,#0a0d7c 55%,#060852);color:#fff;border-radius:14px;padding:14px 18px;margin-bottom:12px}
+  header img{height:30px}header h1{margin:0;font-size:18px}header .meta{opacity:.8;font-size:10px;margin-top:3px}
+  .cand{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}.cand div{border:1px solid #e3e6f3;border-radius:8px;padding:6px 9px;min-height:36px}.cand span{display:block;font-size:8.5px;text-transform:uppercase;letter-spacing:.06em;color:#5a6191;font-weight:700}.cand b{font-size:11px}
+  .res{display:flex;gap:10px;align-items:center;border:1px solid #e3e6f3;border-left:5px solid ${c.cor};border-radius:10px;padding:9px 12px;margin-bottom:8px}.res b.n{font-size:26px;color:${c.cor}}.res span{font-size:12px}
+  h2{font-size:13px;color:#0a0d7c;margin:14px 0 6px;border-bottom:2px solid #ff5a14;padding-bottom:4px}h3{font-size:12.5px;color:#0a0d7c;margin:4px 0 8px}h3 small{color:#5a6191;font-weight:400}
+  .br{display:grid;grid-template-columns:200px 1fr 34px 80px;align-items:center;gap:8px;margin:3px 0}.br div{height:8px;background:#eceffa;border-radius:9px;overflow:hidden}.br i{display:block;height:100%;border-radius:9px}.br b{text-align:right}.br em{font-style:normal;font-weight:700;font-size:9.5px}
+  .kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.kv div{background:#f5f6fc;border-radius:8px;padding:7px 9px}.kv small{display:block;color:#5a6191;font-size:9px;text-transform:uppercase;font-weight:700}
+  table{width:100%;border-collapse:collapse;margin:4px 0}th{background:#0a0d7c;color:#fff;text-align:left;padding:5px 6px;font-size:9px;text-transform:uppercase}td{padding:6px;border:1px solid #e3e6f3;vertical-align:top}tr{page-break-inside:avoid}
+  td ul{margin:0;padding-left:14px}.c{text-align:center;width:62px}.ev{width:34%}tr.foco td{background:#fff8f3}td small{color:#ff5a14;font-weight:700}
+  .ck{display:inline-block;width:12px;height:12px;border:1.5px solid #0a0d7c;border-radius:3px;vertical-align:middle;margin:0 3px}
+  .lst{border-radius:8px;padding:6px 10px;margin:6px 0;background:#f5f6fc;page-break-inside:avoid}.lst.ruim{background:#fef2f2;border:1px solid #fecaca}.lst ul{margin:3px 0 0;padding-left:16px}
+  .txt{white-space:pre-wrap;background:#fafbff;border:1px solid #eceffa;border-radius:8px;padding:8px 10px;line-height:1.45}
+  .ava{page-break-before:always}.dec{margin:8px 0;font-size:11px}.lin p{border-bottom:1px solid #cdd2e8;height:18px;margin:4px 0}
+  .ass{display:flex;gap:24px;margin-top:34px}.ass div{flex:1;border-top:1px solid #0b1037;text-align:center;padding-top:4px;font-size:10px}
+  .resp{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0}.resp div{border:1px solid #e3e6f3;border-radius:8px;padding:6px 9px;min-height:34px}.resp span{display:block;font-size:8.5px;text-transform:uppercase;color:#5a6191;font-weight:700}
+  .aviso{color:#5a6191;font-size:9.5px;margin:8px 0}blockquote{margin:5px 0;padding:6px 9px;border-left:3px solid #ff5a14;background:#fff8f3;white-space:pre-wrap}
+  .bar{position:sticky;top:0;background:#0a0d7c;color:#fff;padding:10px 18px;display:flex;gap:10px;align-items:center;justify-content:space-between;z-index:5}.bar button{background:#ff5a14;color:#fff;border:0;border-radius:99px;padding:9px 18px;font-weight:700;cursor:pointer;font-size:13px}
+  @media print{.bar{display:none}.wrap{padding:0}}
+  </style></head><body>
+  <div class="bar"><span>Pré-visualização · na impressão escolha <b>Salvar como PDF</b></span><button onclick="window.print()">Baixar / imprimir PDF</button></div>
+  <div class="wrap">
+  <header><img src="${GRC_FOTO_}grupo/grupo-r-center-branco.webp" onerror="this.remove()"><div><h1>${pdi ? 'Plano de Desenvolvimento Individual · Integração (30 e 90 dias)' : 'Relatório da Avaliação GRC'}</h1><div class="meta">${esc(cfgv('empresa', 'Grupo R Center'))} · Recursos Humanos · Gerado em ${agora.toLocaleString('pt-BR').slice(0, 17)} por ${esc(S.user.nome)}</div></div></header>
+  <div class="cand"><div><span>${pdi ? 'Colaborador(a)' : 'Candidato(a)'}</span><b>${esc(cand.nome)}</b></div><div><span>Função</span><b>${esc(c.func)}</b></div><div><span>${pdi ? 'Data de admissão' : 'CPF'}</span><b>${pdi ? '' : esc(cpfFmt(cand.cpf))}</b></div><div><span>${pdi ? 'Loja / setor' : 'Recrutador(a)'}</span><b>${pdi ? '' : esc(cand.recrutador || '—')}</b></div></div>
+  ${pdi ? `<div class="resp"><div><span>Líder responsável (referência)</span></div><div><span>Padrinho / madrinha no setor</span></div></div>` : ''}
+  <div class="res"><b class="n">${c.nota}%</b><span><b>${esc(c.parecer)}</b> · aderência à função ${esc(c.func)}<br><small>Avaliação respondida em ${dtHr_(r.em)}. ★ = competência essencial da função.</small></span></div>
+  <h2>1. Mapa de competências</h2>${c.comps.map(bar).join('')}
+  <h2>2. Como liderar esta pessoa · perfil ${esc(c.liderar.perfil)} (${esc(c.liderar.nome)})</h2>
+  <div class="kv"><div><small>Comunicação</small>${esc(c.liderar.comunica)}</div><div><small>O que motiva</small>${esc(c.liderar.motiva)}</div><div><small>Sob pressão</small>${esc(c.liderar.pressao)}</div></div>
+  <p>${esc(c.liderar.resumo)} Pontos fortes do estilo: ${esc(c.liderar.fortes)}.</p>
+  <h2>3. ${pdi ? 'Plano de desenvolvimento (pactuado na 1ª semana)' : 'PDI sugerido para a integração'}</h2>
+  <table><thead><tr><th style="width:18%">Foco</th><th>O que observar</th><th>Ações combinadas</th><th style="width:19%">Meta 30 dias</th><th style="width:19%">Meta 90 dias</th></tr></thead>
+  <tbody>${c.focos.map(f => { const P = GRC_PDI[f.k]; return `<tr><td><b>${esc(f.nome)}</b><br><small>${f.p}% · ${f.niv[0]}</small></td><td><ul>${P.obs.map(o => `<li>${esc(o)}</li>`).join('')}</ul></td><td><ul>${P.acoes.map(o => `<li>${esc(o)}</li>`).join('')}</ul></td><td>${esc(P.m30)}</td><td>${esc(P.m90)}</td></tr>`; }).join('')}</tbody></table>
+  ${c.fortes.length ? `<p><b>Forças para aproveitar:</b> ${c.fortes.map(f => esc(f.nome)).join(', ')}. Dar tarefas em que a pessoa use essas forças acelera a adaptação.</p>` : ''}
+  ${pdi ? `<p class="aviso">Como no Projeto Terapêutico Singular, o plano é individual, tem um responsável de referência e é reavaliado em datas combinadas (30 e 90 dias). A decisão de efetivar considera o que o líder observou na prática; a avaliação de entrada só indica o que observar. O contrato de experiência termina no 90º dia: registre a decisão até o 80º dia.</p>
+    <div class="ass"><div>Colaborador(a) · ciente do plano</div><div>Líder responsável</div><div>Recursos Humanos</div></div>
+    ${aval(30)}${aval(90)}` : `${lista('⚠ Alertas', c.alertas, 'ruim')}${lista('💬 Perguntas para a entrevista', c.perg)}
+    <h2>4. Respostas abertas</h2>${c.ab.map((x, j) => `<p><b>${j + 1}. ${esc(x.q)}</b> <small>(${x.p}%)</small></p><blockquote>${esc(x.txt.trim() || '(em branco)')}</blockquote>`).join('')}
+    <h2>5. Parecer do psicólogo / RH</h2><div class="txt">${esc(r.obs || ' ')}</div>
+    <p class="aviso">Ferramenta de apoio: a decisão considera também a entrevista e a análise do(a) psicólogo(a). Uso restrito ao processo seletivo e à integração, conforme a LGPD.</p>`}
+  </div><script>setTimeout(function(){try{window.print()}catch(e){}},800)</script></body></html>`;
+  const w = window.open('', '_blank'); if (!w) { toast('Permita pop-ups para gerar o PDF', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+function openGrcCand(c, done) {
+  const r = c.testes.grc, k = grcCorrigir_(r), antigos = TESTE_ORDEM.map(t => c.testes[t]).filter(Boolean);
+  modal({
+    title: c.nome, icon: 'users', wide: true,
+    body: `<div class="faint" style="margin:-4px 0 12px">CPF ${h(cpfFmt(c.cpf))}${c.tel ? ' · <a style="color:var(--accent)" target="_blank" rel="noopener" href="https://wa.me/55' + h(c.tel) + '">' + h(telFmt(c.tel)) + '</a>' : ''}${c.recrutador ? ' · <b>' + h(c.recrutador) + '</b>' : ''}${c.titulo ? ' · ' + h(c.titulo) : ''}</div>
+      ${grcResumoHTML_(r)}
+      <div class="tr-aviso">Resultado de apoio à entrevista. Se a pessoa for contratada, use o <b>PDI de integração</b> para combinar as metas com o líder e acompanhar os 30 e 90 dias da experiência.</div>
+      ${antigos.length ? `<details class="tr-det"><summary>Testes do modelo anterior (${antigos.length})</summary>${antigos.map(testeResumoHTML_).join('')}</details>` : ''}`,
+    foot: `<button class="btn ghost" id="tcDel" style="margin-right:auto;color:var(--bad)">${ic('trash')} Apagar</button><button class="btn" data-close>Fechar</button><button class="btn" id="tcPdf">${ic('download')} Relatório PDF</button><button class="btn primary" id="tcPdi">${ic('file')} PDI de integração</button>`,
+    onMount: m => {
+      setTimeout(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); const b = $('.modal-b', m.el); if (b) b.scrollTop = 0; }, 90);
+      $('#tcPdf', m.el).onclick = () => grcDoc_(c, 'rel');
+      $('#tcPdi', m.el).onclick = () => grcDoc_(c, 'pdi');
+      $$('[data-cpp]', m.el).forEach(b => b.onclick = () => copiar_(`*Avaliação GRC* · ${c.nome}\n${k.txt}`, 'Parecer copiado'));
+      testeCandEventos_(m, c, done);
     }
   });
 }
 async function pgTestes() {
-  setTitle('Testes de avaliação', 'DISC · forças pessoais · desafio da loja · fit cultural');
+  setTitle('Testes de avaliação', 'Avaliação GRC direcionada à função · base do PDI de integração (30 e 90 dias)');
   const v = $('#view'), f = getF('testes');
   const draw = () => {
     const c = testesCache_();
@@ -2287,7 +2534,7 @@ async function pgTestes() {
     <div class="toolbar">
       <div class="input-icon search">${ic('search')}<input class="input" id="trQ" placeholder="Buscar por nome, CPF ou vaga" value="${h(f.q || '')}" style="width:100%"></div>
       <select class="input" id="trRec"><option value="">Recrutador: todos</option>${recsAll.map(x => `<option ${f.rec === x ? 'selected' : ''}>${h(x)}</option>`).join('')}</select>
-      <select class="input" id="trT"><option value="">Teste: todos</option>${TESTE_ORDEM.map(t => `<option value="${t}" ${f.t === t ? 'selected' : ''}>${TESTE_INFO[t].nome}</option>`).join('')}</select>
+      <select class="input" id="trT"><option value="">Teste: todos</option>${['grc'].concat(TESTE_ORDEM).map(t => `<option value="${t}" ${f.t === t ? 'selected' : ''}>${TESTE_INFO[t].nome}</option>`).join('')}</select>
       <label class="fi-dt"><span>De</span><input class="input" type="date" id="trDe" value="${h(f.de || '')}"></label>
       <label class="fi-dt"><span>até</span><input class="input" type="date" id="trAte" value="${h(f.ate || '')}"></label>
       <span class="spacer"></span>
@@ -2298,8 +2545,9 @@ async function pgTestes() {
     ${lista.length ? `<div class="fi-grid">${lista.map(x => `
       <div class="card fi-card tr-card${x.novo ? ' nova' : ''}" data-cand="${h(x.cpf)}">
         <div class="fi-top"><div style="min-width:0"><b class="fi-nome">${h(x.nome)}</b><div class="faint" style="font-size:12px">${x.recrutador ? `<b style="color:var(--accent)">${h(x.recrutador)}</b> · ` : ''}${x.titulo ? h(x.titulo) + ' · ' : ''}${new Date(x.em).toLocaleDateString('pt-BR')}</div></div>${x.novo ? '<span class="badge b-info">novo</span>' : ''}</div>
-        <div class="tr-mini">${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b${k.tipo === 'fit' && k.abaixo ? ' style="color:var(--bad)" title="Abaixo da nota mínima de ' + FIT_MIN + '%"' : ''}>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : (k.mini ? k.md + ' ' : '') + (k.tipo === 'fit' && k.abaixo ? '⚠ ' : '') + k.nota + '%')}</b></div>`; }).join('')}</div>
-        <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button><button class="btn sm" data-pdf="${h(x.cpf)}" title="Baixar o PDF com todos os testes">${ic('download')} PDF</button></div>
+        ${x.testes.grc ? (k => `<div class="tr-mini tr-mini-grc"><div><span>🎯</span><small>Avaliação · ${h(k.func.split(' (')[0])}</small><b style="color:${k.cor}">${k.nota}% · ${h(k.parecer)}</b></div><div><span>🌱</span><small>Focos do PDI</small><b>${h(k.focos.map(f => f.nome.split(' ')[0]).join(', '))}</b></div></div>`)(grcCorrigir_(x.testes.grc)) : ''}
+        <div class="tr-mini" ${x.testes.grc && !TESTE_ORDEM.some(t => x.testes[t]) ? 'style="display:none"' : ''}>${TESTE_ORDEM.map(t => { const r = x.testes[t]; if (!r) return `<div class="off"><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b>—</b></div>`; const k = testeCorrigir_(r); return `<div><span>${TESTE_INFO[t].icone}</span><small>${TESTE_INFO[t].curto}</small><b${k.tipo === 'fit' && k.abaixo ? ' style="color:var(--bad)" title="Abaixo da nota mínima de ' + FIT_MIN + '%"' : ''}>${h(k.tipo === 'forcas' ? k.top[0].nome : k.tipo === 'disc' ? k.perfil : (k.mini ? k.md + ' ' : '') + (k.tipo === 'fit' && k.abaixo ? '⚠ ' : '') + k.nota + '%')}</b></div>`; }).join('')}</div>
+        <div class="fi-acts"><button class="btn primary sm">${ic('eye')} Ver resultado e parecer</button><button class="btn sm" data-pdf="${h(x.cpf)}" title="Baixar o PDF com todos os testes">${ic('download')} PDF</button>${x.testes.grc ? `<button class="btn sm" data-pdi="${h(x.cpf)}" title="Plano de desenvolvimento para os 30 e 90 dias">${ic('file')} PDI</button>` : ''}</div>
       </div>`).join('')}</div>`
       : `<div class="card empty" style="text-align:center;padding:30px"><b>${cands.length ? 'Nenhum resultado com esses filtros' : 'Nenhum teste respondido ainda'}</b><p class="muted">Clique em <b>Mandar teste ao candidato</b>, escolha os testes e envie o link pelo WhatsApp. O resultado aparece aqui assim que ele terminar.</p></div>`}
     <div class="faint" style="font-size:12px;margin-top:10px">${lista.length} candidato(s) · Ferramenta de apoio: os resultados não devem ser usados isoladamente para eliminar candidatos.</div>`;
@@ -2308,7 +2556,8 @@ async function pgTestes() {
     $('#trNovo').onclick = () => openTesteLink(draw);
     $('#trLinks').onclick = () => openTesteLinks(draw);
     if ($('#trAc')) $('#trAc').onclick = openTesteAcesso;
-    $$('[data-pdf]').forEach(b => b.onclick = ev => { ev.stopPropagation(); const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === b.dataset.pdf); if (cand) testePDF_(cand); });
+    $$('[data-pdf]').forEach(b => b.onclick = ev => { ev.stopPropagation(); const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === b.dataset.pdf); if (cand) cand.testes.grc ? grcDoc_(cand, 'rel') : testePDF_(cand); });
+    $$('[data-pdi]').forEach(b => b.onclick = ev => { ev.stopPropagation(); const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === b.dataset.pdi); if (cand) grcDoc_(cand, 'pdi'); });
     $$('[data-cand]').forEach(el => el.onclick = () => {
       const cand = testesCandidatos_(testesCache_().testes || []).find(y => y.cpf === el.dataset.cand); if (!cand) return;
       openTesteCand(cand, draw);
@@ -2358,17 +2607,20 @@ function openTesteQR(codigo, titulo) {
 }
 function openTesteLink(done) {
   modal({
-    title: 'Mandar teste ao candidato', icon: 'share',
-    body: `<p class="muted" style="margin-top:0">Escolha quais testes vão no link. Pode ser um só ou todos juntos — o candidato faz um de cada vez e o resultado aparece aqui.</p>
-      <div class="tr-esc">${TESTE_ORDEM.map(t => `<label class="tr-op"><input type="checkbox" value="${t}" checked><span>${TESTE_INFO[t].icone}</span><div><b>${TESTE_INFO[t].nome}</b><small>${TESTE_INFO[t].desc} · ~${TESTE_INFO[t].min} min</small></div></label>`).join('')}</div>
-      <div class="field" style="margin-top:12px"><label>Vaga / observação (opcional)</label><input class="input" id="tlT" placeholder="Ex.: Operador de caixa · Eusébio"></div>
+    title: 'Mandar avaliação ao candidato', icon: 'share',
+    body: `<p class="muted" style="margin-top:0">O candidato faz <b>uma avaliação só</b> (cerca de 15 minutos), montada para a função da vaga. O resultado mostra o mapa de competências, como liderar a pessoa e já gera o <b>PDI de integração</b> para os 30 e 90 dias de experiência.</p>
+      <div class="field"><label>Função da vaga</label><select class="input" id="tlF">${GRC_FUNC_ORD.map(k => `<option value="${k}">${h(GRC_FUNC[k].nome)}</option>`).join('')}</select><small class="faint" id="tlC"></small></div>
+      <div class="field"><label>Loja / observação (opcional)</label><input class="input" id="tlT" placeholder="Ex.: Eusébio · turno da tarde"></div>
+      <details class="tr-det"><summary>Usar os testes do modelo anterior (DISC, forças, jogo e fit cultural)</summary><div class="tr-esc">${TESTE_ORDEM.map(t => `<label class="tr-op"><input type="checkbox" value="${t}"><span>${TESTE_INFO[t].icone}</span><div><b>${TESTE_INFO[t].nome}</b><small>${TESTE_INFO[t].desc} · ~${TESTE_INFO[t].min} min</small></div></label>`).join('')}</div></details>
       <div id="tlRes"></div>`,
     foot: `<button class="btn" data-close>Fechar</button><button class="btn primary" id="tlOk">${ic('link')} Gerar link</button>`,
     onMount: m => {
+      const comp = () => { const F = GRC_FUNC[$('#tlF', m.el).value]; $('#tlC', m.el).textContent = 'Competências avaliadas: ' + F.comp.map((c, i) => GRC_COMP[c].nome + (i < 2 ? ' (essencial)' : '')).join(' · '); };
+      $('#tlF', m.el).onchange = comp; comp();
       $('#tlOk', m.el).onclick = e => run(e.currentTarget, async () => {
-        const testes = $$('.tr-esc input:checked', m.el).map(x => x.value);
-        if (!testes.length) throw new Error('Escolha ao menos um teste.');
-        const j = await api('testeLinkCriar', { titulo: $('#tlT', m.el).value.trim(), testes });
+        const antigos = $$('.tr-esc input:checked', m.el).map(x => x.value), obs = $('#tlT', m.el).value.trim().replace(/\s*·\s*/g, ' - ');
+        const titulo = GRC_FUNC[$('#tlF', m.el).value].nome + (obs ? ' · ' + obs : '');
+        const j = await api('testeLinkCriar', { titulo, testes: ['grc'].concat(antigos) });
         testesSet_({ links: j.links });
         const l = j.link, url = testeUrl_(l.codigo);
         $('#tlRes', m.el).innerHTML = `<div class="card mt" style="border-color:var(--accent)"><b>${ic('check')} Link pronto · ${l.testes.map(t => TESTE_INFO[t].icone).join(' ')}</b><div class="mono" style="font-size:12.5px;word-break:break-all;margin:8px 0">${h(url)}</div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="tlWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="tlCp">${ic('copy')} Copiar link</button><button class="btn" id="tlQr">${ic('grid')} QR Code</button></div></div>`;

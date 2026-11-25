@@ -1,1 +1,1 @@
-versao: agenda - abrir feriado por recrutador 2026-11-19
+versao: avaliacao GRC unica por funcao + PDI de integracao 30/90 2026-11-25

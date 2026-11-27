@@ -1907,7 +1907,7 @@ async function pgAgenda() {
       <button class="btn" id="arRel" title="Relatório: marcadas, realizadas, faltas, canceladas · PDF e Excel">${ic('trend')} Relatório</button>
       <span class="spacer"></span>
       ${meu ? `<button class="btn ${A.sab ? '' : 'ghost'}" id="arSab" title="Liga ou desliga os horários de sábado (09h–12h e 13h–16h) no link do candidato">${A.sab ? ic('check') + ' Sábado ativo' : ic('calendar') + ' Atender aos sábados'}</button>` : ''}
-      ${meu ? `<button class="btn primary" id="arLink">${ic('share')} Mandar link ao candidato</button>` : `<span class="badge">Agenda de ${h((A.recs.find(r => r.rec === A.rec) || {}).nome || '')}</span>`}
+      ${meu ? `<button class="btn primary" id="arLink">${ic('share')} Mandar link ao candidato</button>` : `<span class="badge">Agenda de ${h((A.recs.find(r => r.rec === A.rec) || {}).nome || '')}</span>${A.outro ? `<button class="btn primary" id="arLinkO" title="Link de agendamento deste recrutador">${ic('share')} Link de ${h(String(A.outro.nome || '').split(' - ')[0].split(' ')[0])}</button>` : ''}`}
     </div>
     ${A.recs.length > 1 ? `<div class="ar-recs"><span>${ic('users')} Ver agenda de:</span>${A.recs.map(r => `<button class="ar-rec ${r.rec === A.rec ? 'sel' : ''}" data-rec="${h(r.rec)}">${r.rec === A.meu.rec ? 'Minha agenda' : h(r.nome.split(' - ')[0])}</button>`).join('')}</div>` : ''}
     <div class="ar-week">${semana.map(d => { const n = qtd(d); return `<button class="ar-day ${d.dia === D.dia ? 'sel' : ''} ${d.dia === hoje ? 'hoje' : ''} ${fim(d) ? 'fech' : ''}" data-d="${d.dia}"><small>${AG_SEM_[agDt_(d.dia).getDay()].replace('-feira', '')}${d.dia === hoje ? ' · hoje' : ''}</small><b>${agDdMm_(d.dia)}</b><em>${d.feriado ? '🎉 ' + h(d.feriado) : d.fechado ? '🔒 fechado' : n ? n + ' entrevista' + (n > 1 ? 's' : '') : 'livre'}</em>${(A.candDias || []).includes(d.dia) && meu ? '<i title="O candidato pode escolher este dia pelo link">link</i>' : ''}</button>`; }).join('')}</div>
@@ -1928,6 +1928,7 @@ async function pgAgenda() {
     $('#arRel').onclick = () => openAgendaRelatorio();
     $$('.ar-day').forEach(b => b.onclick = () => ir(b.dataset.d));
     if ($('#arLink')) $('#arLink').onclick = () => openAgendaLink();
+    if ($('#arLinkO')) $('#arLinkO').onclick = () => openAgendaLinkOutro(A.outro);
     if ($('#arFer')) $('#arFer').onclick = e => { const on = !D.ferAberto; run(e.currentTarget, async () => { await api('agendaFeriado', { rec: A.rec, dia: D.dia, on }); D.ferAberto = on; toast(on ? `Feriado aberto: o link do candidato passa a oferecer ${agDdMm_(D.dia)}` : 'Feriado fechado novamente'); await buscar(); }); };
     if ($('#arSab')) $('#arSab').onclick = async e => { const on = !A.sab; if (!await confirmBox(on ? 'Abrir a sua agenda aos <b>sábados</b>, das 09h às 12h e das 13h às 16h? O candidato passa a ver o sábado no link (na sexta, o próximo dia passa a ser o sábado).' : 'Tirar o sábado da sua agenda? Entrevistas já marcadas no sábado continuam valendo.', on ? 'Abrir sábados' : 'Tirar sábado', !on)) return; run(e.currentTarget, async () => { await api('agendaSab', { on }); toast(on ? 'Sábado aberto na sua agenda' : 'Sábado retirado da sua agenda'); await buscar(); }); };
     $$('[data-turno]', v).forEach(b => b.onclick = async () => {
@@ -2269,6 +2270,22 @@ function openAgendaLink() {
       $('#alCp', m.el).onclick = () => copiar_(agendaUrl_(S.agenda.meu.codigo), 'Link copiado');
       $('#alQr', m.el).onclick = async () => { try { await qrCarregar_(); const a = document.createElement('a'); a.href = qrCartaz_(agendaUrl_(S.agenda.meu.codigo), 'Agende sua entrevista').toDataURL('image/png'); a.download = 'qrcode_agenda.png'; a.click(); } catch (e) { toast(e.message, true); } };
       $('#alNovo', m.el).onclick = async () => { if (!await confirmBox('Gerar um novo link? O link antigo para de funcionar (as entrevistas já marcadas continuam na agenda).', 'Gerar novo link', true)) return; const j = await api('agendaNovoLink', {}); S.agenda.meu = j.meu; m.close(); openAgendaLink(); toast('Novo link gerado'); };
+    }
+  });
+}
+
+function openAgendaLinkOutro(o) {
+  const url = agendaUrl_(o.codigo), nm = String(o.nome || '').split(' - ')[0];
+  modal({
+    title: 'Link da agenda de ' + nm, icon: 'share',
+    body: `<p class="muted" style="margin-top:0">Este é o link fixo de agendamento de <b>${h(nm)}</b>. O candidato que usar este link marca na agenda dele(a), e a página mostra o nome e a foto de ${h(nm)}.</p>
+      <div class="card" style="border-color:var(--accent)"><div class="mono" style="font-size:12.5px;word-break:break-all;margin-bottom:10px">${h(url)}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="aoWa">${ic('share')} Enviar pelo WhatsApp</button><button class="btn" id="aoCp">${ic('copy')} Copiar link</button><button class="btn" id="aoAb">${ic('eye')} Abrir a página</button></div></div>`,
+    foot: `<button class="btn" data-close>Fechar</button>`,
+    onMount: m => {
+      $('#aoWa', m.el).onclick = () => compartilharAgenda_(o.codigo);
+      $('#aoCp', m.el).onclick = () => copiar_(url, 'Link copiado');
+      $('#aoAb', m.el).onclick = () => window.open(url, '_blank');
     }
   });
 }

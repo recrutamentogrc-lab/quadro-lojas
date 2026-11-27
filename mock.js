@@ -254,7 +254,8 @@
       agLerVarios_(rec, lista).forEach(x => { x.feriado = agFeriado_(x.dia); x.ferAberto = !!x.feriado && agFerAberto_(x.dia, rec); x.horarios = agHorarios_(x.dia); dias.push(x); });
       let recs = [{ rec: meu.rec, nome: meu.nome }];
       if (isAdmin_(user)) { try { recs = agRecs_(); } catch (e) { recs = links.map(x => ({ rec: x.rec, nome: x.nome })); } if (!recs.some(x => x.rec === meu.rec)) recs.unshift({ rec: meu.rec, nome: meu.nome }); }
-      return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), sab: agSab_(rec), candDias: agDiasCand_(), horarios: agHorarios_() };
+      const outro = rec !== meu.rec ? links.find(x => x.rec === rec) || null : null;
+      return { rec: rec, meu: meu, recs: recs, dias: dias, hoje: agHoje_(), sab: agSab_(rec), candDias: agDiasCand_(), horarios: agHorarios_(), outro: outro ? { codigo: outro.codigo, nome: outro.nome } : null };
     }
     function agDoUser_(req, user) { mustAgenda_(user); const meu = agMeuLink_(user); const rec = agRec_(req.rec || meu.rec); if (rec !== meu.rec && !isAdmin_(user)) throw new Error('Você só pode alterar a sua agenda.'); return rec; }
     function agTurno_(d, turno, bloq, user) {
